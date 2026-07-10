@@ -7,6 +7,8 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [tab, setTab] = useState<"login" | "register">("login");
+  const [fullName, setFullName] = useState("");
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -16,35 +18,89 @@ export default function Login() {
       login(res.data.access_token);
       navigate("/");
     } catch {
-      setError("Invalid credentials");
+      setError("Invalid email or password");
+    }
+  };
+
+  const handleRegister = async () => {
+    try {
+      await authApi.register(email, password, fullName);
+      const res = await authApi.login(email, password);
+      login(res.data.access_token);
+      navigate("/");
+    } catch {
+      setError("Registration failed. Try a different email.");
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 w-96">
-        <h1 className="text-2xl font-bold text-white mb-2">AIArchitect</h1>
-        <p className="text-gray-400 text-sm mb-6">Enterprise AI Agent Builder</p>
-        {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-8 w-full max-w-sm">
+        {/* Logo */}
+        <div className="flex items-center gap-2 mb-6">
+          <div className="w-8 h-8 bg-teal-600 rounded-lg flex items-center justify-center">
+            <span className="text-white font-bold text-sm">AF</span>
+          </div>
+          <span className="font-bold text-gray-900">AgentForge</span>
+        </div>
+
+        <h2 className="text-xl font-bold text-gray-900 mb-1">
+          {tab === "login" ? "Welcome back" : "Create account"}
+        </h2>
+        <p className="text-gray-500 text-sm mb-6">
+          {tab === "login" ? "Sign in to your workspace" : "Start building AI agents"}
+        </p>
+
+        {/* Tabs */}
+        <div className="flex gap-1 bg-gray-100 rounded-lg p-1 mb-5">
+          <button
+            onClick={() => { setTab("login"); setError(""); }}
+            className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              tab === "login" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"
+            }`}
+          >
+            Sign In
+          </button>
+          <button
+            onClick={() => { setTab("register"); setError(""); }}
+            className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              tab === "register" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"
+            }`}
+          >
+            Register
+          </button>
+        </div>
+
+        {error && <p className="text-red-500 text-sm mb-4 bg-red-50 px-3 py-2 rounded-lg">{error}</p>}
+
+        {tab === "register" && (
+          <input
+            className="w-full border border-gray-200 rounded-lg px-4 py-2.5 mb-3 text-sm outline-none focus:ring-2 focus:ring-teal-500"
+            placeholder="Full name"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+          />
+        )}
         <input
-          className="w-full bg-gray-800 text-white rounded-lg px-4 py-2 mb-3 outline-none focus:ring-2 focus:ring-violet-500"
-          placeholder="Email"
+          className="w-full border border-gray-200 rounded-lg px-4 py-2.5 mb-3 text-sm outline-none focus:ring-2 focus:ring-teal-500"
+          placeholder="Email address"
+          type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
         <input
-          className="w-full bg-gray-800 text-white rounded-lg px-4 py-2 mb-6 outline-none focus:ring-2 focus:ring-violet-500"
+          className="w-full border border-gray-200 rounded-lg px-4 py-2.5 mb-5 text-sm outline-none focus:ring-2 focus:ring-teal-500"
           type="password"
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+          onKeyDown={(e) => e.key === "Enter" && (tab === "login" ? handleLogin() : handleRegister())}
         />
         <button
-          onClick={handleLogin}
-          className="w-full bg-violet-600 hover:bg-violet-700 text-white rounded-lg py-2 font-semibold transition-colors"
+          onClick={tab === "login" ? handleLogin : handleRegister}
+          className="w-full bg-teal-600 hover:bg-teal-700 text-white rounded-lg py-2.5 text-sm font-semibold transition-colors"
         >
-          Sign In
+          {tab === "login" ? "Sign In" : "Create Account"}
         </button>
       </div>
     </div>

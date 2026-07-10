@@ -8,7 +8,41 @@ from app.api.control_plane import router as control_plane_router
 from app.api.simulation import router as simulation_router
 from app.core.telemetry import setup_telemetry
 
-app = FastAPI(title="AIArchitect", version="1.0.0")
+from fastapi.openapi.utils import get_openapi
+from fastapi.security import OAuth2PasswordBearer
+
+app = FastAPI(
+    title="AgentForge",
+    version="1.0.0",
+    description="Enterprise AI Agent Platform",
+    swagger_ui_parameters={"persistAuthorization": True},
+)
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    schema["components"]["securitySchemes"] = {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+        }
+    }
+    for path in schema.get("paths", {}).values():
+        for operation in path.values():
+            operation.setdefault("security", [{"BearerAuth": []}])
+    app.openapi_schema = schema
+    return schema
+
+app.openapi = custom_openapi
 
 setup_telemetry(app)
 

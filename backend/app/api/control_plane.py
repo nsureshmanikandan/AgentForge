@@ -17,12 +17,15 @@ async def get_audit_logs(limit: int = 100, db: AsyncSession = Depends(get_db)):
     return [
         {
             "id": log.id,
+            "agent_id": log.resource_id,
             "action": log.action,
             "resource_type": log.resource_type,
             "resource_id": log.resource_id,
             "guardrail_triggered": log.guardrail_triggered,
             "latency_ms": log.latency_ms,
             "created_at": log.created_at.isoformat(),
+            "input_snapshot": log.input_snapshot or {},
+            "output_snapshot": log.output_snapshot or {},
         }
         for log in logs
     ]
