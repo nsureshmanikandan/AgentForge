@@ -7,8 +7,8 @@ class Settings(BaseSettings):
     azure_openai_deployment_gpt45: str = "gpt-4-5"
     azure_openai_api_version: str = "2024-12-01-preview"
 
-    database_url: str
-    jwt_secret: str
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/agentforge"
+    jwt_secret: str = "dev-secret-change-in-production"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 480
 
