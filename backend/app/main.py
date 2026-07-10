@@ -6,8 +6,11 @@ from app.api.rag import router as rag_router
 from app.api.tools import router as tools_router
 from app.api.control_plane import router as control_plane_router
 from app.api.simulation import router as simulation_router
+from app.core.telemetry import setup_telemetry
 
 app = FastAPI(title="AIArchitect", version="1.0.0")
+
+setup_telemetry(app)
 
 app.add_middleware(
     CORSMiddleware,

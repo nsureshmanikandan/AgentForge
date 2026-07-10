@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     azure_search_key: str = ""
     azure_search_index: str = "aiarchitect-index"
 
+    otel_exporter: str = "jaeger"
+    otel_service_name: str = "agentforge"
+    otel_exporter_otlp_endpoint: str = "http://localhost:4318"
+    otel_exporter_otlp_endpoint_grpc: str = "http://localhost:4317"
+    azure_monitor_connection_string: str = ""
+    gcp_project_id: str = ""
+
     class Config:
         env_file = ".env"
 

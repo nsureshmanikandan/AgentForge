@@ -1,6 +1,7 @@
 import os
 import tempfile
 from app.core.azure_openai import AzureOpenAIClient
+from app.core.telemetry import get_tracer
 
 try:
     from langchain_community.document_loaders import PyPDFLoader, TextLoader
@@ -17,29 +18,32 @@ class RAGEngine:
         self._chunks: list[str] = []
 
     async def ingest(self, file_bytes: bytes, filename: str) -> int:
-        if not _LANGCHAIN_AVAILABLE:
-            text = file_bytes.decode("utf-8", errors="ignore")
-            self._chunks.append(text)
-            return 1
+        tracer = get_tracer()
+        with tracer.start_as_current_span("rag.ingest") as span:
+            span.set_attribute("rag.filename", filename)
 
-        suffix = os.path.splitext(filename)[1].lower()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(file_bytes)
-            tmp_path = tmp.name
+            if not _LANGCHAIN_AVAILABLE:
+                text = file_bytes.decode("utf-8", errors="ignore")
+                self._chunks.append(text)
+                span.set_attribute("rag.chunk_count", 1)
+                return 1
 
-        try:
-            if suffix == ".pdf":
-                loader = PyPDFLoader(tmp_path)
-            else:
-                loader = TextLoader(tmp_path, encoding="utf-8")
-            docs = loader.load()
-        finally:
-            os.unlink(tmp_path)
+            suffix = os.path.splitext(filename)[1].lower()
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                tmp.write(file_bytes)
+                tmp_path = tmp.name
 
-        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-        chunks = splitter.split_documents(docs)
-        self._chunks.extend([c.page_content for c in chunks])
-        return len(chunks)
+            try:
+                loader = PyPDFLoader(tmp_path) if suffix == ".pdf" else TextLoader(tmp_path, encoding="utf-8")
+                docs = loader.load()
+            finally:
+                os.unlink(tmp_path)
+
+            splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+            chunks = splitter.split_documents(docs)
+            self._chunks.extend([c.page_content for c in chunks])
+            span.set_attribute("rag.chunk_count", len(chunks))
+            return len(chunks)
 
     async def _retrieve(self, query: str, top_k: int = 3) -> list[str]:
         if not self._chunks:
@@ -53,11 +57,17 @@ class RAGEngine:
         return [chunk for chunk, score in scored[:top_k] if score > 0]
 
     async def query(self, question: str) -> dict:
-        sources = await self._retrieve(question)
-        context = "\n\n".join(sources) if sources else "No relevant context found."
-        messages = [
-            {"role": "system", "content": "Answer using only the provided context. If the context is insufficient, say so briefly."},
-            {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"},
-        ]
-        answer = await self._llm.chat(messages, temperature=0.1)
-        return {"answer": answer, "sources": sources}
+        tracer = get_tracer()
+        with tracer.start_as_current_span("rag.query") as span:
+            span.set_attribute("rag.question_length", len(question))
+
+            sources = await self._retrieve(question)
+            span.set_attribute("rag.sources_found", len(sources))
+
+            context = "\n\n".join(sources) if sources else "No relevant context found."
+            messages = [
+                {"role": "system", "content": "Answer using only the provided context."},
+                {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"},
+            ]
+            answer = await self._llm.chat(messages, temperature=0.1)
+            return {"answer": answer, "sources": sources}

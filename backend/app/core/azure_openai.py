@@ -1,5 +1,8 @@
 from openai import AsyncAzureOpenAI
+from opentelemetry import trace
+from opentelemetry.trace import StatusCode
 from app.config import settings
+from app.core.telemetry import get_tracer
 
 class AzureOpenAIClient:
     def __init__(self, model: str = "gpt-4o"):
@@ -16,13 +19,27 @@ class AzureOpenAIClient:
         )
 
     async def chat(self, messages: list[dict], temperature: float = 0.7, max_tokens: int = 2048) -> str:
-        response = await self._client.chat.completions.create(
-            model=self.deployment,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-        return response.choices[0].message.content
+        tracer = get_tracer()
+        with tracer.start_as_current_span("llm.chat") as span:
+            span.set_attribute("llm.model", self.deployment)
+            span.set_attribute("llm.provider", "azure_openai")
+            span.set_attribute("llm.temperature", temperature)
+            span.set_attribute("llm.max_tokens", max_tokens)
+            try:
+                response = await self._client.chat.completions.create(
+                    model=self.deployment,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                result = response.choices[0].message.content
+                span.set_attribute("llm.prompt_messages", len(messages))
+                span.set_attribute("llm.response_length", len(result))
+                return result
+            except Exception as exc:
+                span.record_exception(exc)
+                span.set_status(StatusCode.ERROR)
+                raise
 
     async def stream_chat(self, messages: list[dict]):
         stream = await self._client.chat.completions.create(
