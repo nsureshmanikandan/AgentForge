@@ -1,0 +1,184 @@
+import { useState } from "react";
+import { agentsApi } from "../../api/client";
+import { X } from "lucide-react";
+
+const TOOLS = [
+  "email", "slack", "github", "jira",
+  "google_drive", "web_search", "calculator",
+];
+
+interface Props {
+  nodeId: string;
+  onSave: () => void;
+  onClose: () => void;
+}
+
+export default function AgentConfigPanel({ onSave, onClose }: Props) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [model, setModel] = useState("gpt-4o");
+  const [tools, setTools] = useState<string[]>([]);
+  const [nlPrompt, setNlPrompt] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const generateFromNL = async () => {
+    if (!nlPrompt.trim()) return;
+    setLoading(true);
+    try {
+      const res = await agentsApi.generateFromPrompt(nlPrompt);
+      const config = res.data;
+      setName(config.name ?? "");
+      setDescription(config.description ?? "");
+      setPrompt(config.system_prompt ?? "");
+      setModel(config.model ?? "gpt-4o");
+      setTools(config.tools ?? []);
+    } catch {
+      // generation failed — leave fields as-is
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveAgent = async () => {
+    if (!name.trim()) return;
+    setSaveLoading(true);
+    try {
+      await agentsApi.create({
+        name,
+        description,
+        system_prompt: prompt,
+        model,
+        tools,
+        guardrails: { pii: true, hallucination: true },
+      });
+      setSaved(true);
+      setTimeout(onSave, 800);
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
+  const toggleTool = (tool: string) =>
+    setTools((prev) =>
+      prev.includes(tool) ? prev.filter((t) => t !== tool) : [...prev, tool]
+    );
+
+  // suppress unused warning — nodeId is passed for future per-node state
+  void description;
+
+  return (
+    <div className="w-80 bg-gray-900 border-l border-gray-800 flex flex-col h-full">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+        <h2 className="text-white font-semibold text-sm">Agent Config</h2>
+        <button onClick={onClose} className="text-gray-400 hover:text-white">
+          <X size={16} />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {/* Generate from NL */}
+        <div className="bg-gray-800 rounded-lg p-3">
+          <p className="text-gray-400 text-xs mb-2 font-medium">Generate from description</p>
+          <textarea
+            className="w-full bg-gray-700 text-white text-sm rounded p-2 mb-2 resize-none focus:outline-none focus:ring-1 focus:ring-violet-500"
+            rows={2}
+            placeholder="e.g. Build an HR assistant that answers employee policy questions..."
+            value={nlPrompt}
+            onChange={(e) => setNlPrompt(e.target.value)}
+          />
+          <button
+            onClick={generateFromNL}
+            disabled={loading}
+            className="w-full bg-violet-600 hover:bg-violet-700 text-white text-sm py-1.5 rounded disabled:opacity-50 transition-colors"
+          >
+            {loading ? "Generating..." : "Generate with GPT-4o"}
+          </button>
+        </div>
+
+        {/* Name */}
+        <div>
+          <label className="text-gray-400 text-xs mb-1 block">Agent Name *</label>
+          <input
+            className="w-full bg-gray-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-violet-500"
+            placeholder="e.g. Support Bot"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+
+        {/* System Prompt */}
+        <div>
+          <label className="text-gray-400 text-xs mb-1 block">System Prompt</label>
+          <textarea
+            className="w-full bg-gray-800 text-white rounded px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-violet-500"
+            rows={4}
+            placeholder="You are a helpful assistant..."
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+          />
+        </div>
+
+        {/* Model */}
+        <div>
+          <label className="text-gray-400 text-xs mb-1 block">Model</label>
+          <select
+            className="w-full bg-gray-800 text-white rounded px-3 py-2 text-sm focus:outline-none"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+          >
+            <option value="gpt-4o">GPT-4o</option>
+            <option value="gpt-4-5">GPT-4.5</option>
+          </select>
+        </div>
+
+        {/* Tools */}
+        <div>
+          <label className="text-gray-400 text-xs mb-2 block">Tools</label>
+          <div className="flex flex-wrap gap-1">
+            {TOOLS.map((t) => (
+              <button
+                key={t}
+                onClick={() => toggleTool(t)}
+                className={`text-xs px-2 py-1 rounded transition-colors ${
+                  tools.includes(t)
+                    ? "bg-violet-600 text-white"
+                    : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Guardrails — always on */}
+        <div className="bg-gray-800 rounded-lg p-3">
+          <p className="text-gray-400 text-xs font-medium mb-2">Guardrails (always active)</p>
+          <div className="flex gap-2">
+            <span className="text-xs bg-green-900 text-green-300 px-2 py-1 rounded">PII Redaction</span>
+            <span className="text-xs bg-green-900 text-green-300 px-2 py-1 rounded">Hallucination Guard</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="p-4 border-t border-gray-800">
+        {saved ? (
+          <div className="w-full bg-green-700 text-white py-2 rounded text-sm text-center">
+            Agent saved!
+          </div>
+        ) : (
+          <button
+            onClick={saveAgent}
+            disabled={saveLoading || !name.trim()}
+            className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded font-medium text-sm disabled:opacity-50 transition-colors"
+          >
+            {saveLoading ? "Saving..." : "Save Agent"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
