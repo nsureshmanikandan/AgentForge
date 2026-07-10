@@ -1,6 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.auth import router as auth_router
+from app.api.agents import router as agents_router
+from app.api.rag import router as rag_router
+from app.api.tools import router as tools_router
+from app.api.control_plane import router as control_plane_router
 
 app = FastAPI(title="AIArchitect", version="1.0.0")
 
@@ -13,6 +17,10 @@ app.add_middleware(
 )
 
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
+app.include_router(agents_router, prefix="/api/agents", tags=["agents"])
+app.include_router(rag_router, prefix="/api/rag", tags=["rag"])
+app.include_router(tools_router, prefix="/api/tools", tags=["tools"])
+app.include_router(control_plane_router, prefix="/api/control-plane", tags=["control-plane"])
 
 @app.get("/health")
 async def health():
