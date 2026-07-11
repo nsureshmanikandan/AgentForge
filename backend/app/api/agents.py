@@ -18,10 +18,22 @@ async def generate_agent(body: GenerateRequest):
 
 @router.post("/", response_model=AgentOut, status_code=201)
 async def create_agent(body: AgentCreate, db: AsyncSession = Depends(get_db)):
-    agent = Agent(**body.model_dump(), created_by="system")
+    # Ensure unique name by appending a suffix if name already exists
+    base_name = body.name
+    candidate = base_name
+    counter = 2
+    while True:
+        existing = await db.execute(select(Agent).where(Agent.name == candidate))
+        if not existing.scalars().first():
+            break
+        candidate = f"{base_name}_v{counter}"
+        counter += 1
+    body_data = body.model_dump()
+    body_data["name"] = candidate
+    agent = Agent(**body_data, created_by="system")
     db.add(agent)
     await db.flush()
-    version = AgentVersion(agent_id=agent.id, version=1, snapshot=body.model_dump())
+    version = AgentVersion(agent_id=agent.id, version=1, snapshot=body_data)
     db.add(version)
     await db.commit()
     await db.refresh(agent)

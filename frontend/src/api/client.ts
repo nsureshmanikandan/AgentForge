@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const api = axios.create({ baseURL: "http://localhost:8000/api" });
+const api = axios.create({ baseURL: "http://localhost:8000/api", timeout: 120000 });
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
@@ -20,6 +20,7 @@ export const agentsApi = {
   create: (data: object) => api.post("/agents/", data),
   get: (id: string) => api.get(`/agents/${id}`),
   update: (id: string, data: object) => api.put(`/agents/${id}`, data),
+  delete: (id: string) => api.delete(`/agents/${id}`),
   run: (id: string, input: string) => api.post(`/agents/${id}/run`, { input }),
   generateFromPrompt: (description: string) =>
     api.post("/agents/generate", { description }),
@@ -47,6 +48,13 @@ export const controlPlaneApi = {
   auditLogs: () => api.get("/control-plane/audit-logs"),
   versions: (agentId: string) =>
     api.get(`/control-plane/agents/${agentId}/versions`),
+};
+
+export const architectApi = {
+  chat: (messages: { role: string; content: string }[]) =>
+    api.post("/architect/chat", { messages }),
+  generateUI: (payload: { app_name: string; summary: string; features: string[]; frontend?: string; app_type?: string; domain?: string; company?: string; doc_types?: string[] }) =>
+    api.post("/architect/generate-ui", payload),
 };
 
 export default api;

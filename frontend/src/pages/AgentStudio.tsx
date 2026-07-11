@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import ReactMarkdown from "react-markdown";
 import { agentsApi } from "../api/client";
 
 interface Agent {
@@ -46,7 +45,6 @@ function AgentResponse({ text, onClear }: { text: string; onClear: () => void })
 
   return (
     <div className="mt-3 border border-indigo-100 rounded-xl overflow-hidden bg-white">
-      {/* Response header */}
       <div className="flex items-center justify-between px-3 py-2 bg-indigo-50 border-b border-indigo-100">
         <div className="flex items-center gap-1.5">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
@@ -77,17 +75,57 @@ function AgentResponse({ text, onClear }: { text: string; onClear: () => void })
           </button>
         </div>
       </div>
-      {/* Markdown rendered content */}
-      <div className="px-4 py-3 max-h-96 overflow-y-auto prose prose-sm prose-slate max-w-none
-        prose-headings:font-semibold prose-headings:text-slate-800
-        prose-h3:text-sm prose-h3:mt-3 prose-h3:mb-1
-        prose-p:text-sm prose-p:text-gray-700 prose-p:leading-relaxed prose-p:my-1
-        prose-li:text-sm prose-li:text-gray-700 prose-li:my-0.5
-        prose-ul:my-1 prose-ol:my-1
-        prose-strong:text-slate-800 prose-strong:font-semibold
-        prose-code:text-xs prose-code:bg-gray-100 prose-code:px-1 prose-code:rounded
-      ">
-        <ReactMarkdown>{text}</ReactMarkdown>
+      <div className="px-4 py-3 max-h-64 overflow-y-auto">
+        <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{text}</p>
+      </div>
+    </div>
+  );
+}
+
+function DeleteConfirmDialog({ agentName, onConfirm, onCancel, loading }: {
+  agentName: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  loading: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4">
+        <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+          </svg>
+        </div>
+        <h3 className="text-base font-semibold text-slate-900 text-center mb-1">Delete Agent</h3>
+        <p className="text-sm text-gray-500 text-center mb-5">
+          Are you sure you want to delete <span className="font-medium text-slate-800">"{agentName}"</span>? This cannot be undone.
+        </p>
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            disabled={loading}
+            className="flex-1 px-4 py-2 border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 text-sm font-medium rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+              </svg>
+            )}
+            Delete
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -99,6 +137,8 @@ export default function AgentStudio() {
   const [runInput, setRunInput] = useState<{ [id: string]: string }>({});
   const [runResult, setRunResult] = useState<{ [id: string]: string }>({});
   const [runningId, setRunningId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const navigate = useNavigate();
 
   const load = () => {
@@ -121,8 +161,31 @@ export default function AgentStudio() {
     }
   };
 
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await agentsApi.delete(deleteTarget.id);
+      setAgents((prev) => prev.filter((a) => a.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch {
+      // keep dialog open so user knows it failed
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="p-8 bg-gray-50 min-h-screen">
+      {deleteTarget && (
+        <DeleteConfirmDialog
+          agentName={deleteTarget.name}
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteTarget(null)}
+          loading={deleting}
+        />
+      )}
+
       {/* Page Header */}
       <div className="flex items-start justify-between mb-8">
         <div>
@@ -164,7 +227,6 @@ export default function AgentStudio() {
           </div>
         </div>
       ) : agents.length === 0 ? (
-        /* Empty State */
         <div className="flex flex-col items-center justify-center mt-24 text-center">
           <div className="w-16 h-16 bg-indigo-50 border border-indigo-100 rounded-2xl flex items-center justify-center mb-5">
             <svg className="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -187,7 +249,6 @@ export default function AgentStudio() {
           </button>
         </div>
       ) : (
-        /* Agent Cards Grid */
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {agents.map((agent) => (
             <div
@@ -206,9 +267,20 @@ export default function AgentStudio() {
                       <p className="text-xs text-gray-400 mt-0.5">v{agent.current_version}</p>
                     </div>
                   </div>
-                  <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 flex-shrink-0">
-                    {agent.tools?.length ?? 0} tools
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
+                      {agent.tools?.length ?? 0} tools
+                    </span>
+                    <button
+                      onClick={() => setDeleteTarget(agent)}
+                      title="Delete agent"
+                      className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="mb-3">

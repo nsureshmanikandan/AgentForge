@@ -6,6 +6,7 @@ from app.api.rag import router as rag_router
 from app.api.tools import router as tools_router
 from app.api.control_plane import router as control_plane_router
 from app.api.simulation import router as simulation_router
+from app.api.architect import router as architect_router
 from app.core.telemetry import setup_telemetry
 
 from fastapi.openapi.utils import get_openapi
@@ -60,6 +61,7 @@ app.include_router(rag_router, prefix="/api/rag", tags=["rag"])
 app.include_router(tools_router, prefix="/api/tools", tags=["tools"])
 app.include_router(control_plane_router, prefix="/api/control-plane", tags=["control-plane"])
 app.include_router(simulation_router, prefix="/api/simulation", tags=["simulation"])
+app.include_router(architect_router, prefix="/api/architect", tags=["architect"])
 
 @app.get("/health")
 async def health():

@@ -6,12 +6,10 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExport
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.trace import NoOpTracerProvider
 
-_EXPORTER = os.getenv("OTEL_EXPORTER", "jaeger").lower()
-_SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "agentforge")
-_OTLP_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
-
-
 def _build_exporter():
+    _EXPORTER = os.getenv("OTEL_EXPORTER", "none").lower()
+    _OTLP_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
+
     if _EXPORTER in ("jaeger", "aws", "datadog"):
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
         return OTLPSpanExporter(endpoint=f"{_OTLP_ENDPOINT}/v1/traces")
@@ -38,7 +36,7 @@ def _build_exporter():
 
 
 def setup_telemetry(app):
-    if _EXPORTER == "none":
+    if os.getenv("OTEL_EXPORTER", "none").lower() == "none":
         trace.set_tracer_provider(NoOpTracerProvider())
         return
 

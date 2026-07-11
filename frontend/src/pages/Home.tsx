@@ -1,7 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import mammoth from "mammoth";
-import { agentsApi } from "../api/client";
+import { agentsApi, architectApi } from "../api/client";
+
+interface ClarifyQuestion {
+  id: string;
+  text: string;
+  options: string[];
+}
 
 async function extractFileText(file: File): Promise<string> {
   const ext = file.name.split(".").pop()?.toLowerCase();
@@ -112,6 +118,12 @@ export default function Home() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
+
+  // Clarifying questions state
+  const [clarifyStep, setClarifyStep] = useState<"idle" | "asking" | "generating">("idle");
+  const [clarifyMessage, setClarifyMessage] = useState("");
+  const [clarifyQuestions, setClarifyQuestions] = useState<ClarifyQuestion[]>([]);
+  const [clarifyAnswers, setClarifyAnswers] = useState<Record<string, string>>({});
   const navigate = useNavigate();
   const menuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -170,25 +182,61 @@ export default function Home() {
     setFileContents((prev) => { const n = { ...prev }; delete n[name]; return n; });
   };
 
+  const buildFullPrompt = () => {
+    let fullPrompt = prompt.trim();
+    const docEntries = Object.entries(fileContents);
+    if (docEntries.length > 0) {
+      fullPrompt += "\n\n--- Attached Documents ---\n";
+      for (const [name, content] of docEntries) {
+        fullPrompt += `\nFile: ${name}\n${content}\n`;
+      }
+      fullPrompt += "\nIMPORTANT: Name the agent specifically based on the document topic and domain above.";
+    }
+    return fullPrompt;
+  };
+
+  // Phase 1: ask clarifying questions via Architect
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
     setLoading(true);
     setResult(null);
+    setClarifyStep("idle");
+    setClarifyAnswers({});
     try {
-      // Build enriched prompt including file content
-      let fullPrompt = prompt.trim();
-      const docEntries = Object.entries(fileContents);
-      if (docEntries.length > 0) {
-        fullPrompt += "\n\n--- Attached Documents ---\n";
-        for (const [name, content] of docEntries) {
-          fullPrompt += `\nFile: ${name}\n${content}\n`;
-        }
-        fullPrompt += "\nIMPORTANT: Name the agent specifically based on the document topic and domain above. The agent should be an expert in the content of this document.";
+      const res = await architectApi.chat([{ role: "user", content: buildFullPrompt() }]);
+      const data = res.data;
+      if (data.type === "questions" && data.questions?.length) {
+        setClarifyMessage(data.message);
+        setClarifyQuestions(data.questions);
+        setClarifyStep("asking");
+      } else {
+        // No questions — generate directly
+        await generateAgent(buildFullPrompt(), {});
       }
+    } catch {
+      setResult({ error: "Failed to reach backend. Is the server running?" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Phase 2: user answered questions → generate agent
+  const handleSubmitAnswers = async () => {
+    const answered = Object.entries(clarifyAnswers).map(([, v]) => `- ${v}`).join("\n");
+    const enrichedPrompt = `${buildFullPrompt()}\n\nUser clarifications:\n${answered}`;
+    setClarifyStep("generating");
+    await generateAgent(enrichedPrompt, clarifyAnswers);
+  };
+
+  const generateAgent = async (fullPrompt: string, _answers: Record<string, string>) => {
+    setLoading(true);
+    try {
       const res = await agentsApi.generateFromPrompt(fullPrompt);
       setResult(res.data);
+      setClarifyStep("idle");
     } catch {
       setResult({ error: "Failed to generate agent. Check your Azure OpenAI config." });
+      setClarifyStep("idle");
     } finally {
       setLoading(false);
     }
@@ -433,6 +481,93 @@ export default function Home() {
           </button>
         </div>
       </div>
+
+      {/* Clarifying Questions Panel */}
+      {clarifyStep === "asking" && (
+        <div className="w-full max-w-2xl mt-4 bg-white border border-indigo-200 rounded-2xl shadow-sm overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center gap-3 px-5 py-4 bg-indigo-50 border-b border-indigo-100">
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center flex-shrink-0">
+              <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-indigo-900">A few quick questions</p>
+              <p className="text-xs text-indigo-600 mt-0.5">{clarifyMessage}</p>
+            </div>
+          </div>
+
+          {/* Questions */}
+          <div className="px-5 py-4 space-y-5">
+            {clarifyQuestions.map((q) => (
+              <div key={q.id}>
+                <p className="text-sm font-medium text-slate-800 mb-2.5 flex items-start gap-2">
+                  <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                    {clarifyQuestions.indexOf(q) + 1}
+                  </span>
+                  {q.text}
+                </p>
+                <div className="flex flex-wrap gap-2 pl-7">
+                  {q.options.map((opt) => (
+                    <button
+                      key={opt}
+                      onClick={() => setClarifyAnswers((p) => ({ ...p, [q.id]: opt }))}
+                      className={`px-3.5 py-1.5 rounded-full text-sm font-medium border transition-all duration-150 cursor-pointer ${
+                        clarifyAnswers[q.id] === opt
+                          ? "bg-indigo-600 border-indigo-600 text-white shadow-sm"
+                          : "bg-white border-gray-300 text-gray-700 hover:border-indigo-400 hover:text-indigo-600"
+                      }`}
+                    >
+                      {clarifyAnswers[q.id] === opt && (
+                        <span className="mr-1.5">✓</span>
+                      )}
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Actions */}
+          <div className="px-5 pb-5 flex items-center gap-3">
+            <button
+              onClick={handleSubmitAnswers}
+              disabled={Object.keys(clarifyAnswers).length === 0}
+              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
+              </svg>
+              Generate Agent
+            </button>
+            <button
+              onClick={() => generateAgent(buildFullPrompt(), {})}
+              className="px-5 py-2.5 border border-gray-200 text-gray-600 text-sm rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Skip questions
+            </button>
+            <button
+              onClick={() => { setClarifyStep("idle"); setClarifyAnswers({}); }}
+              className="ml-auto text-sm text-gray-400 hover:text-gray-600"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Generating spinner overlay on questions panel */}
+      {clarifyStep === "generating" && loading && (
+        <div className="w-full max-w-2xl mt-4 flex items-center gap-3 px-5 py-4 bg-indigo-50 border border-indigo-200 rounded-2xl">
+          <svg className="w-5 h-5 animate-spin text-indigo-600 flex-shrink-0" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+          </svg>
+          <p className="text-sm font-medium text-indigo-700">Generating your agent with your preferences…</p>
+        </div>
+      )}
 
       {/* Result */}
       {result && (
