@@ -11,6 +11,21 @@ from app.config import settings
 router = APIRouter()
 
 _CHATBOT_LOGIC_AND_UI = r"""
+// Build topic keyword map dynamically from FAQ_DATA at startup — no hardcoded domain terms
+const TOPIC_KEYWORD_MAP = (() => {
+  const map = {};
+  FAQ_DATA.forEach(f => {
+    if (!f.topic) return;
+    if (!map[f.topic]) map[f.topic] = new Set();
+    // Extract meaningful words (>3 chars) from question + answer + steps
+    const src = (f.question + ' ' + f.answer + ' ' + (f.steps||[]).join(' ')).toLowerCase();
+    src.split(/\W+/).filter(w => w.length > 3).forEach(w => map[f.topic].add(w));
+  });
+  // Also seed each topic's own name words
+  Object.keys(map).forEach(t => t.toLowerCase().split(/\s+/).filter(w=>w.length>2).forEach(w=>map[t].add(w)));
+  return map;
+})();
+
 function scoreQuery(query, faq) {
   const q = query.toLowerCase();
   const haystack = (faq.question + ' ' + faq.source + ' ' + faq.topic + ' ' + faq.answer).toLowerCase();
@@ -21,17 +36,12 @@ function scoreQuery(query, faq) {
   }
   // Exact phrase bonus
   if (haystack.includes(q)) score += 10;
-  // Topic name match
-  const topicLow = faq.topic.toLowerCase();
-  if (q.includes('handheld') && topicLow.includes('handheld')) score += 5;
-  if ((q.includes('lane') || q.includes('checkout') || q.includes('pos')) && topicLow.includes('lane')) score += 5;
-  if ((q.includes('network') || q.includes('wifi') || q.includes('internet') || q.includes('connectivity')) && topicLow.includes('network')) score += 5;
-  if ((q.includes('mfa') || q.includes('authenticat') || q.includes('verification')) && topicLow.includes('mfa')) score += 5;
-  if ((q.includes('password') || q.includes('pwd') || q.includes('reset') || q.includes('locked')) && topicLow.includes('password')) score += 5;
-  if ((q.includes('workday') || q.includes('vacation') || q.includes('time off') || q.includes('hr')) && topicLow.includes('workday')) score += 5;
-  if ((q.includes('id') || q.includes('disabled') || q.includes('user id')) && topicLow.includes('id disabled')) score += 5;
-  if ((q.includes('printer') || q.includes('print') || q.includes('label') || q.includes('receipt')) && (topicLow.includes('printer') || topicLow.includes('ncr'))) score += 5;
-  if ((q.includes('pinpad') || q.includes('tap') || q.includes('contactless') || q.includes('payment')) && topicLow.includes('pinpad')) score += 5;
+  // Dynamic topic keyword boost — uses vocabulary extracted from this domain's FAQ_DATA
+  const topicKeywords = TOPIC_KEYWORD_MAP[faq.topic];
+  if (topicKeywords) {
+    const matchCount = words.filter(w => topicKeywords.has(w)).length;
+    score += matchCount * 3;
+  }
   return score;
 }
 
@@ -140,7 +150,7 @@ function App() {
         {/* Topic filter */}
         <div className="px-3 py-3 border-b border-white/10">
           <p className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-2 px-1">Filter by Topic</p>
-          <div className="flex flex-col gap-1 overflow-y-auto" style={{maxHeight:'160px'}}>
+          <div className="flex flex-col gap-1 overflow-y-auto" style={{maxHeight: TOPICS.length > 5 ? '160px' : 'none'}}>
             {TOPICS.map(topic => (
               <button
                 key={topic}
@@ -1294,8 +1304,9 @@ Incorporate ALL of the above changes while keeping everything else from the orig
         )
         _app_title   = req.app_name
         _company     = company
-        _welcome     = f"Hello! I'm the {company} IT Support Assistant. Ask me anything or click a question from the left sidebar."
-        _out_contact = f"contact {company} IT Support at 1-888-LOBLAW1 or submit a ticket at the {company} IT portal."
+        _domain_label = (req.domain or "support").title()
+        _welcome     = f"Hello! I'm the {_app_title}. Ask me anything about {_domain_label} topics, or click a question from the left sidebar."
+        _out_contact = f"contact {company} {_domain_label} support directly for assistance."
 
         # Build HTML directly â€" no second LLM call needed
         html = (

@@ -24,8 +24,8 @@ body { font-family:'Inter',sans-serif; }
 <script type="text/babel">
 const COMPANY = "Loblaw";
 const APP_TITLE = "Loblaw IT Support Chatbot";
-const WELCOME_MSG = "Hello! I'm the Loblaw IT Support Assistant. Ask me anything or click a question from the left sidebar.";
-const OUT_CONTACT = "contact Loblaw IT Support at 1-888-LOBLAW1 or submit a ticket at the Loblaw IT portal.";
+const WELCOME_MSG = "Hello! I'm the Loblaw IT Support Chatbot. Ask me anything about It Support topics, or click a question from the left sidebar.";
+const OUT_CONTACT = "contact Loblaw It Support support directly for assistance.";
 
 const TOPICS = ["SAP Handheld", "ID Disabled", "Lane Issues", "MFA", "NCR Printer", "Network", "Pinpad", "Password Reset", "Workday"];
 
@@ -55,8 +55,8 @@ const APP_CONFIG = {
 const FAQ_DATA = [
   {
     "id": "f1",
-    "question": "How do I resolve the 'PO/Cycle Count Document locked by [user]' error in SAP Handheld?",
-    "answer": "To resolve this issue, initiate a support incident and follow the steps provided.",
+    "question": "What should I do if I encounter the error 'PO/Cycle Count Document locked by [user]' on SAP Handheld?",
+    "answer": "To resolve the locked PO document issue, follow the steps provided.",
     "steps": [
       "Step 1: Click on the 'New Incident' tab and note down the incident number.",
       "Step 2: Select the correct customer details from the dropdown.",
@@ -73,8 +73,8 @@ const FAQ_DATA = [
   },
   {
     "id": "f2",
-    "question": "What should I do if my Network ID is disabled due to inactivity?",
-    "answer": "Authenticate the user and follow the steps to enable the account and reset the password.",
+    "question": "How can I resolve a disabled Network ID due to inactivity?",
+    "answer": "Follow the steps to authenticate the user and enable the account.",
     "steps": [
       "Step 1: Authenticate the user/account owner and confirm their 1UP Manager on file.",
       "Step 2: Enable the account, reset the password, and clear the description field.",
@@ -91,13 +91,13 @@ const FAQ_DATA = [
   },
   {
     "id": "f3",
-    "question": "How can I fix a lane activation issue in SwedaMart?",
-    "answer": "Follow the steps to troubleshoot lane activation issues.",
+    "question": "What should I do if a store user reports insufficient security to change ID or access certain functions?",
+    "answer": "Follow the steps to troubleshoot security level issues.",
     "steps": [
       "Step 1: Log on to the store SwedaMart server using RDP.",
-      "Step 2: Access the SwedaMart GUI using the support user ID and password.",
-      "Step 3: Navigate to the LCU Screen and verify the lane status.",
-      "Step 4: If unresolved, escalate to L2 Maintenance."
+      "Step 2: Identify the User ID and note their Security Level.",
+      "Step 3: Check if the User Security Level is lower than the Function Security Level.",
+      "Step 4: Document the User ID and function, and assign the ticket to L2 STORE."
     ],
     "source": "Lane Issues Q&A.docx",
     "confidence": 91,
@@ -112,9 +112,9 @@ const FAQ_DATA = [
     "question": "What is Multi-Factor Authentication (MFA) and how does it work?",
     "answer": "MFA is a security process requiring more than one verification method for identity verification.",
     "steps": [
-      "Step 1: Enter your username and password as usual.",
-      "Step 2: Use your phone to verify your identity via text, call, or mobile app.",
-      "Step 3: Securely log on to the application."
+      "Step 1: Enter username and password as usual.",
+      "Step 2: Use your phone to verify your identity.",
+      "Step 3: Securely log on."
     ],
     "source": "MFA.docx",
     "confidence": 95,
@@ -126,13 +126,13 @@ const FAQ_DATA = [
   },
   {
     "id": "f5",
-    "question": "What should I do if the NCR printer is not found?",
+    "question": "What should I do if the printer is not found?",
     "answer": "Follow the steps to troubleshoot the printer issue.",
     "steps": [
       "Step 1: Verify that there is paper in the printer.",
-      "Step 2: Power off the register and reseat the cable at the back of the printer.",
-      "Step 3: Power on the register and check if the error persists.",
-      "Step 4: If unresolved, swap the printer with a working one."
+      "Step 2: Power off the register.",
+      "Step 3: Reseat the cable at the back of the printer.",
+      "Step 4: Power on the register."
     ],
     "source": "NCR Printer Q&A.docx",
     "confidence": 89,
@@ -145,12 +145,12 @@ const FAQ_DATA = [
   {
     "id": "f6",
     "question": "How do I troubleshoot a network outage in a store?",
-    "answer": "Follow the steps to validate the network and resolve the outage.",
+    "answer": "Follow the steps to validate the network and resolve the issue.",
     "steps": [
-      "Step 1: Confirm if the power outage has lasted more than 20 minutes.",
+      "Step 1: Confirm if the power outage has passed more than 20 minutes.",
       "Step 2: Ping the ISP, primary router, secondary router, and switch.",
-      "Step 3: Validate the UPS status in the IT cabinet.",
-      "Step 4: If unresolved, escalate to L2 Maintenance."
+      "Step 3: Validate UPS status in the IT cabinet.",
+      "Step 4: Reboot the UPS if necessary and wait for 15 minutes."
     ],
     "source": "Network-2.docx",
     "confidence": 93,
@@ -162,15 +162,16 @@ const FAQ_DATA = [
   },
   {
     "id": "f7",
-    "question": "What should I do if the pinpad is not working?",
+    "question": "What should I do if the pinpad or debit/credit card reader is not working?",
     "answer": "Follow the steps to troubleshoot the pinpad issue.",
     "steps": [
       "Step 1: Determine the model of the pinpad and the number of affected lanes.",
-      "Step 2: Check if the pinpad has power and is properly connected.",
-      "Step 3: If unresolved, escalate to L2 Maintenance."
+      "Step 2: Check if the pinpad has power.",
+      "Step 3: Log the ticket as CRITICAL priority if all lanes are down.",
+      "Step 4: Follow specific instructions for post office pinpads if applicable."
     ],
     "source": "Pinpad Q&A.docx",
-    "confidence": 87,
+    "confidence": 88,
     "topic": "Pinpad",
     "related": [
       "f5",
@@ -182,9 +183,9 @@ const FAQ_DATA = [
     "question": "How can I reset my password if I am locked out?",
     "answer": "Follow the steps to reset your password.",
     "steps": [
-      "Step 1: Use the self-serve password reset options such as support.com or SSPR links.",
-      "Step 2: If unresolved, contact your Store Manager or Branch Admin for assistance.",
-      "Step 3: Ensure your account is enabled and active before resetting the password."
+      "Step 1: Ensure the account is enabled and active.",
+      "Step 2: Use self-serve options such as support.com or SSPR links.",
+      "Step 3: If unable to reset, contact your Store Manager or Branch Admin for assistance."
     ],
     "source": "PW Reset.docx",
     "confidence": 94,
@@ -196,15 +197,15 @@ const FAQ_DATA = [
   },
   {
     "id": "f9",
-    "question": "What should I do if I cannot access my Workday account?",
-    "answer": "Follow the steps to troubleshoot Workday access issues.",
+    "question": "What should I do if I encounter navigation issues in Workday?",
+    "answer": "For navigation issues in Workday, follow these steps.",
     "steps": [
-      "Step 1: Verify if the issue is with a named account (e.g., firstname.lastname@company.com).",
-      "Step 2: Check if the issue is related to navigation or missing worklets/icons.",
-      "Step 3: If unresolved, escalate to L2 Security."
+      "Step 1: Verify if the user is having an issue with their named account.",
+      "Step 2: Document the user's cell phone number in the incident work notes.",
+      "Step 3: If the issue is urgent, advise the user to contact support or create an incident."
     ],
     "source": "Workday.docx",
-    "confidence": 90,
+    "confidence": 87,
     "topic": "Workday",
     "related": [
       "f7",
@@ -217,7 +218,7 @@ const TOPIC_QUESTIONS = {
   "SAP Handheld": [
     {
       "id": "tq_1",
-      "question": "How do I resolve the 'PO/Cycle Count Document locked by [user]' error in SAP Handheld?",
+      "question": "What should I do if I encounter the error 'PO/Cycle Count Document locked by [user]' on SAP Handheld?",
       "source": "Handheld Q&A.docx"
     },
     {
@@ -269,7 +270,7 @@ const TOPIC_QUESTIONS = {
   "ID Disabled": [
     {
       "id": "tq_1",
-      "question": "What should I do if my Network ID is disabled due to inactivity?",
+      "question": "How can I resolve a disabled Network ID due to inactivity?",
       "source": "ID Disabled.docx"
     },
     {
@@ -321,7 +322,7 @@ const TOPIC_QUESTIONS = {
   "Lane Issues": [
     {
       "id": "tq_1",
-      "question": "How can I fix a lane activation issue in SwedaMart?",
+      "question": "What should I do if a store user reports insufficient security to change ID or access certain functions?",
       "source": "Lane Issues Q&A.docx"
     },
     {
@@ -425,7 +426,7 @@ const TOPIC_QUESTIONS = {
   "NCR Printer": [
     {
       "id": "tq_1",
-      "question": "What should I do if the NCR printer is not found?",
+      "question": "What should I do if the printer is not found?",
       "source": "NCR Printer Q&A.docx"
     },
     {
@@ -529,7 +530,7 @@ const TOPIC_QUESTIONS = {
   "Pinpad": [
     {
       "id": "tq_1",
-      "question": "What should I do if the pinpad is not working?",
+      "question": "What should I do if the pinpad or debit/credit card reader is not working?",
       "source": "Pinpad Q&A.docx"
     },
     {
@@ -633,7 +634,7 @@ const TOPIC_QUESTIONS = {
   "Workday": [
     {
       "id": "tq_1",
-      "question": "What should I do if I cannot access my Workday account?",
+      "question": "What should I do if I encounter navigation issues in Workday?",
       "source": "Workday.docx"
     },
     {
@@ -687,7 +688,7 @@ const TOPIC_QUESTIONS = {
 const DOC_SECTIONS = [
   {
     "heading": "Handheld Error Messages",
-    "body": "What error is being reported? PO/Cycle Count Document locked by [user], 'Corrupted Link- Call L1 SUPPORT', 'Connection timed out', 'Article Not Found in SAP', 'The site data of the article is locked', 'Stateful session...', Article Not Listed in Assortment, 'Try again', 'Web Page Cannot be Displayed', Portal/Handheld Slowness, Shop floor walk - shelf audit - sign creation - UPC/quantity issue, User is unable to recover previous transaction, One (or more) Option is Greyed Out.",
+    "body": "What error is being reported? PO/Cycle Count Document locked by [user], Corrupted Link- Call L1 SUPPORT, Connection timed out, Article Not Found in SAP, The site data of the article is locked, Stateful session...",
     "source": "Handheld.docx"
   },
   {
@@ -697,48 +698,63 @@ const DOC_SECTIONS = [
   },
   {
     "heading": "Lane Activation Issues",
-    "body": "Log on to the store SwedaMart server using RDP, access the SwedaMart GUI, and navigate to the LCU Screen.",
+    "body": "If the lane activation or deactivation issue is related to SwedaMart version discrepancy, follow these steps.",
     "source": "Lane Issues.docx"
   },
   {
-    "heading": "Multi-Factor Authentication Overview",
-    "body": "Multi-factor Authentication is a method of authentication that requires more than one verification method and adds a critical level of security to colleagues\u2019 sign-ins and transactions.",
+    "heading": "What is Multi Factor Authentication",
+    "body": "Multi-factor Authentication is a new security process for that provides an additional level of identity verification.",
     "source": "MFA.docx"
   },
   {
     "heading": "Printer Troubleshooting",
-    "body": "Verify that there is paper in the printer, power off the register, reseat the cable, and power on the register.",
+    "body": "Error messages: Not responding / Not printing, Poor Print Quality, Jamming, Will not cut the receipt, Continuous Printing.",
     "source": "NCR Printer.docx"
   },
   {
-    "heading": "Network Outage Troubleshooting",
-    "body": "Confirm if the power outage has lasted more than 20 minutes, ping the ISP, primary router, secondary router, and switch, and validate the UPS status.",
-    "source": "Network.docx"
+    "heading": "Network Configuration",
+    "body": "Store is reporting ISP, ROUTER, NETWORK is DOWN. During power outage scenarios if it's a WAN store then routers will take around 20 mins to power on.",
+    "source": "Network-2.docx"
   },
   {
     "heading": "Pinpad Troubleshooting",
-    "body": "Determine the model of the pinpad, check if it has power, and escalate to L2 Maintenance if unresolved.",
+    "body": "User reports Pinpad or debit/credit is not working. Follow the steps to troubleshoot the issue.",
     "source": "Pinpad.docx"
   },
   {
     "heading": "Password Reset Guidelines",
-    "body": "Use self-serve password reset options or contact your Store Manager or Branch Admin for assistance.",
+    "body": "Effective 1st of February 2024: All the procedural passwords reset issues will be logged as 'Request'.",
     "source": "PW Reset.docx"
   },
   {
     "heading": "Workday Access Issues",
-    "body": "Verify if the issue is with a named account, check for navigation or missing worklets/icons, and escalate to L2 Security if unresolved.",
+    "body": "This KBA is ONLY for access issues related to Workday Application, for any other Workday related inquiries, please refer to the 5 pointers below.",
     "source": "Workday.docx"
   },
   {
-    "heading": "Router and Network Issues",
-    "body": "Validate UPS status in the IT cabinet, ping the routers and switches, and confirm if the store is operational before closing the incident.",
-    "source": "Network-2.docx"
+    "heading": "Router / Network / Server Issues",
+    "body": "Router / Network / Server (Swedamart, AccessVia & Print servers) down in Stores.",
+    "source": "Network.docx"
   }
 ];
 
 const { useState, useRef, useEffect, useCallback } = React;
 
+
+// Build topic keyword map dynamically from FAQ_DATA at startup â no hardcoded domain terms
+const TOPIC_KEYWORD_MAP = (() => {
+  const map = {};
+  FAQ_DATA.forEach(f => {
+    if (!f.topic) return;
+    if (!map[f.topic]) map[f.topic] = new Set();
+    // Extract meaningful words (>3 chars) from question + answer + steps
+    const src = (f.question + ' ' + f.answer + ' ' + (f.steps||[]).join(' ')).toLowerCase();
+    src.split(/\W+/).filter(w => w.length > 3).forEach(w => map[f.topic].add(w));
+  });
+  // Also seed each topic's own name words
+  Object.keys(map).forEach(t => t.toLowerCase().split(/\s+/).filter(w=>w.length>2).forEach(w=>map[t].add(w)));
+  return map;
+})();
 
 function scoreQuery(query, faq) {
   const q = query.toLowerCase();
@@ -750,17 +766,12 @@ function scoreQuery(query, faq) {
   }
   // Exact phrase bonus
   if (haystack.includes(q)) score += 10;
-  // Topic name match
-  const topicLow = faq.topic.toLowerCase();
-  if (q.includes('handheld') && topicLow.includes('handheld')) score += 5;
-  if ((q.includes('lane') || q.includes('checkout') || q.includes('pos')) && topicLow.includes('lane')) score += 5;
-  if ((q.includes('network') || q.includes('wifi') || q.includes('internet') || q.includes('connectivity')) && topicLow.includes('network')) score += 5;
-  if ((q.includes('mfa') || q.includes('authenticat') || q.includes('verification')) && topicLow.includes('mfa')) score += 5;
-  if ((q.includes('password') || q.includes('pwd') || q.includes('reset') || q.includes('locked')) && topicLow.includes('password')) score += 5;
-  if ((q.includes('workday') || q.includes('vacation') || q.includes('time off') || q.includes('hr')) && topicLow.includes('workday')) score += 5;
-  if ((q.includes('id') || q.includes('disabled') || q.includes('user id')) && topicLow.includes('id disabled')) score += 5;
-  if ((q.includes('printer') || q.includes('print') || q.includes('label') || q.includes('receipt')) && (topicLow.includes('printer') || topicLow.includes('ncr'))) score += 5;
-  if ((q.includes('pinpad') || q.includes('tap') || q.includes('contactless') || q.includes('payment')) && topicLow.includes('pinpad')) score += 5;
+  // Dynamic topic keyword boost â uses vocabulary extracted from this domain's FAQ_DATA
+  const topicKeywords = TOPIC_KEYWORD_MAP[faq.topic];
+  if (topicKeywords) {
+    const matchCount = words.filter(w => topicKeywords.has(w)).length;
+    score += matchCount * 3;
+  }
   return score;
 }
 
@@ -869,7 +880,7 @@ function App() {
         {/* Topic filter */}
         <div className="px-3 py-3 border-b border-white/10">
           <p className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-2 px-1">Filter by Topic</p>
-          <div className="flex flex-col gap-1 overflow-y-auto" style={{maxHeight:'160px'}}>
+          <div className="flex flex-col gap-1 overflow-y-auto" style={{maxHeight: TOPICS.length > 5 ? '160px' : 'none'}}>
             {TOPICS.map(topic => (
               <button
                 key={topic}
