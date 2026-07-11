@@ -53,6 +53,7 @@ interface Session {
   messages: Message[];
   plan?: Plan;
   uiHtml?: string;
+  documents?: { name: string; text: string }[];
   ts: number;
 }
 
@@ -274,8 +275,15 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError }: {
   }
 
   if (uiHtml) {
+    const openInBrowser = () => {
+      const blob = new Blob([uiHtml], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    };
+
     return (
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col flex-1 min-h-0">
         {/* Sandbox toolbar */}
         <div className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-200 bg-gray-50 flex-shrink-0">
           <div className="flex items-center gap-1.5">
@@ -291,6 +299,16 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError }: {
             Live
           </span>
           <button
+            onClick={openInBrowser}
+            title="Open in browser"
+            className="flex items-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-xs text-indigo-600 font-medium transition-colors flex-shrink-0"
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
+            Open
+          </button>
+          <button
             onClick={onGenerateUI}
             title="Regenerate UI"
             className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors flex-shrink-0"
@@ -300,9 +318,9 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError }: {
             </svg>
           </button>
         </div>
-        {/* Sandboxed iframe — allow-popups needed for some CDN scripts */}
+        {/* Sandboxed iframe — fills remaining height via flex-1 (parent chain: flex flex-col) */}
         <iframe
-          className="flex-1 w-full border-0 bg-white"
+          className="flex-1 w-full border-0 bg-white block"
           srcDoc={uiHtml}
           sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
           title="App Preview"
@@ -403,7 +421,7 @@ export default function Architect() {
   const [tab, setTab] = useState<RightTab>("plan");
   const [qAnswers, setQAnswers] = useState<Record<string, string>>({});
   const [qLocked, setQLocked] = useState(false);
-  const [files, setFiles] = useState<string[]>([]);
+  const [files, setFiles] = useState<{ name: string; text: string }[]>([]);
   const [generatingUI, setGeneratingUI] = useState(false);
   const [uiError, setUiError] = useState<string | undefined>();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -415,7 +433,7 @@ export default function Architect() {
   const uiHtml = active?.uiHtml;
   const firstPrompt = messages.find((m) => m.role === "user")?.content ?? "";
 
-  async function handleGenerateUI(currentPlan?: Plan, currentSid?: string) {
+  async function handleGenerateUI(currentPlan?: Plan, currentSid?: string, inlineDocs?: { name: string; text: string }[]) {
     const p = currentPlan ?? plan;
     const sid = currentSid ?? activeSid;
     if (!p || !sid) return;
@@ -423,6 +441,9 @@ export default function Architect() {
     setUiError(undefined);
     setTab("app");
     try {
+      // Prefer inline docs (passed at call time) then session state
+      const sessionDocs = inlineDocs ?? sessions.find((s) => s.id === sid)?.documents;
+
       const summaryLow = p.summary.toLowerCase();
       const appType = summaryLow.includes("chatbot") || summaryLow.includes("support") || summaryLow.includes("rag")
         ? "chatbot"
@@ -435,12 +456,20 @@ export default function Architect() {
       const companyMatch = userPrompt.match(/\b(for|at|from)\s+([A-Z][a-zA-Z]+(?:\s[A-Z][a-zA-Z]+)?)\b/);
       const company = companyMatch?.[2] ?? p.summary.split(" ").slice(0, 2).join(" ");
 
-      // Detect document types from plan or user prompt
+      // Detect document types — prefer actual uploaded file extensions
       const docTypes: string[] = [];
-      if (/docx|word/i.test(userPrompt + p.summary)) docTypes.push("DOCX");
-      if (/pdf/i.test(userPrompt + p.summary)) docTypes.push("PDF");
-      if (/csv|excel/i.test(userPrompt + p.summary)) docTypes.push("CSV");
-      if (docTypes.length === 0) docTypes.push("DOCX", "PDF");
+      if (sessionDocs?.length) {
+        sessionDocs.forEach(d => {
+          const ext = d.name.split(".").pop()?.toUpperCase() ?? "";
+          if (ext && !docTypes.includes(ext)) docTypes.push(ext);
+        });
+      }
+      if (docTypes.length === 0) {
+        if (/docx|word/i.test(userPrompt + p.summary)) docTypes.push("DOCX");
+        if (/pdf/i.test(userPrompt + p.summary)) docTypes.push("PDF");
+        if (/csv|excel/i.test(userPrompt + p.summary)) docTypes.push("CSV");
+        if (docTypes.length === 0) docTypes.push("DOCX", "PDF");
+      }
 
       const appName = userPrompt.length > 10
         ? userPrompt.split(" ").slice(0, 8).join(" ")
@@ -455,6 +484,7 @@ export default function Architect() {
         company,
         domain: p.summary,
         doc_types: docTypes,
+        documents: sessionDocs?.length ? sessionDocs : undefined,
       });
       const html = res.data.html;
       if (!html || html.trim().length < 50) {
@@ -504,10 +534,19 @@ export default function Architect() {
     }
 
     const userMsg: Message = { role: "user", content: displayText };
+    const capturedFiles = files.length > 0 ? [...files] : undefined;
     setSessions((p) =>
       p.map((s) =>
         s.id === sid
-          ? { ...s, title: s.messages.length === 0 ? displayText.slice(0, 50) : s.title, messages: [...s.messages, userMsg] }
+          ? {
+              ...s,
+              title: s.messages.length === 0 ? displayText.slice(0, 50) : s.title,
+              messages: [...s.messages, userMsg],
+              // Merge new files with any already stored on the session
+              documents: capturedFiles
+                ? [...(s.documents ?? []), ...capturedFiles.filter(f => !(s.documents ?? []).some(d => d.name === f.name))]
+                : s.documents,
+            }
           : s
       )
     );
@@ -541,8 +580,8 @@ export default function Architect() {
 
       if (data.plan) {
         setTab("plan");
-        // Auto-generate UI sandbox in background
-        setTimeout(() => handleGenerateUI(data.plan, sid), 800);
+        // Auto-generate UI sandbox — pass captured files directly (state cleared by now)
+        setTimeout(() => handleGenerateUI(data.plan, sid, capturedFiles), 800);
       }
       if (data.type === "questions") {
         setQLocked(false);
@@ -805,13 +844,13 @@ export default function Architect() {
             <div className="flex flex-wrap gap-1.5 mb-2">
               {files.map((f) => (
                 <span
-                  key={f}
+                  key={f.name}
                   className="flex items-center gap-1 border border-white/10 rounded-lg px-2 py-1 text-xs text-gray-300"
                   style={{ background: "rgba(255,255,255,0.08)" }}
                 >
-                  📎 {f}
+                  📎 {f.name}
                   <button
-                    onClick={() => setFiles((p) => p.filter((x) => x !== f))}
+                    onClick={() => setFiles((p) => p.filter((x) => x.name !== f.name))}
                     className="ml-1 text-gray-500 hover:text-gray-200"
                   >
                     ×
@@ -830,10 +869,23 @@ export default function Architect() {
               accept=".docx,.txt,.pdf,.md,.json,.csv"
               multiple
               className="hidden"
-              onChange={(e) => {
-                const names = Array.from(e.target.files ?? []).map((f) => f.name);
-                setFiles((p) => [...new Set([...p, ...names])]);
+              onChange={async (e) => {
+                const picked = Array.from(e.target.files ?? []);
                 e.target.value = "";
+                const results = await Promise.all(
+                  picked.map(async (f) => {
+                    try {
+                      const res = await architectApi.extractDocText(f);
+                      return { name: f.name, text: res.data.text };
+                    } catch {
+                      return { name: f.name, text: "" };
+                    }
+                  })
+                );
+                setFiles((p) => {
+                  const existing = new Set(p.map((x) => x.name));
+                  return [...p, ...results.filter((r) => !existing.has(r.name))];
+                });
               }}
             />
             <button
@@ -883,9 +935,9 @@ export default function Architect() {
       </div>
 
       {/* ── Right panel ─────────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col bg-white min-w-0">
+      <div className="flex-1 flex flex-col bg-white min-w-0 min-h-0">
         {/* Tab bar */}
-        <div className="flex items-center gap-1 px-6 py-3.5 border-b border-gray-200">
+        <div className="flex items-center gap-1 px-6 py-3.5 border-b border-gray-200 flex-shrink-0">
           {TABS.map((t) => (
             <button
               key={t.id}
@@ -921,8 +973,8 @@ export default function Architect() {
           </div>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-hidden">
+        {/* Content — overflow-hidden on non-app tabs; app tab needs full height */}
+        <div className={`flex-1 ${tab === "app" ? "flex flex-col overflow-hidden" : "overflow-hidden"}`}>
           {tab === "plan" && <PlanTab plan={plan} />}
           {tab === "agents" && <AgentsTab plan={plan} />}
           {tab === "app" && <AppTab plan={plan} uiHtml={uiHtml} onGenerateUI={() => handleGenerateUI()} generatingUI={generatingUI} uiError={uiError} />}

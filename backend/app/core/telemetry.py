@@ -40,6 +40,7 @@ def setup_telemetry(app):
         trace.set_tracer_provider(NoOpTracerProvider())
         return
 
+    _SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "agentforge")
     resource = Resource.create({"service.name": _SERVICE_NAME})
     provider = TracerProvider(resource=resource)
     provider.add_span_processor(BatchSpanProcessor(_build_exporter()))

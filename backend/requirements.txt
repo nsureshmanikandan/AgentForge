@@ -29,6 +29,7 @@ langchain-community==0.3.25
 
 # Document loading
 pypdf==5.5.0
+python-docx==1.1.2
 
 # Guardrails
 presidio-analyzer==2.2.356

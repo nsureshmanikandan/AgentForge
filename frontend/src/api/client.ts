@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const api = axios.create({ baseURL: "http://localhost:8000/api", timeout: 120000 });
+const api = axios.create({ baseURL: "http://localhost:8000/api", timeout: 180000 });
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
@@ -53,8 +53,22 @@ export const controlPlaneApi = {
 export const architectApi = {
   chat: (messages: { role: string; content: string }[]) =>
     api.post("/architect/chat", { messages }),
-  generateUI: (payload: { app_name: string; summary: string; features: string[]; frontend?: string; app_type?: string; domain?: string; company?: string; doc_types?: string[] }) =>
-    api.post("/architect/generate-ui", payload),
+  extractDocText: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api.post<{ filename: string; text: string }>("/architect/extract-doc-text", form);
+  },
+  generateUI: (payload: {
+    app_name: string;
+    summary: string;
+    features: string[];
+    frontend?: string;
+    app_type?: string;
+    domain?: string;
+    company?: string;
+    doc_types?: string[];
+    documents?: { name: string; text: string }[];
+  }) => api.post("/architect/generate-ui", payload),
 };
 
 export default api;
