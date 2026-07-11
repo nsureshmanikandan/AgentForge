@@ -58,6 +58,7 @@ interface PromptVersion {
   enhancedPrompt: string;      // LLM-refined summary / plan summary at this point
   addedFeatures?: string[];    // features added in this version
   changeLabel: string;         // human-readable label e.g. "v1 · Initial prompt"
+  changeSummary?: string;      // concise LLM-extracted summary of what changed
 }
 
 interface Session {
@@ -227,7 +228,24 @@ function PromptEvolutionSection({ history }: { history: PromptVersion[] }) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <span className="text-xs font-semibold text-gray-600">Incremental Changes</span>
+            <span className="ml-auto text-[10px] text-gray-400">{changes.length} total</span>
           </div>
+
+          {/* Cumulative context summary strip */}
+          <div className="px-3 py-2 bg-amber-50/60 border-b border-amber-100">
+            <p className="text-[10px] font-semibold text-amber-700 uppercase tracking-wider mb-1">What evolved so far</p>
+            <div className="flex flex-wrap gap-1">
+              {changes.map((ch, idx) => {
+                const meta = CHANGE_TYPE_META[ch.changeType as Exclude<PromptChangeType, "initial">] ?? CHANGE_TYPE_META.refine;
+                return (
+                  <span key={ch.version} className={`text-[10px] border rounded-full px-2 py-0.5 font-medium ${meta.pill}`} title={ch.changeSummary || ch.userInput}>
+                    {meta.icon} C{idx + 1}: {(ch.changeSummary || ch.userInput).slice(0, 35)}{(ch.changeSummary || ch.userInput).length > 35 ? "…" : ""}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="divide-y divide-gray-100">
             {changes.map((ch, idx) => {
               const changeNum = idx + 1;
@@ -240,19 +258,23 @@ function PromptEvolutionSection({ history }: { history: PromptVersion[] }) {
                     className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-gray-50 transition-colors text-left"
                     onClick={() => setOpenChange(isOpen ? null : ch.version)}
                   >
-                    {/* Change number badge */}
                     <span className="w-6 h-6 rounded-full bg-gray-800 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">
                       {changeNum}
                     </span>
-                    <span className="text-xs font-semibold text-gray-700 flex-1 truncate">Change {changeNum}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-gray-700">Change {changeNum}</span>
+                        {isLatest && (
+                          <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-full px-1.5 py-0.5">Latest</span>
+                        )}
+                      </div>
+                      {ch.changeSummary && (
+                        <p className="text-[10px] text-gray-500 truncate mt-0.5">{ch.changeSummary}</p>
+                      )}
+                    </div>
                     <span className={`text-[10px] font-semibold border rounded-full px-1.5 py-0.5 flex-shrink-0 ${meta.pill}`}>
                       {meta.icon} {meta.label}
                     </span>
-                    {isLatest && (
-                      <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-full px-1.5 py-0.5 flex-shrink-0">
-                        Latest
-                      </span>
-                    )}
                     <span className="text-[10px] text-gray-400 flex-shrink-0 hidden sm:inline">
                       {new Date(ch.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </span>
@@ -262,6 +284,14 @@ function PromptEvolutionSection({ history }: { history: PromptVersion[] }) {
                   </button>
                   {isOpen && (
                     <div className="px-3 pb-3 pt-1 bg-gray-50 border-t border-gray-100 space-y-2">
+                      {ch.changeSummary && (
+                        <>
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">AI Summary</p>
+                          <p className="text-xs text-gray-700 leading-relaxed bg-white rounded-lg px-3 py-2 border border-gray-200 italic">
+                            {ch.changeSummary}
+                          </p>
+                        </>
+                      )}
                       <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">User Instruction</p>
                       <p className="text-xs text-gray-700 leading-relaxed bg-white rounded-lg px-3 py-2.5 border border-gray-200 whitespace-pre-line">
                         {ch.userInput}
@@ -1126,43 +1156,115 @@ export default function Architect() {
 
       const res = await architectApi.chat(history);
       const data: ArchitectResponse = res.data;
+      // Merge messages, plan AND promptHistory in one atomic setSessions call
+      // to avoid stale-state bugs from separate batched calls
+      const planSummary   = data.plan?.summary ?? "";
+      const planArch      = data.plan?.architecture ?? "";
+      const planFeatures  = data.plan?.features ?? [];
+      const capturedDisplayText = displayText;
+      const capturedSid   = sid;
 
-      setSessions((p) =>
-        p.map((s) =>
-          s.id === sid
-            ? {
-                ...s,
-                messages: [...s.messages, { role: "assistant", content: data.message, response: data }],
-                plan: data.plan ?? s.plan,
+      // Capture the expected promptHistory length BEFORE the update, so the
+      // self-correction verifier can detect if the write was silently dropped.
+      const sessionBeforeUpdate = sessions.find((s) => s.id === capturedSid);
+      const historyLenBefore = sessionBeforeUpdate?.promptHistory?.length ?? 0;
+      const expectedLenAfter = data.plan
+        ? (historyLenBefore === 0 ? 1 : historyLenBefore + 1)
+        : historyLenBefore;
+
+      setSessions((prev) =>
+        prev.map((s) => {
+          if (s.id !== capturedSid) return s;
+
+          // ── messages + plan update (always) ──────────────────────────
+          const nextMessages = [...s.messages, { role: "assistant" as const, content: data.message, response: data }];
+          const nextPlan     = data.plan ?? s.plan;
+
+          // ── promptHistory update (only when plan returned) ────────────
+          let nextPromptHistory = s.promptHistory ?? [];
+          if (data.plan) {
+            const existing = nextPromptHistory;
+            if (existing.length === 0) {
+              // v1: lock original user prompt + full LLM output forever
+              const firstUserMsg = s.messages.find((m) => m.role === "user")?.content ?? capturedDisplayText;
+              const enhancedFull = [
+                planSummary,
+                planArch ? `\nArchitecture:\n${planArch}` : "",
+              ].filter(Boolean).join("\n\n");
+              nextPromptHistory = [{
+                version: 1,
+                ts: Date.now(),
+                changeType: "initial",
+                userInput: firstUserMsg,
+                enhancedPrompt: enhancedFull,
+                addedFeatures: planFeatures.slice(0, 6),
+                changeLabel: "v1 · Initial prompt",
+                // Concise summary extracted from assistant reply
+                changeSummary: data.message?.split(".")[0]?.slice(0, 120) ?? "",
+              }];
+            } else {
+              // Dedup guard: skip if this exact user instruction is already the last entry
+              const lastEntry = existing[existing.length - 1];
+              if (lastEntry?.userInput?.trim() === capturedDisplayText.trim()) {
+                // Already recorded — no-op (idempotent self-correction)
+                nextPromptHistory = existing;
+              } else {
+                const nextVersion = (lastEntry?.version ?? 0) + 1;
+                const changeType  = detectChangeType(capturedDisplayText);
+                // Extract concise summary from assistant reply (first sentence, max 120 chars)
+                const changeSummary = data.message?.split(/[.\n]/)[0]?.trim().slice(0, 120) ?? capturedDisplayText.slice(0, 80);
+                nextPromptHistory = [...existing, {
+                  version: nextVersion,
+                  ts: Date.now(),
+                  changeType,
+                  userInput: capturedDisplayText,
+                  enhancedPrompt: "",
+                  changeSummary,
+                  changeLabel: `Change ${nextVersion - 1} · ${changeType.charAt(0).toUpperCase() + changeType.slice(1)}`,
+                }];
               }
-            : s
-        )
+            }
+          }
+
+          return { ...s, messages: nextMessages, plan: nextPlan, promptHistory: nextPromptHistory };
+        })
       );
+
+      // ── Self-correction verifier (reinforcement) ──────────────────────────
+      // Runs 50ms after the atomic setSessions to confirm the write landed.
+      // If promptHistory is shorter than expected (edge case / race), it inserts
+      // the missing Change entry so it is never silently dropped.
+      if (data.plan && expectedLenAfter > 1) {
+        const verifySid = capturedSid;
+        const verifyText = capturedDisplayText;
+        const verifyMsg  = data.message ?? "";
+        setTimeout(() => {
+          setSessions((latest) =>
+            latest.map((s) => {
+              if (s.id !== verifySid) return s;
+              const ph = s.promptHistory ?? [];
+              if (ph.length >= expectedLenAfter) return s; // already correct
+              // Self-heal: append the missing Change entry
+              const lastVer = ph[ph.length - 1]?.version ?? 0;
+              const changeType = detectChangeType(verifyText);
+              const changeSummary = verifyMsg.split(/[.\n]/)[0]?.trim().slice(0, 120) ?? verifyText.slice(0, 80);
+              const repaired: PromptVersion = {
+                version: lastVer + 1,
+                ts: Date.now(),
+                changeType,
+                userInput: verifyText,
+                enhancedPrompt: "",
+                changeSummary,
+                changeLabel: `Change ${lastVer} · ${changeType.charAt(0).toUpperCase() + changeType.slice(1)}`,
+              };
+              return { ...s, promptHistory: [...ph, repaired] };
+            })
+          );
+        }, 50);
+      }
 
       if (data.plan) {
         setTab("plan");
-        // Capture v1 prompt history for the initial plan
-        // enhancedPrompt = full LLM output (summary + architecture), locked forever
-        const enhancedFull = [
-          data.plan.summary,
-          data.plan.architecture ? `\nArchitecture:\n${data.plan.architecture}` : "",
-        ].filter(Boolean).join("\n\n");
-        const v1: PromptVersion = {
-          version: 1,
-          ts: Date.now(),
-          changeType: "initial",
-          userInput: displayText,
-          enhancedPrompt: enhancedFull,
-          addedFeatures: data.plan.features?.slice(0, 6),
-          changeLabel: "v1 · Initial prompt",
-        };
-        setSessions((p) =>
-          p.map((s) =>
-            s.id === sid
-              ? { ...s, promptHistory: [v1] }
-              : s
-          )
-        );
         // First-time generation — pass captured files directly (state cleared by now)
         setTimeout(() => handleGenerateUI(data.plan, sid, capturedFiles), 800);
       } else {
@@ -1171,31 +1273,40 @@ export default function Architect() {
         const hasExistingSandbox = !!currentSession?.uiHtml;
         const isRefinement = REFINE_TRIGGERS.test(displayText);
         if (hasExistingSandbox && isRefinement && currentSession?.plan) {
-          // Append a new prompt history version
-          const prevHistory = currentSession.promptHistory ?? [];
-          const nextVersion = (prevHistory[prevHistory.length - 1]?.version ?? 0) + 1;
+          // Append Change entry for UI-only refinements (no plan returned)
           const changeType = detectChangeType(displayText);
-          const newVersion: PromptVersion = {
-            version: nextVersion,
-            ts: Date.now(),
-            changeType,
-            userInput: displayText,   // only the user's raw instruction; enhanced prompt is v1 only
-            enhancedPrompt: "",       // not used for change entries
-            changeLabel: `Change ${nextVersion - 1} · ${changeType.charAt(0).toUpperCase() + changeType.slice(1)}`,
-          };
-          setSessions((p) =>
-            p.map((s) =>
-              s.id === sid
-                ? { ...s, promptHistory: [...(s.promptHistory ?? []), newVersion] }
+          const capturedMsg = displayText;
+          const capturedSid2 = sid;
+          const capturedReply = data.message ?? "";
+          setSessions((latestSessions) => {
+            const sess = latestSessions.find((s) => s.id === capturedSid2);
+            const prevHistory = sess?.promptHistory ?? [];
+            // Dedup guard
+            if (prevHistory[prevHistory.length - 1]?.userInput?.trim() === capturedMsg.trim()) {
+              return latestSessions;
+            }
+            const nextVersion = (prevHistory[prevHistory.length - 1]?.version ?? 0) + 1;
+            const changeSummary = capturedReply.split(/[.\n]/)[0]?.trim().slice(0, 120) ?? capturedMsg.slice(0, 80);
+            const newEntry: PromptVersion = {
+              version: nextVersion,
+              ts: Date.now(),
+              changeType,
+              userInput: capturedMsg,
+              enhancedPrompt: "",
+              changeSummary,
+              changeLabel: `Change ${nextVersion - 1} · ${changeType.charAt(0).toUpperCase() + changeType.slice(1)}`,
+            };
+            return latestSessions.map((s) =>
+              s.id === capturedSid2
+                ? { ...s, promptHistory: [...prevHistory, newEntry] }
                 : s
-            )
-          );
+            );
+          });
           const feedbackMessages = (currentSession.messages ?? [])
             .filter((m) => m.role === "user")
             .slice(-5)
             .map((m) => m.content)
             .join("\n");
-          // Separate session visual refs by their designation
           const sourceRefs = (currentSession.visualRefs ?? []).filter((v) => v.asSource);
           const visualOnlyRefs = (currentSession.visualRefs ?? []).filter((v) => !v.asSource);
           const visualNote = [
