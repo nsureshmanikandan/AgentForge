@@ -70,6 +70,7 @@ interface Session {
   documents?: { name: string; text: string }[];          // RAG knowledge-base sources (docx/pdf/txt)
   visualRefs?: { name: string; asSource: boolean }[];    // Images: default=visual ref, asSource=user promoted to source
   promptHistory?: PromptVersion[];                       // Tracked prompt evolution across all turns
+  commits?: { sha: string; message: string; ts: number; planSnapshot: Plan; uiHtmlSnapshot?: string }[];
   ts: number;
 }
 
@@ -1380,6 +1381,8 @@ export default function Architect() {
     { label: "Sandbox ready",                     icon: "🚀" },
   ];
   // Drive step index from elapsed time so it animates without real backend events
+  const [listening, setListening] = useState(false);
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [progressStep, setProgressStep] = useState(0);
   const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -1395,6 +1398,22 @@ export default function Architect() {
     }
     return () => { if (progressTimerRef.current) clearInterval(progressTimerRef.current); };
   }, [loading, generatingUI]);
+
+  function startVoice() {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.onstart = () => setListening(true);
+    recognition.onend = () => setListening(false);
+    recognition.onerror = () => setListening(false);
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setInput((prev) => (prev ? prev + " " + transcript : transcript));
+    };
+    recognition.start();
+  }
 
   const TABS: { id: RightTab; label: string }[] = [
     { id: "plan", label: "Plan" },
@@ -1833,6 +1852,16 @@ export default function Architect() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
               </svg>
             </button>
+            <button
+              onClick={startVoice}
+              disabled={listening}
+              title={listening ? "Listening…" : "Voice input"}
+              className={`flex-shrink-0 transition-colors ${listening ? "text-red-400 animate-pulse" : "text-gray-500 hover:text-gray-300"}`}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+              </svg>
+            </button>
             <textarea
               rows={1}
               className="flex-1 bg-transparent text-sm text-gray-100 placeholder-gray-600 outline-none resize-none max-h-32 leading-relaxed"
@@ -1902,6 +1931,39 @@ export default function Architect() {
                   </svg>
                   Deploy Plan
                 </button>
+                {plan && (
+                  <button
+                    onClick={() => {
+                      if (!activeSid || !plan) return;
+                      const sha = Math.random().toString(36).slice(2, 9);
+                      const message = `v${(active?.commits?.length ?? 0) + 1} · ${plan.summary.slice(0, 50)}`;
+                      setSessions((prev) => prev.map((s) =>
+                        s.id === activeSid
+                          ? { ...s, commits: [...(s.commits ?? []), { sha, message, ts: Date.now(), planSnapshot: plan, uiHtmlSnapshot: uiHtml }] }
+                          : s
+                      ));
+                    }}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-lg text-xs font-medium transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Commit
+                  </button>
+                )}
+                {(active?.commits?.length ?? 0) > 0 && (
+                  <button
+                    onClick={() => setShowVersionHistory((v) => !v)}
+                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
+                      showVersionHistory ? "bg-gray-100 border-gray-300 text-gray-700" : "border-gray-200 text-gray-500 hover:bg-gray-50"
+                    }`}
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    History ({active?.commits?.length ?? 0})
+                  </button>
+                )}
               </>
             ) : (
               <span className="text-xs text-gray-400">Answer the questions to generate your plan</span>
@@ -1910,7 +1972,49 @@ export default function Architect() {
         </div>
 
         {/* Content — overflow-hidden on non-app tabs; app tab needs full height */}
-        <div className={`flex-1 ${tab === "app" ? "flex flex-col overflow-hidden" : "overflow-hidden"}`}>
+        <div className={`flex-1 relative ${tab === "app" ? "flex flex-col overflow-hidden" : "overflow-hidden"}`}>
+          {showVersionHistory && (
+            <div className="absolute inset-0 z-10 bg-white overflow-y-auto">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">Version History</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">{active?.commits?.length ?? 0} commits</p>
+                </div>
+                <button onClick={() => setShowVersionHistory(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {[...(active?.commits ?? [])].reverse().map((c, i) => (
+                  <div key={c.sha} className="px-6 py-4 flex items-start gap-4 hover:bg-gray-50">
+                    <div className="flex flex-col items-center gap-1 flex-shrink-0">
+                      <div className="w-3 h-3 rounded-full bg-indigo-500 border-2 border-indigo-200" />
+                      {i < (active?.commits?.length ?? 0) - 1 && <div className="w-0.5 h-8 bg-gray-200" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{c.message}</p>
+                      <p className="text-xs text-gray-400 mt-0.5 font-mono">{c.sha} · {new Date(c.ts).toLocaleString()}</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (!activeSid) return;
+                        setSessions((prev) => prev.map((s) =>
+                          s.id === activeSid
+                            ? { ...s, plan: c.planSnapshot, uiHtml: c.uiHtmlSnapshot }
+                            : s
+                        ));
+                        setShowVersionHistory(false);
+                      }}
+                      className="flex items-center gap-1 px-2.5 py-1 border border-gray-200 text-xs text-gray-600 rounded-lg hover:bg-gray-100 flex-shrink-0"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Revert
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {tab === "plan" && <PlanTab plan={plan} promptHistory={active?.promptHistory} />}
           {tab === "agents" && <AgentsTab plan={plan} />}
           {tab === "app" && <AppTab plan={plan} uiHtml={uiHtml} onGenerateUI={() => handleGenerateUI()} generatingUI={generatingUI} uiError={uiError} progressStep={progressStep} />}

@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { agentsApi } from "../api/client";
+import type { PromptVersion } from "../components/PromptEvolution";
+import { detectChangeType, PromptEvolutionSection, buildRepairEntry } from "../components/PromptEvolution";
+
+const STUDIO_HISTORY_KEY = "agentforge_studio_run_history";
 
 interface Agent {
   id: string;
@@ -139,7 +143,70 @@ export default function AgentStudio() {
   const [runningId, setRunningId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deployAgent, setDeployAgent] = useState<Agent | null>(null);
+  const [publishAgent, setPublishAgent] = useState<Agent | null>(null);
+  const [publishCategory, setPublishCategory] = useState("Productivity");
+  const [publishDescription, setPublishDescription] = useState("");
+  const [publishTags, setPublishTags] = useState("");
+  const [publishPricing, setPublishPricing] = useState<"free" | "paid">("free");
+  const [publishedIds, setPublishedIds] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("af_published_ids") ?? "[]"); }
+    catch { return []; }
+  });
   const navigate = useNavigate();
+
+  // Per-agent run history with self-healing prompt evolution
+  const [runHistory, setRunHistory] = useState<{ [agentId: string]: PromptVersion[] }>(() => {
+    try { return JSON.parse(localStorage.getItem(STUDIO_HISTORY_KEY) ?? "{}"); } catch { return {}; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem(STUDIO_HISTORY_KEY, JSON.stringify(runHistory)); } catch { /* full */ }
+  }, [runHistory]);
+
+  const recordRun = (agentId: string, userInput: string, responseText: string) => {
+    const changeSummary = responseText.split(/[.\n]/)[0]?.trim().slice(0, 120) ?? userInput.slice(0, 80);
+    const changeType = detectChangeType(userInput);
+
+    setRunHistory((prev) => {
+      const existing = prev[agentId] ?? [];
+      // Dedup guard
+      if (existing[existing.length - 1]?.userInput?.trim() === userInput.trim()) return prev;
+
+      let next: PromptVersion[];
+      if (existing.length === 0) {
+        next = [{
+          version: 1, ts: Date.now(), changeType: "initial",
+          userInput, enhancedPrompt: responseText.slice(0, 300),
+          changeLabel: "v1 · First test run", changeSummary,
+        }];
+      } else {
+        const lastVer = existing[existing.length - 1].version;
+        next = [...existing, {
+          version: lastVer + 1, ts: Date.now(), changeType,
+          userInput, enhancedPrompt: "",
+          changeSummary,
+          changeLabel: `Run ${lastVer} · ${changeType.charAt(0).toUpperCase() + changeType.slice(1)}`,
+        }];
+      }
+      return { ...prev, [agentId]: next };
+    });
+
+    // Self-correction verifier (50ms) — repairs any silently dropped run entry
+    const capturedId = agentId;
+    const capturedInput = userInput;
+    const capturedSummary = changeSummary;
+    const capturedType = changeType;
+    setTimeout(() => {
+      setRunHistory((latest) => {
+        const hist = latest[capturedId] ?? [];
+        if (hist[hist.length - 1]?.userInput?.trim() === capturedInput.trim()) return latest;
+        if (hist.some((v) => v.userInput?.trim() === capturedInput.trim())) return latest;
+        const repaired = buildRepairEntry(hist, capturedInput, capturedSummary, capturedType);
+        return { ...latest, [capturedId]: [...hist, repaired] };
+      });
+    }, 50);
+  };
 
   const load = () => {
     agentsApi.list().then((r) => setAgents(r.data)).catch(() => {}).finally(() => setLoading(false));
@@ -153,7 +220,10 @@ export default function AgentStudio() {
     setRunningId(id);
     try {
       const res = await agentsApi.run(id, input);
-      setRunResult((p) => ({ ...p, [id]: res.data.output }));
+      const output = res.data.output;
+      setRunResult((p) => ({ ...p, [id]: output }));
+      // Record run in evolution history with self-healing
+      recordRun(id, input, output);
     } catch {
       setRunResult((p) => ({ ...p, [id]: "Error running agent" }));
     } finally {
@@ -294,6 +364,33 @@ export default function AgentStudio() {
 
               {/* Run Input */}
               <div className="px-5 pb-5">
+                <div className="flex gap-2 mb-2">
+                  <button
+                    onClick={() => setDeployAgent(agent)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 border border-emerald-200 text-emerald-600 rounded-lg text-xs font-medium hover:bg-emerald-50 transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.5 12.75l6 6 9-13.5" />
+                    </svg>
+                    Deploy
+                  </button>
+                  <button
+                    onClick={() => {
+                      setPublishAgent(agent);
+                      setPublishDescription(agent.description ?? "");
+                      setPublishTags("");
+                      setPublishCategory("Productivity");
+                      setPublishPricing("free");
+                    }}
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                      publishedIds.includes(agent.id)
+                        ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                        : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    {publishedIds.includes(agent.id) ? "✓ Published" : "🌐 Publish"}
+                  </button>
+                </div>
                 <div className="flex gap-2">
                   <input
                     className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder-gray-400"
@@ -328,9 +425,169 @@ export default function AgentStudio() {
                     onClear={() => setRunResult((p) => { const n = {...p}; delete n[agent.id]; return n; })}
                   />
                 )}
+
+                {/* Run Evolution — shows after first successful run */}
+                {(runHistory[agent.id]?.length ?? 0) > 0 && (
+                  <div className="mt-4">
+                    <PromptEvolutionSection
+                      history={runHistory[agent.id]}
+                      sectionTitle="Run Evolution"
+                    />
+                  </div>
+                )}
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Publish Modal */}
+      {publishAgent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">Publish to Marketplace</h2>
+                <p className="text-xs text-gray-400 mt-0.5">{publishAgent.name}</p>
+              </div>
+              <button onClick={() => setPublishAgent(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Category</label>
+                <select
+                  value={publishCategory}
+                  onChange={(e) => setPublishCategory(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-teal-500"
+                >
+                  {["Productivity", "Communication", "Engineering", "Sales", "Analytics", "Support", "Finance", "HR"].map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Description</label>
+                <textarea
+                  rows={3}
+                  value={publishDescription}
+                  onChange={(e) => setPublishDescription(e.target.value)}
+                  placeholder="Describe what this agent does..."
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-teal-500 resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Tags (comma-separated)</label>
+                <input
+                  value={publishTags}
+                  onChange={(e) => setPublishTags(e.target.value)}
+                  placeholder="e.g. support, faq, rag"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-teal-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Pricing</label>
+                <div className="flex gap-2">
+                  {(["free", "paid"] as const).map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setPublishPricing(p)}
+                      className={`flex-1 py-2 rounded-lg text-xs font-medium border transition-colors capitalize ${
+                        publishPricing === p
+                          ? "bg-teal-50 border-teal-400 text-teal-700"
+                          : "border-gray-200 text-gray-500 hover:bg-gray-50"
+                      }`}
+                    >
+                      {p === "free" ? "🆓 Free" : "💰 Paid"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="px-6 pb-5 flex gap-3">
+              <button
+                onClick={() => setPublishAgent(null)}
+                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50"
+              >Cancel</button>
+              <button
+                onClick={() => {
+                  const newIds = [...publishedIds, publishAgent.id];
+                  setPublishedIds(newIds);
+                  localStorage.setItem("af_published_ids", JSON.stringify(newIds));
+                  const existing = JSON.parse(localStorage.getItem("af_marketplace_agents") ?? "[]");
+                  existing.push({
+                    id: publishAgent.id,
+                    name: publishAgent.name,
+                    model: publishAgent.model,
+                    description: publishDescription || publishAgent.description,
+                    category: publishCategory,
+                    tags: publishTags.split(",").map((t: string) => t.trim()).filter(Boolean),
+                    pricing: publishPricing,
+                    publishedAt: Date.now(),
+                  });
+                  localStorage.setItem("af_marketplace_agents", JSON.stringify(existing));
+                  setPublishAgent(null);
+                }}
+                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium transition-colors"
+              >
+                🌐 Publish Agent
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Deploy Modal */}
+      {deployAgent && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div>
+                <h3 className="font-semibold text-gray-900">Deploy — {deployAgent.name}</h3>
+                <p className="text-xs text-gray-400 mt-0.5">Share and integrate your agent</p>
+              </div>
+              <button onClick={() => setDeployAgent(null)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400">✕</button>
+            </div>
+            <div className="p-6 space-y-5">
+              {/* Status */}
+              <div className="flex items-center gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="text-sm font-medium text-emerald-700">Agent deployed</span>
+                <span className="ml-auto text-xs text-emerald-600">v{deployAgent.current_version}</span>
+              </div>
+
+              {/* cURL */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">cURL</p>
+                  <button onClick={() => { navigator.clipboard.writeText(`curl -X POST https://api.agentforge.io/v1/agents/${deployAgent.id}/run \\\n  -H "Authorization: Bearer YOUR_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{"message": "Hello"}'`); }} className="text-xs text-teal-600 hover:underline">Copy</button>
+                </div>
+                <pre className="bg-gray-900 text-green-400 rounded-xl p-3 text-xs overflow-x-auto whitespace-pre-wrap">{`curl -X POST https://api.agentforge.io/v1/agents/${deployAgent.id}/run \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"message": "Hello"}'`}</pre>
+              </div>
+
+              {/* Embed */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Embed Widget</p>
+                  <button onClick={() => { navigator.clipboard.writeText(`<iframe src="https://agentforge.io/embed/${deployAgent.id}" width="400" height="600" frameborder="0" />`); }} className="text-xs text-teal-600 hover:underline">Copy</button>
+                </div>
+                <pre className="bg-gray-900 text-blue-400 rounded-xl p-3 text-xs overflow-x-auto whitespace-pre-wrap">{`<iframe\n  src="https://agentforge.io/embed/${deployAgent.id}"\n  width="400" height="600"\n  frameborder="0"\n/>`}</pre>
+              </div>
+
+              {/* Share link */}
+              <div>
+                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2">Share Link</p>
+                <div className="flex items-center gap-2">
+                  <input readOnly value={`https://agentforge.io/agents/${deployAgent.id}`}
+                    className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-600 bg-gray-50 outline-none" />
+                  <button onClick={() => navigator.clipboard.writeText(`https://agentforge.io/agents/${deployAgent.id}`)}
+                    className="px-3 py-2 bg-gray-900 text-white rounded-xl text-xs hover:bg-gray-700">Copy</button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

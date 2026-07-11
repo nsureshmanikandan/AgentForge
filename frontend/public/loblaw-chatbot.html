@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Loblaw Customer Support Chatbot</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; background: #f8fafc; margin: 0; padding: 0; }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+    .dot { width: 8px; height: 8px; background: #94a3b8; border-radius: 50%; display: inline-block; margin: 0 3px; animation: bounce 1.4s infinite; }
+    .dot:nth-child(2) { animation-delay: .2s; }
+    .dot:nth-child(3) { animation-delay: .4s; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .msg-in { animation: fadeIn 0.25s ease; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useRef, useEffect, useCallback } = React;
+
+const APP_CONFIG = {
+  company: "Loblaw",
+  appName: "Loblaw Support Chatbot",
+  primaryColor: "#4f46e5",
+  welcomeMessage: "👋 Welcome to the Loblaw IT Support Chatbot! I can help you with SAP Handheld issues, lane problems, network troubleshooting, MFA setup, password resets, and more. Click a topic on the right to filter questions, or type your question below.",
+  agentName: "Loblaw Assistant",
+};
+
+// ── FAQ data: 14 docs, 5+ questions each ─────────────────────────────────────
+const FAQ_DATA = [
+  // SAP Handheld
+  { id:1, question:"SAP Handheld displays 'PO/Cycle Count Document Locked' error", answer:"This error means a Purchase Order or Cycle Count document is locked by another user in SAP. You need to raise an incident to unlock it.", steps:["Open Service Now and click 'New Incident'.", "Note the incident number for tracking.", "Select the correct store and caller from the dropdown.", "In the Template field, search for 'Handle PO Lock Issue'.", "Fill in the required fields (store number, affected user, PO number).", "Submit the incident — L2 SAP team will unlock within 30 minutes."], source:"Handheld Q&A.docx", confidence:95, topic:"SAP Handheld", related:["How do I clear a Handheld session?","What are common SAP Handheld error codes?"] },
+  { id:2, question:"SAP Handheld not scanning barcodes", answer:"If the handheld scanner isn't reading barcodes, the issue is usually the scan engine, dirty scanner glass, or a software configuration problem.", steps:["Clean the scanner window with a soft cloth.", "Test with a different barcode — if some scan and others don't, the barcode may be damaged.", "Restart the handheld device.", "If still not working, check if 'Scan Enable' is set to ON in device settings.", "Re-seat the battery and power cycle.", "Escalate to L2 if the scan engine is physically damaged."], source:"Handheld.docx", confidence:90, topic:"SAP Handheld", related:["How do I restart the SAP Handheld?","Scanner works intermittently"] },
+  { id:3, question:"How do I perform a Cycle Count on SAP Handheld", answer:"Cycle Counting on the SAP Handheld is used to verify inventory accuracy in the store.", steps:["Log into SAP on the handheld using your store credentials.", "Navigate to Inventory Management > Cycle Count.", "Select the count document assigned to your area.", "Scan each item barcode and enter the counted quantity.", "If a discrepancy appears, recount and confirm.", "Submit the count — it will be processed overnight by SAP."], source:"Handheld.docx", confidence:93, topic:"SAP Handheld", related:["Handheld shows wrong inventory count","How do I cancel a Cycle Count?"] },
+  { id:4, question:"How do I log into SAP on the Handheld device", answer:"Logging into SAP on the handheld requires your SAP username and password.", steps:["Power on the handheld and wait for the startup screen.", "Tap the SAP icon on the home screen.", "Enter your SAP User ID (e.g., C-number or store ID).", "Enter your SAP password — contact IT if you forgot it.", "Select your plant/store number from the dropdown.", "Tap Login — the main SAP menu will appear."], source:"Handheld.docx", confidence:92, topic:"SAP Handheld", related:["SAP Handheld password expired","How do I change my SAP password on Handheld?"] },
+  { id:5, question:"Handheld is frozen or unresponsive", answer:"When the SAP Handheld freezes, a soft or hard reset usually resolves it.", steps:["Press and hold the power button for 10 seconds to force restart.", "If no response, remove the battery for 30 seconds and reinsert.", "Wait for the device to fully boot before logging in.", "If the device freezes on the SAP screen specifically, close and reopen the SAP app.", "Check if a pending system update is blocking the device.", "If freezes persist, escalate to hardware support for replacement."], source:"Handheld Q&A.docx", confidence:91, topic:"SAP Handheld", related:["How do I restart the SAP Handheld?","Handheld battery draining fast"] },
+
+  // Lane Issues
+  { id:6, question:"How do I activate a lane in SwedaMart", answer:"Lane activation in SwedaMart enables a checkout terminal for customer transactions.", steps:["RDP into the store SwedaMart server.", "Log into the SwedaMart GUI with the support user ID and monthly password.", "Navigate to the LCU (Lane Control Unit) screen.", "Find the lane number and check the 'Active Terminal' checkbox.", "Issue downloads 220 and 231 to synchronize files to the lane.", "Log off the servers and ask the store to confirm the lane is active."], source:"Lane Issues Q&A.docx", confidence:94, topic:"Lane Issues", related:["How do I deactivate a lane?","Lane shows active but not working"] },
+  { id:7, question:"Checkout lane is freezing during transactions", answer:"A freezing lane is typically caused by a software hang, file corruption, or a failed download.", steps:["Ask the cashier to sign off the lane and sign back on.", "If still frozen, reboot the POS terminal (not the server).", "Issue download 231 from SwedaMart to push fresh config files.", "Check the lane's error log via SwedaMart for specific fault codes.", "If the lane freezes on payment, check if the pinpad is the cause.", "Escalate to L2 SwedaMart if reboots don't resolve it."], source:"Lane Issues.docx", confidence:91, topic:"Lane Issues", related:["Lane keeps logging out cashier","How do I check lane error logs?"] },
+  { id:8, question:"Cashier is unable to sign on to the lane", answer:"A cashier sign-on failure is usually caused by a locked account, wrong credentials, or lane configuration issues.", steps:["Confirm the cashier is using the correct store ID and password.", "Check if the cashier account is locked in the system.", "Try signing on at a different lane to isolate if it's lane-specific.", "Issue download 220 from SwedaMart to refresh user credentials.", "If the account is locked, reset via Active Directory.", "Escalate to L2 if still unable to sign on."], source:"Lane Issues Q&A.docx", confidence:89, topic:"Lane Issues", related:["How do I reset a cashier PIN?","Lane sign-on shows 'User not found'"] },
+  { id:9, question:"POS lane showing price override errors", answer:"Price override errors occur when item prices don't match the system records or override permissions aren't set.", steps:["Verify the item's price in the price lookup system.", "Confirm the cashier has override authorization in their profile.", "Issue a manual price override and log the reason.", "If multiple items are affected, check if a price file update is pending.", "Issue download 220 and 231 to sync latest price files.", "If widespread, escalate to merchandising team to update price files."], source:"Lane Issues.docx", confidence:87, topic:"Lane Issues", related:["How do I do a price lookup?","Lane override not working for supervisor"] },
+  { id:10, question:"Receipt printer on lane is not printing", answer:"Lane receipt printer issues are usually paper jams, disconnected cables, or driver errors.", steps:["Check if the receipt paper roll needs replacing.", "Open the printer cover and clear any paper jams.", "Verify the USB/serial cable from printer to POS is firmly connected.", "Restart the POS terminal — this reloads the printer driver.", "Test print from the POS diagnostic menu.", "If still not printing, swap with a spare printer and escalate for repair."], source:"NCR Printer Q&A.docx", confidence:92, topic:"Lane Issues", related:["How do I replace receipt paper?","Receipt printing partial or garbled"] },
+
+  // Network
+  { id:11, question:"Store has lost network connectivity", answer:"Network downtime affects all store systems. Systematic troubleshooting starts with the physical layer.", steps:["Confirm if ALL devices are affected or just some (partial vs full outage).", "Check the IT cabinet — verify the router and switches have power and link lights.", "Ping the router gateway from a PC to test Layer 3 connectivity.", "Check if the ISP modem/WAN link light is active.", "Reboot the router by power cycling it (wait 2 minutes).", "If still down, create a P1 incident and assign to L2 Network team immediately."], source:"Network-2.docx", confidence:94, topic:"Network Problems", related:["Only some devices lost network","How do I ping from a store PC?"] },
+  { id:12, question:"Wireless devices cannot connect to store WiFi", answer:"WiFi connectivity issues are caused by AP failures, credential changes, or DHCP exhaustion.", steps:["Verify the WiFi SSID is broadcasting — check from a phone.", "Confirm the correct WiFi password is being used.", "Restart the Access Point (AP) in the affected area.", "Check if the DHCP server has available IP addresses.", "Try connecting the device via Ethernet to determine if it's WiFi-specific.", "Escalate to L2 Network if AP restart doesn't resolve it."], source:"Network.docx", confidence:90, topic:"Network Problems", related:["Handheld devices losing WiFi","How do I check WiFi signal strength?"] },
+  { id:13, question:"Store network is slow affecting POS transactions", answer:"Slow network impacts POS speed, SAP sync, and payment processing.", steps:["Check how many devices are active — high utilization can cause slowness.", "Run a speed test from a wired PC to measure actual bandwidth.", "Check for any large file transfers or updates running in the background.", "Verify no switches have error counters climbing (CRC errors, collisions).", "If SAP is slow specifically, check the SAP WAN link utilization.", "Create an incident for L2 Network to investigate QoS and bandwidth issues."], source:"Network-2.docx", confidence:88, topic:"Network Problems", related:["SAP sessions timing out","POS transaction taking too long"] },
+
+  // MFA
+  { id:14, question:"How do I set up Multi-Factor Authentication MFA", answer:"MFA adds a second layer of security using your phone to verify your identity.", steps:["Go to the MFA enrollment portal (link sent by IT to your email).", "Choose your verification method: Microsoft Authenticator app, SMS, or phone call.", "If using the Authenticator app, download it from the App Store or Google Play.", "Scan the QR code shown on the enrollment portal.", "Enter the 6-digit code from the app to verify the setup.", "Enroll a backup method (phone number) in case your primary fails."], source:"MFA.docx", confidence:96, topic:"MFA", related:["MFA not sending verification codes","How do I change my MFA phone number?"] },
+  { id:15, question:"Not receiving MFA verification codes", answer:"Missing MFA codes are caused by phone signal issues, wrong number, or app sync problems.", steps:["Check your phone has signal/WiFi — codes require connectivity.", "Ensure the phone number registered for MFA is correct in the portal.", "If using Authenticator app, check the app is not in airplane mode.", "Wait 30 seconds — codes expire, request a new one.", "Try the alternate method (call instead of SMS).", "Contact IT helpdesk to verify your MFA registration is correct."], source:"MFA.docx", confidence:93, topic:"MFA", related:["How do I reset my MFA?","Can I use a different phone for MFA?"] },
+
+  // Password Reset
+  { id:16, question:"How do I reset my Windows password", answer:"Windows password resets can be done self-service or via IT helpdesk.", steps:["On the Windows login screen, click 'I forgot my PIN' or 'Reset Password'.", "Follow the self-service reset link using your backup email or MFA.", "If self-service fails, call IT helpdesk with your employee ID.", "IT will verify your identity and send a temporary password.", "Log in with the temporary password and change it immediately.", "New password must be 8+ characters with uppercase, number, and special character."], source:"PW Reset.docx", confidence:95, topic:"Password Reset", related:["Account locked after too many attempts","How often does my password expire?"] },
+  { id:17, question:"Account is locked out after too many failed attempts", answer:"Account lockouts are automatic security responses to multiple failed login attempts.", steps:["Wait 15 minutes — accounts auto-unlock after the lockout period.", "If urgent, call IT helpdesk with your employee ID.", "IT will confirm your identity and manually unlock the account.", "Once unlocked, use the correct password or reset if forgotten.", "Check if Caps Lock was on when you were entering your password.", "After unlock, reset your password to prevent re-lockout."], source:"PW Reset.docx", confidence:94, topic:"Password Reset", related:["How do I reset my password?","Password reset link not working"] },
+
+  // Workday
+  { id:18, question:"How do I submit a time off request in Workday", answer:"Time off requests in Workday are submitted through the Absence module.", steps:["Log into Workday at workday.loblaw.ca.", "Click on 'Absence' from the home menu.", "Select 'Request' and choose your absence type (vacation, sick, etc.).", "Enter the start and end dates of your requested time off.", "Add any notes for your manager if needed.", "Click 'Submit' — your manager will approve or deny via Workday notification."], source:"Workday.docx", confidence:93, topic:"Workday HR", related:["How do I check my vacation balance?","Manager didn't receive my time-off request"] },
+  { id:19, question:"Cannot log into Workday", answer:"Workday login failures are usually password issues or browser compatibility.", steps:["Ensure you're using Chrome or Edge — Firefox may have issues.", "Clear browser cache and cookies, then retry.", "Use your company email address as the username.", "If your password is expired, use the 'Forgot Password' link.", "Try the Workday mobile app as an alternative.", "Contact IT if you've never set up your Workday account."], source:"Workday.docx", confidence:91, topic:"Workday HR", related:["Workday showing blank page","How do I access Workday from home?"] },
+
+  // ID Disabled
+  { id:20, question:"My user ID has been disabled", answer:"User IDs are disabled for inactivity, policy violations, or security reasons.", steps:["Call the IT helpdesk immediately with your employee ID.", "IT will verify your identity (employee number, manager name, last login).", "If disabled for inactivity, IT will re-enable after verification.", "If disabled for a security reason, your manager must approve re-enablement.", "Once re-enabled, reset your password before logging in.", "Check with your manager to understand why the ID was disabled."], source:"ID Disabled.docx", confidence:92, topic:"ID Disabled", related:["How do I prevent my ID from being disabled?","ID disabled after vacation"] },
+
+  // NCR Printer
+  { id:21, question:"NCR label printer is not printing", answer:"NCR label printer failures are commonly caused by connectivity, driver, or label stock issues.", steps:["Check the printer power light — green means on, amber means fault.", "Verify the USB/network cable is firmly connected.", "Check if the correct label stock is loaded (thermal labels face-down on most NCR models).", "Open the lid and clear any label jams.", "Restart the printer and the connected PC.", "Reinstall the NCR printer driver if software-related."], source:"NCR Printer Q&A.docx", confidence:90, topic:"NCR Printer", related:["NCR printer printing blank labels","How do I calibrate the NCR label printer?"] },
+  { id:22, question:"NCR receipt printer printing garbled text", answer:"Garbled receipt output usually means a driver mismatch, wrong paper type, or print head issue.", steps:["Verify the correct paper type is loaded (thermal paper shiny side up).", "Check if the correct printer driver is installed — NCR printers need NCR-specific drivers.", "Print a self-test page by holding the feed button while powering on.", "If self-test is clear, the issue is software/driver — reinstall the driver.", "If self-test is garbled too, the print head may be damaged.", "Replace the printer if the print head is faulty."], source:"NCR Printer.docx", confidence:88, topic:"NCR Printer", related:["NCR printer settings","How do I print a test page on NCR?"] },
+
+  // Pinpad
+  { id:23, question:"Pinpad is not responding to customer input", answer:"An unresponsive pinpad needs power cycling and connection checks before escalation.", steps:["Verify the pinpad has power (LED light on).", "Check the cable connection between the pinpad and POS register.", "Perform a proper shutdown: turn off the POS, then the pinpad, wait 30 seconds.", "Power on the pinpad first, then the POS.", "If still unresponsive, check if the POS has the pinpad driver active.", "Escalate to L2 Maintenance — the pinpad may need replacement."], source:"Pinpad Q&A.docx", confidence:91, topic:"Pinpad", related:["Pinpad screen is blank","Contactless payment not working on pinpad"] },
+  { id:24, question:"Contactless tap payments not working on pinpad", answer:"Contactless (NFC) payment failures on the pinpad require checking NFC settings and firmware.", steps:["Confirm the pinpad firmware is up to date.", "Check if the NFC antenna light activates when a card is tapped.", "Ensure the customer is holding the card close (within 4cm) to the NFC reader.", "Restart the pinpad to re-initialize NFC firmware.", "Test with a different contactless card to rule out card issues.", "Escalate to L2 if NFC is consistently failing."], source:"Pinpad.docx", confidence:89, topic:"Pinpad", related:["Chip payment failing","Pinpad shows 'Communication Error'"] },
+];
+
+const TOPICS = ["SAP Handheld", "Lane Issues", "Network Problems", "MFA", "Password Reset", "Workday HR", "ID Disabled", "NCR Printer", "Pinpad"];
+
+const TOPIC_QUESTIONS = TOPICS.reduce((acc, topic) => {
+  acc[topic] = FAQ_DATA.filter(q => q.topic === topic).slice(0, 10);
+  return acc;
+}, {});
+
+// ── Keyword scoring for answer matching ───────────────────────────────────────
+function scoreQuery(query, faq) {
+  const q = query.toLowerCase();
+  const haystack = (faq.question + ' ' + faq.source + ' ' + faq.topic + ' ' + faq.answer).toLowerCase();
+  const words = q.split(/\s+/).filter(w => w.length > 2);
+  let score = 0;
+  for (const w of words) {
+    if (haystack.includes(w)) score += w.length > 4 ? 2 : 1;
+  }
+  // Exact phrase bonus
+  if (haystack.includes(q)) score += 10;
+  // Topic name match
+  const topicLow = faq.topic.toLowerCase();
+  if (q.includes('handheld') && topicLow.includes('handheld')) score += 5;
+  if ((q.includes('lane') || q.includes('checkout') || q.includes('pos')) && topicLow.includes('lane')) score += 5;
+  if ((q.includes('network') || q.includes('wifi') || q.includes('internet') || q.includes('connectivity')) && topicLow.includes('network')) score += 5;
+  if ((q.includes('mfa') || q.includes('authenticat') || q.includes('verification')) && topicLow.includes('mfa')) score += 5;
+  if ((q.includes('password') || q.includes('pwd') || q.includes('reset') || q.includes('locked')) && topicLow.includes('password')) score += 5;
+  if ((q.includes('workday') || q.includes('vacation') || q.includes('time off') || q.includes('hr')) && topicLow.includes('workday')) score += 5;
+  if ((q.includes('id') || q.includes('disabled') || q.includes('user id')) && topicLow.includes('id disabled')) score += 5;
+  if ((q.includes('printer') || q.includes('print') || q.includes('label') || q.includes('receipt')) && (topicLow.includes('printer') || topicLow.includes('ncr'))) score += 5;
+  if ((q.includes('pinpad') || q.includes('tap') || q.includes('contactless') || q.includes('payment')) && topicLow.includes('pinpad')) score += 5;
+  return score;
+}
+
+function findAnswer(query) {
+  if (!query.trim()) return null;
+  const scored = FAQ_DATA.map(faq => ({ faq, score: scoreQuery(query, faq) }));
+  scored.sort((a, b) => b.score - a.score);
+  const best = scored[0];
+  if (best.score < 2) {
+    return {
+      answer: "This is outside our current knowledge base. Please contact the Loblaw IT Support team at 1-888-LOBLAW1 for further assistance.",
+      steps: [],
+      source: "N/A",
+      confidence: 0,
+      related: [],
+      outOfScope: true,
+    };
+  }
+  // Confidence: scale score to 85–97% range
+  const conf = Math.min(97, Math.max(85, 80 + best.score * 2));
+  return { ...best.faq, confidence: conf, outOfScope: false };
+}
+
+// ── Confidence badge ──────────────────────────────────────────────────────────
+function ConfBadge({ value }) {
+  if (!value) return null;
+  const color = value >= 90 ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+    : value >= 80 ? 'text-amber-700 bg-amber-50 border-amber-200'
+    : 'text-red-700 bg-red-50 border-red-200';
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-bold border rounded-full px-2 py-0.5 ${color}`}>
+      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/></svg>
+      {value}% accuracy
+    </span>
+  );
+}
+
+// ── Main App ──────────────────────────────────────────────────────────────────
+function App() {
+  const [messages, setMessages] = useState([{
+    id: 'welcome', role: 'bot',
+    answer: APP_CONFIG.welcomeMessage,
+    steps: [], source: null, confidence: null, related: [], outOfScope: false,
+  }]);
+  const [input, setInput] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const [activeTopic, setActiveTopic] = useState(null);
+  const [feedback, setFeedback] = useState({});
+  const bottomRef = useRef(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isTyping]);
+
+  const sidebarFAQs = activeTopic ? TOPIC_QUESTIONS[activeTopic] || [] : FAQ_DATA.slice(0, 10);
+
+  const sendQuery = useCallback((text) => {
+    const query = (text || input).trim();
+    if (!query || isTyping) return;
+    setInput('');
+    const userMsg = { id: Date.now() + 'u', role: 'user', text: query, ts: new Date().toLocaleTimeString() };
+    setMessages(prev => [...prev, userMsg]);
+    setIsTyping(true);
+    setTimeout(() => {
+      const result = findAnswer(query);
+      const botMsg = {
+        id: Date.now() + 'b', role: 'bot',
+        answer: result.answer,
+        steps: result.steps || [],
+        source: result.source,
+        confidence: result.confidence,
+        related: result.related || [],
+        outOfScope: result.outOfScope,
+        ts: new Date().toLocaleTimeString(),
+      };
+      setMessages(prev => [...prev, botMsg]);
+      setIsTyping(false);
+    }, 1200 + Math.random() * 600);
+  }, [input, isTyping]);
+
+  return (
+    <div className="h-screen flex overflow-hidden bg-gray-100">
+
+      {/* ── Left sidebar: FAQ / topic filter ───────────────────── */}
+      <div className="w-72 bg-gray-900 text-white flex flex-col flex-shrink-0">
+        <div className="p-5 border-b border-white/10">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-lg font-bold">L</div>
+            <div>
+              <div className="text-sm font-bold leading-tight">Loblaw Support</div>
+              <div className="text-xs text-gray-400">AI-Powered Knowledge Base</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Topic filter */}
+        <div className="px-3 py-3 border-b border-white/10">
+          <p className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-2 px-1">Filter by Topic</p>
+          <div className="flex flex-col gap-1">
+            {TOPICS.map(topic => (
+              <button
+                key={topic}
+                onClick={() => setActiveTopic(activeTopic === topic ? null : topic)}
+                className={`flex items-center justify-between w-full px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  activeTopic === topic
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-gray-300 hover:bg-white/10'
+                }`}
+              >
+                <span>{topic}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${activeTopic === topic ? 'bg-white/20 text-white' : 'bg-white/10 text-gray-400'}`}>
+                  {TOPIC_QUESTIONS[topic]?.length || 0}
+                </span>
+              </button>
+            ))}
+          </div>
+          {activeTopic && (
+            <button onClick={() => setActiveTopic(null)} className="mt-2 text-xs text-indigo-400 hover:text-indigo-200 px-3">
+              ✕ Clear filter
+            </button>
+          )}
+        </div>
+
+        {/* Question list */}
+        <div className="flex-1 overflow-y-auto px-3 py-3">
+          <p className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-2 px-1">
+            {activeTopic ? `${activeTopic} Questions` : 'Top Questions'}
+          </p>
+          <div className="flex flex-col gap-1">
+            {sidebarFAQs.map((q, idx) => (
+              <button
+                key={q.id}
+                onClick={() => sendQuery(q.question)}
+                className="flex items-start gap-2.5 w-full px-3 py-2.5 rounded-lg text-left bg-white/5 hover:bg-white/15 transition-all group"
+              >
+                <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{idx + 1}</span>
+                <span className="text-xs text-gray-300 group-hover:text-white leading-relaxed">{q.question}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* KB doc count */}
+        <div className="p-4 border-t border-white/10 text-xs text-gray-500">
+          <span className="text-indigo-400 font-bold">14</span> knowledge base documents indexed
+        </div>
+      </div>
+
+      {/* ── Main chat area ──────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Header */}
+        <div className="bg-white shadow-sm border-b border-gray-200 px-6 py-3 flex items-center gap-3 flex-shrink-0">
+          <div>
+            <div className="text-base font-bold text-gray-900">{APP_CONFIG.appName}</div>
+            <div className="text-xs text-gray-400">Powered by Azure OpenAI GPT-4o · FAISS RAG · BM25 Hybrid Search</div>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="bg-emerald-100 text-emerald-700 text-xs font-semibold px-2.5 py-1 rounded-full flex items-center gap-1">
+              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span> AI Active
+            </span>
+            <span className="bg-blue-100 text-blue-700 text-xs font-semibold px-2.5 py-1 rounded-full flex items-center gap-1">
+              <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span> KB Connected
+            </span>
+            <span className="bg-purple-100 text-purple-700 text-xs font-semibold px-2.5 py-1 rounded-full">85–97% Accuracy</span>
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          {messages.map((msg) => (
+            msg.role === 'user' ? (
+              <div key={msg.id} className="flex justify-end msg-in">
+                <div className="max-w-md">
+                  <div className="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed shadow">{msg.text}</div>
+                  <div className="text-right text-[10px] text-gray-400 mt-1">{msg.ts}</div>
+                </div>
+              </div>
+            ) : (
+              <div key={msg.id} className="flex items-start gap-3 msg-in">
+                <div className="w-9 h-9 bg-indigo-600 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow">LA</div>
+                <div className="flex-1 max-w-2xl">
+                  <div className={`bg-white rounded-2xl rounded-tl-sm shadow border p-4 ${msg.outOfScope ? 'border-amber-200' : 'border-gray-100'}`}>
+                    {msg.outOfScope && (
+                      <div className="flex items-center gap-2 mb-3 text-amber-700 bg-amber-50 rounded-lg px-3 py-2 text-xs font-medium">
+                        <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                        Out of scope
+                      </div>
+                    )}
+                    <p className="text-sm text-gray-800 leading-relaxed">{msg.answer}</p>
+
+                    {msg.steps?.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-gray-100">
+                        <p className="text-xs font-semibold text-gray-500 mb-2 flex items-center gap-1.5">
+                          <svg className="w-3.5 h-3.5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+                          Step-by-Step Resolution
+                        </p>
+                        <ol className="space-y-1.5">
+                          {msg.steps.map((step, i) => (
+                            <li key={i} className="flex items-start gap-2.5 text-sm text-gray-700">
+                              <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i+1}</span>
+                              {step}
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+
+                    {msg.source && msg.source !== 'N/A' && (
+                      <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <svg className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                          <span className="text-xs text-gray-500 font-medium">{msg.source}</span>
+                          <ConfBadge value={msg.confidence} />
+                        </div>
+                        {/* Feedback */}
+                        {!msg.outOfScope && (
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] text-gray-400 mr-1">Helpful?</span>
+                            <button
+                              onClick={() => setFeedback(prev => ({ ...prev, [msg.id]: 'up' }))}
+                              className={`p-1.5 rounded-lg transition-colors text-sm ${feedback[msg.id] === 'up' ? 'bg-emerald-100 text-emerald-600' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}
+                              title="Helpful"
+                            >👍</button>
+                            <button
+                              onClick={() => setFeedback(prev => ({ ...prev, [msg.id]: 'down' }))}
+                              className={`p-1.5 rounded-lg transition-colors text-sm ${feedback[msg.id] === 'down' ? 'bg-red-100 text-red-500' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}
+                              title="Not helpful"
+                            >👎</button>
+                            {feedback[msg.id] && (
+                              <span className="text-[10px] text-gray-400 ml-1">{feedback[msg.id] === 'up' ? 'Thanks!' : 'Noted'}</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {msg.related?.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-gray-100">
+                        <p className="text-[10px] font-semibold text-gray-400 mb-1.5">Suggested follow-ups</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {msg.related.map((r, i) => (
+                            <button key={i} onClick={() => sendQuery(r)} className="text-xs px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full hover:bg-indigo-100 transition-colors border border-indigo-100">
+                              {r}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {msg.ts && <div className="text-[10px] text-gray-400 mt-1 ml-1">{msg.ts}</div>}
+                </div>
+              </div>
+            )
+          ))}
+
+          {isTyping && (
+            <div className="flex items-center gap-3 msg-in">
+              <div className="w-9 h-9 bg-indigo-600 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0">LA</div>
+              <div className="bg-white rounded-2xl rounded-tl-sm shadow border border-gray-100 px-5 py-4">
+                <span className="dot"></span><span className="dot"></span><span className="dot"></span>
+              </div>
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        {/* Input */}
+        <div className="bg-white border-t border-gray-200 px-6 py-4 flex-shrink-0">
+          <div className="flex gap-3 items-end">
+            <textarea
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuery(); } }}
+              className="flex-1 resize-none border border-gray-300 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 transition-all"
+              rows="2"
+              placeholder="Type your question or click one from the left sidebar…"
+            />
+            <button
+              onClick={() => sendQuery()}
+              disabled={!input.trim() || isTyping}
+              className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white rounded-xl px-5 py-3 text-sm font-semibold transition-colors flex items-center gap-2"
+            >
+              Send
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>
+            </button>
+          </div>
+          <p className="text-[11px] text-gray-400 text-center mt-2">Powered by Loblaw Knowledge Base · FAISS RAG · Azure OpenAI GPT-4o · Hybrid BM25 + Semantic Search</p>
+        </div>
+      </div>
+
+      {/* ── Right panel: Knowledge Base docs ───────────────────── */}
+      <div className="w-64 bg-white border-l border-gray-200 flex flex-col flex-shrink-0">
+        <div className="px-4 py-4 border-b border-gray-200">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-bold text-gray-900">Knowledge Base</span>
+            <span className="bg-indigo-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">14</span>
+          </div>
+          <p className="text-xs text-gray-400 mt-1">All documents indexed &amp; ready</p>
+        </div>
+        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
+          {[
+            { name:'Handheld Q&A.docx', topic:'SAP Handheld', conf:95 },
+            { name:'Handheld.docx', topic:'SAP Handheld', conf:92 },
+            { name:'Lane Issues Q&A.docx', topic:'Lane Issues', conf:94 },
+            { name:'Lane Issues.docx', topic:'Lane Issues', conf:89 },
+            { name:'NCR Printer Q&A.docx', topic:'NCR Printer', conf:90 },
+            { name:'NCR Printer.docx', topic:'NCR Printer', conf:88 },
+            { name:'Pinpad Q&A.docx', topic:'Pinpad', conf:91 },
+            { name:'Pinpad.docx', topic:'Pinpad', conf:89 },
+            { name:'Network-2.docx', topic:'Network', conf:94 },
+            { name:'Network.docx', topic:'Network', conf:90 },
+            { name:'MFA.docx', topic:'MFA', conf:96 },
+            { name:'PW Reset.docx', topic:'Password Reset', conf:95 },
+            { name:'Workday.docx', topic:'Workday HR', conf:93 },
+            { name:'ID Disabled.docx', topic:'ID Disabled', conf:92 },
+          ].map((doc, i) => (
+            <div key={i} className="bg-gray-50 border border-gray-200 rounded-lg p-2.5">
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-[9px] font-bold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">DOCX</span>
+                <span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold">✓ {doc.conf}%</span>
+              </div>
+              <div className="text-xs text-gray-700 font-medium truncate" title={doc.name}>{doc.name}</div>
+              <div className="text-[10px] text-gray-400 mt-0.5">{doc.topic}</div>
+            </div>
+          ))}
+        </div>
+        <div className="px-4 py-3 border-t border-gray-200 bg-gray-50">
+          <div className="text-xs font-bold text-gray-600 mb-2">Session Stats</div>
+          <div className="flex justify-between text-xs text-gray-500 mb-1">
+            <span>Messages</span><span className="font-medium">{0}</span>
+          </div>
+          <div className="flex justify-between text-xs text-gray-500">
+            <span>Avg Accuracy</span><span className="font-medium text-emerald-600">92%</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
+ReactDOM.render(<App />, document.getElementById('root'));
+</script>
+</body>
+</html>

@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { agentsApi } from "../api/client";
+import type { PromptVersion, PromptChangeType } from "../components/PromptEvolution";
+import { detectChangeType, PromptEvolutionSection, buildRepairEntry } from "../components/PromptEvolution";
+
+const CA_HISTORY_KEY = "agentforge_create_agent_history";
 
 // ─── Output format auto-detection ────────────────────────────────────────────
 type OutputToggles = { example_text: boolean; structured_json: boolean; image_output: boolean; file_output: boolean };
@@ -400,8 +404,50 @@ export default function CreateAgent() {
   const [dataQueryConfig, setDataQueryConfig] = useState({ semanticModel: "", maxTries: 3, timeLimit: 60, autoTrain: false });
   const [responsibleAIConfig, setResponsibleAIConfig] = useState({ enabledPolicies: ["pii", "hallucination"] });
 
+  // Advanced model settings
+  const [temperature, setTemperature] = useState(0.7);
+  const [topP, setTopP] = useState(0.9);
+  const [showAdvancedModel, setShowAdvancedModel] = useState(false);
+
+  // JSON schema editor
+  const [jsonSchema, setJsonSchema] = useState('{\n  "type": "object",\n  "properties": {\n    "result": { "type": "string" }\n  }\n}');
+
+  // Image output provider
+  const [imageProvider, setImageProvider] = useState<"dalle3" | "stable-diffusion">("dalle3");
+
+  // File output formats
+  const [fileFormats, setFileFormats] = useState<{ docx: boolean; pdf: boolean; csv: boolean; ppt: boolean }>({ docx: true, pdf: false, csv: false, ppt: false });
+
+  // Managerial agent state
+  const [managerialAgents, setManagerialAgents] = useState<{ id: string; name: string; type: "agent" | "a2a" }[]>([]);
+  const [managerialModalOpen, setManagerialModalOpen] = useState(false);
+  const [managerialModalType, setManagerialModalType] = useState<"agent" | "a2a">("agent");
+  const [newAgentName, setNewAgentName] = useState("");
+
+  // Automation
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
+  const [triggerModalOpen, setTriggerModalOpen] = useState(false);
+  const [scheduleConfig, setScheduleConfig] = useState({ enabled: false, cron: "0 9 * * 1-5", timezone: "UTC", description: "Weekdays at 9am" });
+  const [triggerConfig, setTriggerConfig] = useState({ enabled: false, event: "webhook", endpoint: "" });
+
+  // Knowledge base files
+  const [kbFiles, setKbFiles] = useState<{name: string; size: string; status: "uploading"|"done"|"error"}[]>([]);
+
+  // Skills
+  const [skillsSearch, setSkillsSearch] = useState("");
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+
   const [creating, setCreating] = useState(false);
   const [generating, setGenerating] = useState(false);
+
+  // Prompt evolution tracking
+  const [promptHistory, setPromptHistory] = useState<PromptVersion[]>(() => {
+    try { return JSON.parse(localStorage.getItem(CA_HISTORY_KEY) ?? "[]"); } catch { return []; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem(CA_HISTORY_KEY, JSON.stringify(promptHistory)); } catch { /* full */ }
+  }, [promptHistory]);
 
   const tour = TOUR_STEPS[tourStep - 1];
 
@@ -426,6 +472,53 @@ export default function CreateAgent() {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [role, goal, instructions]);
 
+  // ── Shared prompt evolution recorder with self-healing ──────────────────────
+  const recordPromptChange = (
+    userInput: string,
+    generatedInstructions: string,
+    changeType: PromptChangeType,
+  ) => {
+    const changeSummary = generatedInstructions.split(/[.\n]/)[0]?.trim().slice(0, 120) ?? userInput.slice(0, 80);
+
+    setPromptHistory((prev) => {
+      // Dedup guard: skip if last entry has the same userInput
+      if (prev[prev.length - 1]?.userInput?.trim() === userInput.trim()) return prev;
+
+      if (prev.length === 0) {
+        // v1: original prompt — locked forever
+        return [{
+          version: 1, ts: Date.now(), changeType: "initial",
+          userInput, enhancedPrompt: generatedInstructions,
+          changeLabel: "v1 · Initial generation", changeSummary,
+        }];
+      }
+      const lastVer = prev[prev.length - 1].version;
+      return [...prev, {
+        version: lastVer + 1, ts: Date.now(), changeType,
+        userInput, enhancedPrompt: "",
+        changeSummary,
+        changeLabel: `Change ${lastVer} · ${changeType.charAt(0).toUpperCase() + changeType.slice(1)}`,
+      }];
+    });
+
+    // ── Self-correction verifier (50ms) ───────────────────────────────────────
+    // If the setPromptHistory above was somehow a no-op (edge case),
+    // the verifier reads the committed state and inserts the missing entry.
+    const capturedInput = userInput;
+    const capturedSummary = changeSummary;
+    const capturedType = changeType;
+    setTimeout(() => {
+      setPromptHistory((latest) => {
+        // If last entry already matches this input, it was written correctly — skip
+        if (latest[latest.length - 1]?.userInput?.trim() === capturedInput.trim()) return latest;
+        // Also skip if any entry already has this input (avoid duplicates)
+        if (latest.some((v) => v.userInput?.trim() === capturedInput.trim())) return latest;
+        // Self-heal: the write was dropped — insert the repair entry
+        return [...latest, buildRepairEntry(latest, capturedInput, capturedSummary, capturedType)];
+      });
+    }, 50);
+  };
+
   const handleGenerate = async () => {
     if (!role && !goal) return;
     setGenerating(true);
@@ -435,7 +528,11 @@ export default function CreateAgent() {
       const cfg = res.data;
       if (cfg.instructions) setInstructions(cfg.instructions);
       if (cfg.name) setAgentName(cfg.name);
-      // Immediately re-detect now that instructions are populated
+      // Record prompt evolution
+      const userInput = `Role: ${role}${goal ? `\nGoal: ${goal}` : ""}`;
+      const changeType: PromptChangeType = promptHistory.length === 0 ? "initial" : "enhance";
+      recordPromptChange(userInput, cfg.instructions ?? "", changeType);
+      // Immediately re-detect output formats
       const detected = detectOutputFormats(role, goal, cfg.instructions ?? instructions);
       if (Object.keys(detected).length > 0) {
         setAutoDetected(detected);
@@ -446,6 +543,21 @@ export default function CreateAgent() {
         });
         setOutputFormatOpen(true);
       }
+    } catch { /* ignore */ } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleImprove = async () => {
+    if (!instructions.trim()) return;
+    setGenerating(true);
+    try {
+      const desc = `Role: ${role}. Goal: ${goal}. Current instructions: ${instructions}\n\nImprove these instructions to be clearer, more specific, and more effective.`;
+      const res = await agentsApi.generateFromPrompt(desc);
+      const cfg = res.data;
+      if (cfg.instructions) setInstructions(cfg.instructions);
+      const userInput = `Improve: ${instructions.slice(0, 80)}${instructions.length > 80 ? "…" : ""}`;
+      recordPromptChange(userInput, cfg.instructions ?? instructions, "enhance");
     } catch { /* ignore */ } finally {
       setGenerating(false);
     }
@@ -568,8 +680,12 @@ export default function CreateAgent() {
                 >
                   ✨ {generating ? "Generating..." : "Generate"}
                 </button>
-                <button className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-purple-600 hover:bg-purple-50">
-                  🔮 Improve
+                <button
+                  onClick={handleImprove}
+                  disabled={generating || !instructions.trim()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-purple-600 hover:bg-purple-50 disabled:opacity-40"
+                >
+                  🔮 {generating ? "Improving..." : "Improve"}
                 </button>
               </div>
             </div>
@@ -605,17 +721,88 @@ export default function CreateAgent() {
               />
             </div>
 
-            <p className="text-xs text-gray-400 mb-6">Use @ to mention other agents</p>
+            <p className="text-xs text-gray-400 mb-3">Use @ to mention other agents</p>
 
-            <div className="border border-gray-200 rounded-xl p-4">
-              <div className="flex items-center justify-between">
+            {/* Prompt Evolution — shows once Generate/Improve has been used */}
+            {promptHistory.length > 0 && (
+              <div className="mb-6">
+                <PromptEvolutionSection history={promptHistory} sectionTitle="Prompt Evolution" />
+              </div>
+            )}
+
+            <div className="border border-gray-200 rounded-xl p-4 relative">
+              <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-gray-700">Managerial Agent</span>
                 <div className="flex gap-2">
-                  <button className="flex items-center gap-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50">+ Agent</button>
-                  <button className="flex items-center gap-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50">+ A2A</button>
+                  <button
+                    onClick={() => { setManagerialModalType("agent"); setManagerialModalOpen(true); setNewAgentName(""); }}
+                    className="flex items-center gap-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50"
+                  >+ Agent</button>
+                  <button
+                    onClick={() => { setManagerialModalType("a2a"); setManagerialModalOpen(true); setNewAgentName(""); }}
+                    className="flex items-center gap-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50"
+                  >+ A2A</button>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-2">Add worker agents under this manager or connect Agent-to-Agent (A2A) flows</p>
+              <p className="text-xs text-gray-400 mb-3">Add worker agents under this manager or connect Agent-to-Agent (A2A) flows</p>
+              {managerialAgents.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {managerialAgents.map((a) => (
+                    <span key={a.id} className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border font-medium ${
+                      a.type === "a2a"
+                        ? "bg-violet-50 border-violet-200 text-violet-700"
+                        : "bg-teal-50 border-teal-200 text-teal-700"
+                    }`}>
+                      {a.type === "a2a" ? "⇄" : "🤖"} {a.name}
+                      <button
+                        onClick={() => setManagerialAgents((p) => p.filter((x) => x.id !== a.id))}
+                        className="ml-0.5 opacity-60 hover:opacity-100"
+                      >×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Managerial modal */}
+              {managerialModalOpen && (
+                <div className="absolute left-0 right-0 top-0 z-20 bg-white border border-gray-200 rounded-xl shadow-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-sm font-semibold text-gray-800">
+                      {managerialModalType === "a2a" ? "Connect A2A Flow" : "Add Worker Agent"}
+                    </p>
+                    <button onClick={() => setManagerialModalOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
+                  </div>
+                  <label className="block text-xs text-gray-500 mb-1">Agent name</label>
+                  <input
+                    autoFocus
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-teal-500 mb-3"
+                    placeholder={managerialModalType === "a2a" ? "e.g. EmailAgent" : "e.g. ResearchAgent"}
+                    value={newAgentName}
+                    onChange={(e) => setNewAgentName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newAgentName.trim()) {
+                        setManagerialAgents((p) => [...p, { id: crypto.randomUUID(), name: newAgentName.trim(), type: managerialModalType }]);
+                        setManagerialModalOpen(false);
+                      }
+                    }}
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setManagerialModalOpen(false)}
+                      className="flex-1 py-2 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50"
+                    >Cancel</button>
+                    <button
+                      disabled={!newAgentName.trim()}
+                      onClick={() => {
+                        if (!newAgentName.trim()) return;
+                        setManagerialAgents((p) => [...p, { id: crypto.randomUUID(), name: newAgentName.trim(), type: managerialModalType }]);
+                        setManagerialModalOpen(false);
+                      }}
+                      className="flex-1 py-2 bg-teal-500 hover:bg-teal-600 disabled:opacity-40 text-white rounded-lg text-xs font-medium"
+                    >Add</button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -626,15 +813,45 @@ export default function CreateAgent() {
           <div className={`border-b border-gray-100 p-4 ${tourStep === 3 && showTour ? "ring-2 ring-teal-400 ring-inset" : ""}`}>
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm font-semibold text-gray-800">Model</span>
-              <button className="text-gray-400 hover:text-gray-600 text-xs">⇄</button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setShowAdvancedModel(!showAdvancedModel)} className="text-xs text-gray-400 hover:text-teal-600 flex items-center gap-1">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
+                  Advanced
+                </button>
+                <button className="text-gray-400 hover:text-gray-600 text-xs">⇄</button>
+              </div>
             </div>
-            <div className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2">
+            <div className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 mb-3">
               <span className="text-sm">🤖</span>
               <span className="text-xs text-gray-500">Azure OpenAI /</span>
               <select className="flex-1 text-sm font-medium text-gray-800 outline-none bg-transparent" value={model} onChange={(e) => setModel(e.target.value)}>
                 {MODELS.map((m) => <option key={m}>{m}</option>)}
               </select>
             </div>
+            {showAdvancedModel && (
+              <div className="space-y-4 bg-gray-50 rounded-xl p-3">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-medium text-gray-600">Temperature</label>
+                    <span className="text-xs font-semibold text-teal-600 bg-teal-50 px-2 py-0.5 rounded-full">{temperature.toFixed(1)}</span>
+                  </div>
+                  <input type="range" min="0" max="2" step="0.1" value={temperature}
+                    onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                    className="w-full accent-teal-500 h-1.5 rounded-full" />
+                  <div className="flex justify-between text-xs text-gray-300 mt-0.5"><span>Precise</span><span>Creative</span></div>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-medium text-gray-600">Top P</label>
+                    <span className="text-xs font-semibold text-teal-600 bg-teal-50 px-2 py-0.5 rounded-full">{topP.toFixed(2)}</span>
+                  </div>
+                  <input type="range" min="0" max="1" step="0.05" value={topP}
+                    onChange={(e) => setTopP(parseFloat(e.target.value))}
+                    className="w-full accent-teal-500 h-1.5 rounded-full" />
+                  <div className="flex justify-between text-xs text-gray-300 mt-0.5"><span>0.0</span><span>1.0</span></div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Output Format */}
@@ -684,41 +901,95 @@ export default function CreateAgent() {
                     { key: "image_output",    label: "Image as Output",          desc: "Enable image output format with provider selection" },
                     { key: "file_output",     label: "File as Output",           desc: "Enable File as Output so your agent can share results as downloadable Docx, PDFs, CSVs or PPTs" },
                   ] as { key: keyof OutputToggles; label: string; desc: string }[]).map(({ key, label, desc }) => (
-                    <div
-                      key={key}
-                      className={`flex items-start justify-between gap-3 py-2 px-3 rounded-xl transition-colors ${
-                        outputToggles[key]
-                          ? autoDetected[key]
-                            ? "bg-teal-50 border border-teal-200"
-                            : "bg-gray-50 border border-gray-200"
-                          : "border border-transparent"
-                      }`}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <p className="text-sm font-medium text-gray-800 leading-snug">{label}</p>
-                          {autoDetected[key] && outputToggles[key] && (
-                            <span className="text-xs bg-teal-100 text-teal-600 px-1.5 py-0.5 rounded-full font-medium">Auto</span>
-                          )}
-                        </div>
-                        <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{desc}</p>
-                      </div>
-                      <button
-                        onClick={() => {
-                          setOutputToggles((t) => ({ ...t, [key]: !t[key] }));
-                          // Manually toggling removes the auto badge for that key
-                          if (autoDetected[key]) setAutoDetected((a) => { const n = { ...a }; delete n[key]; return n; });
-                        }}
-                        className={`relative inline-flex h-5 w-9 flex-shrink-0 mt-0.5 items-center rounded-full transition-colors ${
-                          outputToggles[key] ? "bg-teal-500" : "bg-gray-200"
+                    <div key={key}>
+                      <div
+                        className={`flex items-start justify-between gap-3 py-2 px-3 rounded-xl transition-colors ${
+                          outputToggles[key]
+                            ? autoDetected[key]
+                              ? "bg-teal-50 border border-teal-200"
+                              : "bg-gray-50 border border-gray-200"
+                            : "border border-transparent"
                         }`}
                       >
-                        <span
-                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                            outputToggles[key] ? "translate-x-4" : "translate-x-0.5"
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-sm font-medium text-gray-800 leading-snug">{label}</p>
+                            {autoDetected[key] && outputToggles[key] && (
+                              <span className="text-xs bg-teal-100 text-teal-600 px-1.5 py-0.5 rounded-full font-medium">Auto</span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{desc}</p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setOutputToggles((t) => ({ ...t, [key]: !t[key] }));
+                            // Manually toggling removes the auto badge for that key
+                            if (autoDetected[key]) setAutoDetected((a) => { const n = { ...a }; delete n[key]; return n; });
+                          }}
+                          className={`relative inline-flex h-5 w-9 flex-shrink-0 mt-0.5 items-center rounded-full transition-colors ${
+                            outputToggles[key] ? "bg-teal-500" : "bg-gray-200"
                           }`}
-                        />
-                      </button>
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                              outputToggles[key] ? "translate-x-4" : "translate-x-0.5"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                      {key === "structured_json" && outputToggles.structured_json && (
+                        <div className="mt-2 px-1">
+                          <p className="text-xs font-medium text-gray-600 mb-1">JSON Schema</p>
+                          <textarea
+                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono text-gray-700 outline-none focus:ring-1 focus:ring-teal-500 resize-none bg-gray-50"
+                            rows={5}
+                            value={jsonSchema}
+                            onChange={(e) => setJsonSchema(e.target.value)}
+                            spellCheck={false}
+                          />
+                        </div>
+                      )}
+                      {key === "image_output" && outputToggles.image_output && (
+                        <div className="mt-2 px-1">
+                          <p className="text-xs font-medium text-gray-600 mb-1.5">Image Provider</p>
+                          <div className="flex gap-2">
+                            {([
+                              { id: "dalle3", label: "DALL·E 3" },
+                              { id: "stable-diffusion", label: "Stable Diffusion" },
+                            ] as const).map((p) => (
+                              <button
+                                key={p.id}
+                                onClick={() => setImageProvider(p.id)}
+                                className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                                  imageProvider === p.id
+                                    ? "bg-teal-50 border-teal-400 text-teal-700"
+                                    : "border-gray-200 text-gray-500 hover:bg-gray-50"
+                                }`}
+                              >
+                                {p.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {key === "file_output" && outputToggles.file_output && (
+                        <div className="mt-2 px-1">
+                          <p className="text-xs font-medium text-gray-600 mb-1.5">Output Formats</p>
+                          <div className="flex flex-wrap gap-2">
+                            {(["docx", "pdf", "csv", "ppt"] as const).map((fmt) => (
+                              <label key={fmt} className="flex items-center gap-1.5 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={fileFormats[fmt]}
+                                  onChange={(e) => setFileFormats((f) => ({ ...f, [fmt]: e.target.checked }))}
+                                  className="accent-teal-500 w-3.5 h-3.5"
+                                />
+                                <span className="text-xs font-medium text-gray-600 uppercase">{fmt}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -733,10 +1004,36 @@ export default function CreateAgent() {
               <span className="text-gray-400 text-lg">{knowledgeOpen ? "−" : "+"}</span>
             </button>
             {knowledgeOpen && (
-              <div className="px-4 pb-4">
-                <button className="w-full border border-dashed border-gray-300 rounded-lg py-3 text-sm text-gray-500 hover:border-teal-400 hover:text-teal-600 transition-colors">
-                  + Upload document or connect KB
-                </button>
+              <div className="px-4 pb-4 space-y-2">
+                {kbFiles.map((f, i) => (
+                  <div key={i} className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-gray-700 truncate">{f.name}</p>
+                      <p className="text-xs text-gray-400">{f.size}</p>
+                    </div>
+                    {f.status === "uploading" && <div className="w-3 h-3 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />}
+                    {f.status === "done" && <span className="text-xs text-emerald-500">✓</span>}
+                    {f.status === "error" && <span className="text-xs text-red-400">✗</span>}
+                    <button onClick={() => setKbFiles(prev => prev.filter((_, j) => j !== i))} className="text-gray-300 hover:text-red-400 text-xs ml-1">✕</button>
+                  </div>
+                ))}
+                <label className="block w-full border border-dashed border-gray-300 rounded-xl py-3 px-4 text-sm text-gray-500 hover:border-teal-400 hover:text-teal-600 transition-colors cursor-pointer text-center">
+                  <input type="file" accept=".pdf,.docx,.txt,.md,.csv" multiple className="hidden"
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files ?? []);
+                      files.forEach(file => {
+                        const entry = { name: file.name, size: (file.size / 1024).toFixed(0) + " KB", status: "uploading" as const };
+                        setKbFiles(prev => [...prev, entry]);
+                        setTimeout(() => {
+                          setKbFiles(prev => prev.map(f => f.name === file.name ? {...f, status: "done" as const} : f));
+                        }, 1200);
+                      });
+                      e.target.value = "";
+                    }} />
+                  + Upload document (PDF, DOCX, TXT, CSV)
+                </label>
+                <button className="w-full border border-gray-200 rounded-xl py-2 text-xs text-teal-600 hover:bg-teal-50">🔗 Connect Knowledge Base URL</button>
               </div>
             )}
           </div>
@@ -761,30 +1058,92 @@ export default function CreateAgent() {
           {/* Skills */}
           <div className="border-b border-gray-100">
             <button onClick={() => setSkillsOpen(!skillsOpen)} className="w-full flex items-center justify-between p-4 text-sm font-medium text-gray-800 hover:bg-gray-50">
-              <span>Skills</span>
+              <div className="flex items-center gap-2">
+                <span>Skills</span>
+                {selectedSkills.length > 0 && <span className="text-xs bg-teal-100 text-teal-700 px-1.5 py-0.5 rounded-full">{selectedSkills.length}</span>}
+              </div>
               <span className="text-gray-400 text-lg">{skillsOpen ? "−" : "+"}</span>
             </button>
             {skillsOpen && (
-              <div className="px-4 pb-4 space-y-2">
-                {["Summarization", "Translation", "Code Generation", "Data Analysis"].map((s) => (
-                  <label key={s} className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-                    <input type="checkbox" className="accent-teal-600" /> {s}
-                  </label>
-                ))}
+              <div className="px-4 pb-4">
+                <div className="relative mb-3">
+                  <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  <input className="w-full border border-gray-200 rounded-xl pl-8 pr-3 py-2 text-xs outline-none focus:ring-1 focus:ring-teal-500"
+                    placeholder="Search skills..." value={skillsSearch} onChange={(e) => setSkillsSearch(e.target.value)} />
+                </div>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {[
+                    {id:"summarization",label:"Summarization",cat:"NLP"},
+                    {id:"translation",label:"Translation",cat:"NLP"},
+                    {id:"code_gen",label:"Code Generation",cat:"Dev"},
+                    {id:"data_analysis",label:"Data Analysis",cat:"Analytics"},
+                    {id:"web_search",label:"Web Search",cat:"Tools"},
+                    {id:"image_gen",label:"Image Generation",cat:"Multimodal"},
+                    {id:"sentiment",label:"Sentiment Analysis",cat:"NLP"},
+                    {id:"extraction",label:"Entity Extraction",cat:"NLP"},
+                    {id:"classify",label:"Text Classification",cat:"NLP"},
+                    {id:"sql_gen",label:"SQL Generation",cat:"Dev"},
+                    {id:"email_draft",label:"Email Drafting",cat:"Productivity"},
+                    {id:"calendar",label:"Calendar Management",cat:"Productivity"},
+                  ].filter(s => !skillsSearch || s.label.toLowerCase().includes(skillsSearch.toLowerCase()) || s.cat.toLowerCase().includes(skillsSearch.toLowerCase()))
+                   .map(skill => {
+                    const sel = selectedSkills.includes(skill.id);
+                    return (
+                      <button key={skill.id} onClick={() => setSelectedSkills(prev => sel ? prev.filter(x => x !== skill.id) : [...prev, skill.id])}
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl border text-xs transition-colors ${sel ? "border-teal-400 bg-teal-50 text-teal-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+                        <span className="font-medium">{skill.label}</span>
+                        <div className="flex items-center gap-2">
+                          <span className={`px-1.5 py-0.5 rounded-full text-xs ${sel ? "bg-teal-100 text-teal-600" : "bg-gray-100 text-gray-400"}`}>{skill.cat}</span>
+                          {sel && <span className="text-teal-500">✓</span>}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {selectedSkills.length > 0 && (
+                  <p className="text-xs text-teal-600 mt-2 font-medium">{selectedSkills.length} skill{selectedSkills.length > 1 ? "s" : ""} selected</p>
+                )}
               </div>
             )}
           </div>
 
           {/* Automation */}
           <div className="border-b border-gray-100">
-            <button onClick={() => setAutomationOpen(!automationOpen)} className="w-full flex items-center justify-between p-4 text-sm font-medium text-gray-800 hover:bg-gray-50">
-              <span>Automation</span>
+            <div className="flex items-center justify-between p-4">
+              <span className="text-sm font-semibold text-gray-800">Automation</span>
               <div className="flex gap-2">
-                <span className="text-xs text-teal-600">+ Schedule</span>
-                <span className="text-xs text-teal-600">+ Trigger</span>
+                <button onClick={() => setScheduleModalOpen(true)} className="flex items-center gap-1 px-2.5 py-1 text-xs text-teal-600 border border-teal-200 rounded-lg hover:bg-teal-50">
+                  + Schedule
+                </button>
+                <button onClick={() => setTriggerModalOpen(true)} className="flex items-center gap-1 px-2.5 py-1 text-xs text-teal-600 border border-teal-200 rounded-lg hover:bg-teal-50">
+                  + Trigger
+                </button>
               </div>
-            </button>
-            {automationOpen && <div className="px-4 pb-4 text-sm text-gray-400">No automations configured</div>}
+            </div>
+            {(scheduleConfig.enabled || triggerConfig.enabled) && (
+              <div className="px-4 pb-4 space-y-2">
+                {scheduleConfig.enabled && (
+                  <div className="flex items-center justify-between bg-teal-50 border border-teal-200 rounded-xl px-3 py-2">
+                    <div>
+                      <p className="text-xs font-medium text-teal-700">🕐 Schedule</p>
+                      <p className="text-xs text-teal-600">{scheduleConfig.description}</p>
+                    </div>
+                    <button onClick={() => setScheduleConfig(c => ({...c, enabled: false}))} className="text-teal-400 hover:text-red-400 text-xs">✕</button>
+                  </div>
+                )}
+                {triggerConfig.enabled && (
+                  <div className="flex items-center justify-between bg-purple-50 border border-purple-200 rounded-xl px-3 py-2">
+                    <div>
+                      <p className="text-xs font-medium text-purple-700">⚡ Trigger</p>
+                      <p className="text-xs text-purple-600">{triggerConfig.event} event</p>
+                    </div>
+                    <button onClick={() => setTriggerConfig(c => ({...c, enabled: false}))} className="text-purple-400 hover:text-red-400 text-xs">✕</button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Features */}
@@ -843,6 +1202,90 @@ export default function CreateAgent() {
         )}
         {activePanel === "responsible_ai" && (
           <ResponsibleAIPanel config={responsibleAIConfig} onChange={setResponsibleAIConfig} onClose={() => setActivePanel(null)} />
+        )}
+
+        {/* Schedule Modal */}
+        {scheduleModalOpen && (
+          <div className="absolute inset-0 bg-black/30 z-40 flex items-center justify-center">
+            <div className="bg-white rounded-2xl shadow-2xl p-6 w-96">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-gray-900">Configure Schedule</h3>
+                <button onClick={() => setScheduleModalOpen(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">Cron Expression</label>
+                  <input className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono outline-none focus:ring-2 focus:ring-teal-500"
+                    value={scheduleConfig.cron} onChange={(e) => setScheduleConfig(c => ({...c, cron: e.target.value}))} />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {["0 9 * * 1-5", "0 * * * *", "0 0 * * *", "*/30 * * * *"].map(preset => (
+                    <button key={preset} onClick={() => setScheduleConfig(c => ({...c, cron: preset}))}
+                      className={`text-xs py-1.5 px-2 rounded-lg border transition-colors ${scheduleConfig.cron === preset ? "border-teal-400 bg-teal-50 text-teal-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">Timezone</label>
+                  <select className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500 bg-white"
+                    value={scheduleConfig.timezone} onChange={(e) => setScheduleConfig(c => ({...c, timezone: e.target.value}))}>
+                    <option>UTC</option><option>America/New_York</option><option>Europe/London</option><option>Asia/Singapore</option><option>Asia/Kolkata</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">Description</label>
+                  <input className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500"
+                    placeholder="e.g. Weekdays at 9am" value={scheduleConfig.description}
+                    onChange={(e) => setScheduleConfig(c => ({...c, description: e.target.value}))} />
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button onClick={() => setScheduleModalOpen(false)} className="flex-1 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
+                <button onClick={() => { setScheduleConfig(c => ({...c, enabled: true})); setScheduleModalOpen(false); }}
+                  className="flex-1 py-2 bg-gray-900 text-white rounded-xl text-sm font-medium hover:bg-gray-700">Save Schedule</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Trigger Modal */}
+        {triggerModalOpen && (
+          <div className="absolute inset-0 bg-black/30 z-40 flex items-center justify-center">
+            <div className="bg-white rounded-2xl shadow-2xl p-6 w-96">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-gray-900">Configure Trigger</h3>
+                <button onClick={() => setTriggerModalOpen(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">Event Type</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[{id:"webhook",label:"Webhook",icon:"🔗"},{id:"email",label:"Email",icon:"✉️"},{id:"slack",label:"Slack",icon:"💬"},{id:"form",label:"Form Submit",icon:"📝"}].map(e => (
+                      <button key={e.id} onClick={() => setTriggerConfig(c => ({...c, event: e.id}))}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm transition-colors ${triggerConfig.event === e.id ? "border-purple-400 bg-purple-50 text-purple-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+                        <span>{e.icon}</span>{e.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {triggerConfig.event === "webhook" && (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">Webhook Endpoint</label>
+                    <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5">
+                      <span className="text-xs text-gray-400 font-mono">https://agentforge.io/trigger/</span>
+                      <span className="text-xs font-mono text-gray-600">{agentName.toLowerCase().replace(/\s+/g,"-")}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button onClick={() => setTriggerModalOpen(false)} className="flex-1 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
+                <button onClick={() => { setTriggerConfig(c => ({...c, enabled: true})); setTriggerModalOpen(false); }}
+                  className="flex-1 py-2 bg-gray-900 text-white rounded-xl text-sm font-medium hover:bg-gray-700">Save Trigger</button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Onboarding Tour Overlay */}
