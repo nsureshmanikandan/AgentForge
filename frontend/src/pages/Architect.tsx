@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import JSZip from "jszip";
 import { architectApi } from "../api/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -151,87 +152,129 @@ function EmptyState({ tab }: { tab: RightTab }) {
   );
 }
 
-const CHANGE_TYPE_META: Record<PromptChangeType, { label: string; color: string; bg: string; dot: string }> = {
-  initial:  { label: "Initial",  color: "text-indigo-700", bg: "bg-indigo-50 border-indigo-200",  dot: "bg-indigo-500" },
-  feature:  { label: "Feature",  color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200", dot: "bg-emerald-500" },
-  bugfix:   { label: "Bug Fix",  color: "text-rose-700",    bg: "bg-rose-50 border-rose-200",       dot: "bg-rose-500" },
-  enhance:  { label: "Enhance",  color: "text-violet-700",  bg: "bg-violet-50 border-violet-200",   dot: "bg-violet-500" },
-  refine:   { label: "Refine",   color: "text-amber-700",   bg: "bg-amber-50 border-amber-200",     dot: "bg-amber-500" },
-  suggest:  { label: "Suggest",  color: "text-sky-700",     bg: "bg-sky-50 border-sky-200",         dot: "bg-sky-500" },
+const CHANGE_TYPE_META: Record<Exclude<PromptChangeType, "initial">, { label: string; pill: string; icon: string }> = {
+  feature:  { label: "Feature",  pill: "bg-emerald-100 text-emerald-700 border-emerald-200", icon: "✦" },
+  bugfix:   { label: "Bug Fix",  pill: "bg-rose-100 text-rose-700 border-rose-200",           icon: "⚒" },
+  enhance:  { label: "Enhance",  pill: "bg-violet-100 text-violet-700 border-violet-200",     icon: "↑" },
+  refine:   { label: "Refine",   pill: "bg-amber-100 text-amber-700 border-amber-200",        icon: "✎" },
+  suggest:  { label: "Suggest",  pill: "bg-sky-100 text-sky-700 border-sky-200",              icon: "💡" },
 };
 
 function PromptEvolutionSection({ history }: { history: PromptVersion[] }) {
-  const [expanded, setExpanded] = useState<number | null>(history.length > 0 ? history[history.length - 1].version : null);
+  const [enhancedOpen, setEnhancedOpen] = useState(false);
+  const [openChange, setOpenChange] = useState<number | null>(null);
+
+  const v1 = history[0];
+  const changes = history.slice(1); // v2, v3 ... = Change 1, Change 2 ...
+  if (!v1) return null;
 
   return (
-    <section>
-      <div className="flex items-center justify-between mb-3">
+    <section className="space-y-3">
+      <div className="flex items-center justify-between">
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Prompt Evolution</h3>
-        <span className="text-xs text-gray-400 bg-gray-100 rounded-full px-2 py-0.5 border border-gray-200">{history.length} version{history.length !== 1 ? "s" : ""}</span>
+        {changes.length > 0 && (
+          <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-full px-2 py-0.5">
+            {changes.length} change{changes.length !== 1 ? "s" : ""}
+          </span>
+        )}
       </div>
-      {/* Timeline */}
-      <div className="relative pl-5">
-        {/* Vertical spine */}
-        <div className="absolute left-2 top-2 bottom-2 w-px bg-gradient-to-b from-indigo-300 via-gray-200 to-gray-100" />
-        <div className="space-y-3">
-          {history.map((v, idx) => {
-            const meta = CHANGE_TYPE_META[v.changeType];
-            const isOpen = expanded === v.version;
-            const isLatest = idx === history.length - 1;
-            return (
-              <div key={v.version} className="relative">
-                {/* Timeline dot */}
-                <div className={`absolute -left-3 top-3 w-2.5 h-2.5 rounded-full border-2 border-white shadow-sm ${meta.dot} ${isLatest ? "ring-2 ring-offset-1 ring-indigo-300" : ""}`} />
-                <div
-                  className={`border rounded-xl overflow-hidden transition-all cursor-pointer ${meta.bg} ${isOpen ? "shadow-sm" : "hover:shadow-sm"}`}
-                  onClick={() => setExpanded(isOpen ? null : v.version)}
-                >
-                  {/* Header row */}
-                  <div className="flex items-center gap-2 px-3 py-2.5">
-                    <span className={`text-[10px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded-full border ${meta.bg} ${meta.color}`}>{meta.label}</span>
-                    <span className="text-xs font-semibold text-slate-700">v{v.version}</span>
-                    {isLatest && <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-100 border border-indigo-200 rounded-full px-1.5 py-0.5 ml-auto">Latest</span>}
-                    {!isLatest && <span className="text-[10px] text-gray-400 ml-auto">{new Date(v.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
-                    <svg className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform ${isOpen ? "rotate-180" : ""} ${isLatest ? "" : "ml-0"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+
+      {/* ── Block 1: Original User Prompt — always locked ─────────────────── */}
+      <div className="rounded-xl border border-slate-200 bg-slate-50 overflow-hidden">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200 bg-white">
+          <span className="w-5 h-5 rounded-md bg-slate-700 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">U</span>
+          <span className="text-xs font-semibold text-slate-700">Original User Prompt</span>
+          <span className="ml-auto text-[10px] text-slate-400 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5 flex items-center gap-1">
+            <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" /></svg>
+            Locked
+          </span>
+        </div>
+        <p className="px-3 py-3 text-xs text-slate-700 leading-relaxed whitespace-pre-line">{v1.userInput}</p>
+        <div className="px-3 pb-2 flex items-center gap-1.5">
+          <span className="text-[10px] text-slate-400">{new Date(v1.ts).toLocaleString()}</span>
+        </div>
+      </div>
+
+      {/* ── Block 2: LLM Enhanced Prompt — collapsible, locked ────────────── */}
+      <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 overflow-hidden">
+        <button
+          className="w-full flex items-center gap-2 px-3 py-2 border-b border-indigo-100 bg-white/80 hover:bg-white transition-colors text-left"
+          onClick={() => setEnhancedOpen((o) => !o)}
+        >
+          <span className="w-5 h-5 rounded-md bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">AI</span>
+          <span className="text-xs font-semibold text-indigo-800">Enhanced Prompt (LLM)</span>
+          <span className="ml-auto text-[10px] text-indigo-400 bg-indigo-50 border border-indigo-200 rounded-full px-2 py-0.5 flex items-center gap-1 mr-1">
+            <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" /></svg>
+            Locked
+          </span>
+          <svg className={`w-3.5 h-3.5 text-indigo-400 flex-shrink-0 transition-transform ${enhancedOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        {!enhancedOpen && (
+          <p className="px-3 py-2.5 text-xs text-indigo-700 leading-relaxed line-clamp-2">{v1.enhancedPrompt}</p>
+        )}
+        {enhancedOpen && (
+          <p className="px-3 py-3 text-xs text-indigo-800 leading-relaxed whitespace-pre-line">{v1.enhancedPrompt}</p>
+        )}
+      </div>
+
+      {/* ── Block 3: Incremental Changes — Change 1, 2, 3... ─────────────── */}
+      {changes.length > 0 && (
+        <div className="rounded-xl border border-gray-200 overflow-hidden">
+          <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border-b border-gray-200">
+            <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="text-xs font-semibold text-gray-600">Incremental Changes</span>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {changes.map((ch, idx) => {
+              const changeNum = idx + 1;
+              const meta = CHANGE_TYPE_META[ch.changeType as Exclude<PromptChangeType, "initial">] ?? CHANGE_TYPE_META.refine;
+              const isOpen = openChange === ch.version;
+              const isLatest = idx === changes.length - 1;
+              return (
+                <div key={ch.version}>
+                  <button
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-gray-50 transition-colors text-left"
+                    onClick={() => setOpenChange(isOpen ? null : ch.version)}
+                  >
+                    {/* Change number badge */}
+                    <span className="w-6 h-6 rounded-full bg-gray-800 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+                      {changeNum}
+                    </span>
+                    <span className="text-xs font-semibold text-gray-700 flex-1 truncate">Change {changeNum}</span>
+                    <span className={`text-[10px] font-semibold border rounded-full px-1.5 py-0.5 flex-shrink-0 ${meta.pill}`}>
+                      {meta.icon} {meta.label}
+                    </span>
+                    {isLatest && (
+                      <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-full px-1.5 py-0.5 flex-shrink-0">
+                        Latest
+                      </span>
+                    )}
+                    <span className="text-[10px] text-gray-400 flex-shrink-0 hidden sm:inline">
+                      {new Date(ch.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                    <svg className={`w-3 h-3 text-gray-400 flex-shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
-                  </div>
-                  {/* Collapsed preview */}
-                  {!isOpen && (
-                    <div className="px-3 pb-2.5">
-                      <p className="text-xs text-gray-500 truncate">{v.userInput}</p>
-                    </div>
-                  )}
-                  {/* Expanded detail */}
+                  </button>
                   {isOpen && (
-                    <div className="border-t border-current/10 px-3 py-3 space-y-3" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
-                      <div>
-                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">User Input</p>
-                        <p className="text-xs text-gray-700 leading-relaxed bg-white/60 rounded-lg p-2 border border-white">{v.userInput}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Enhanced Prompt (LLM)</p>
-                        <p className="text-xs text-gray-700 leading-relaxed bg-white/60 rounded-lg p-2 border border-white whitespace-pre-line">{v.enhancedPrompt}</p>
-                      </div>
-                      {v.addedFeatures && v.addedFeatures.length > 0 && (
-                        <div>
-                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Changes in this version</p>
-                          <div className="flex flex-wrap gap-1">
-                            {v.addedFeatures.map((f, fi) => (
-                              <span key={fi} className="text-[10px] bg-white/80 border border-current/10 rounded-full px-2 py-0.5 text-gray-600" style={{ borderColor: "rgba(0,0,0,0.08)" }}>+ {f}</span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      <p className="text-[10px] text-gray-400">{new Date(v.ts).toLocaleString()}</p>
+                    <div className="px-3 pb-3 pt-1 bg-gray-50 border-t border-gray-100 space-y-2">
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">User Instruction</p>
+                      <p className="text-xs text-gray-700 leading-relaxed bg-white rounded-lg px-3 py-2.5 border border-gray-200 whitespace-pre-line">
+                        {ch.userInput}
+                      </p>
+                      <p className="text-[10px] text-gray-400">{new Date(ch.ts).toLocaleString()}</p>
                     </div>
                   )}
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
     </section>
   );
 }
@@ -347,6 +390,260 @@ function AgentsTab({ plan }: { plan?: Plan }) {
   );
 }
 
+// ─── Source ZIP builder ───────────────────────────────────────────────────────
+
+async function buildSourceZip(html: string, plan: Plan): Promise<Blob> {
+  const zip = new JSZip();
+  const appName = (plan.summary.split(" ").slice(0, 4).join("-") || "agentforge-app").toLowerCase().replace(/[^a-z0-9-]/g, "-");
+
+  // Extract the babel/JSX script block from the sandbox HTML
+  const scriptMatch = html.match(/<script[^>]*type=["']text\/babel["'][^>]*>([\s\S]*?)<\/script>/i);
+  const rawScript = scriptMatch ? scriptMatch[1].trim() : "// No component found";
+
+  // Attempt to strip the ReactDOM.render / createRoot call at the bottom so we export a clean component
+  const componentCode = rawScript
+    .replace(/ReactDOM\.createRoot\([^)]*\)\.render\([\s\S]*?\);?\s*$/m, "")
+    .replace(/ReactDOM\.render\([\s\S]*?\);?\s*$/m, "")
+    .trim();
+
+  // ── src/App.tsx ─────────────────────────────────────────────────────────────
+  const appTsx = `import React from "react";
+
+${componentCode}
+
+export default App;
+`;
+
+  // ── src/main.tsx ────────────────────────────────────────────────────────────
+  const mainTsx = `import React from "react";
+import ReactDOM from "react-dom/client";
+import "./index.css";
+import App from "./App";
+
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
+`;
+
+  // ── src/index.css ───────────────────────────────────────────────────────────
+  const indexCss = `@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { box-sizing: border-box; }
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+`;
+
+  // ── index.html ──────────────────────────────────────────────────────────────
+  const indexHtml = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${plan.summary.slice(0, 60)}</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+`;
+
+  // ── package.json ─────────────────────────────────────────────────────────────
+  const packageJson = JSON.stringify({
+    name: appName,
+    version: "0.1.0",
+    private: true,
+    scripts: {
+      dev: "vite",
+      build: "tsc && vite build",
+      preview: "vite preview",
+      lint: "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    },
+    dependencies: {
+      react: "^18.3.1",
+      "react-dom": "^18.3.1",
+    },
+    devDependencies: {
+      "@types/react": "^18.3.3",
+      "@types/react-dom": "^18.3.0",
+      "@vitejs/plugin-react": "^4.3.1",
+      autoprefixer: "^10.4.19",
+      postcss: "^8.4.38",
+      tailwindcss: "^3.4.4",
+      typescript: "^5.2.2",
+      vite: "^5.4.0",
+    },
+  }, null, 2);
+
+  // ── vite.config.ts ───────────────────────────────────────────────────────────
+  const viteConfig = `import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+});
+`;
+
+  // ── tsconfig.json ────────────────────────────────────────────────────────────
+  const tsconfig = JSON.stringify({
+    compilerOptions: {
+      target: "ES2020",
+      useDefineForClassFields: true,
+      lib: ["ES2020", "DOM", "DOM.Iterable"],
+      module: "ESNext",
+      skipLibCheck: true,
+      moduleResolution: "bundler",
+      allowImportingTsExtensions: true,
+      resolveJsonModule: true,
+      isolatedModules: true,
+      noEmit: true,
+      jsx: "react-jsx",
+      strict: true,
+      noUnusedLocals: true,
+      noUnusedParameters: true,
+      noFallthroughCasesInSwitch: true,
+    },
+    include: ["src"],
+    references: [{ path: "./tsconfig.node.json" }],
+  }, null, 2);
+
+  // ── tsconfig.node.json ───────────────────────────────────────────────────────
+  const tsconfigNode = JSON.stringify({
+    compilerOptions: {
+      composite: true,
+      skipLibCheck: true,
+      module: "ESNext",
+      moduleResolution: "bundler",
+      allowSyntheticDefaultImports: true,
+    },
+    include: ["vite.config.ts"],
+  }, null, 2);
+
+  // ── tailwind.config.js ───────────────────────────────────────────────────────
+  const tailwindConfig = `/** @type {import('tailwindcss').Config} */
+export default {
+  content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+};
+`;
+
+  // ── postcss.config.js ────────────────────────────────────────────────────────
+  const postcssConfig = `export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+};
+`;
+
+  // ── .gitignore ───────────────────────────────────────────────────────────────
+  const gitignore = `# Logs
+logs
+*.log
+npm-debug.log*
+
+# Runtime data
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Env
+.env
+.env.local
+.env.*.local
+`;
+
+  // ── README.md ────────────────────────────────────────────────────────────────
+  const readme = `# ${plan.summary.slice(0, 80)}
+
+> Generated by **AgentForge Planning Architect** · ${new Date().toLocaleDateString()}
+
+## Tech Stack
+- **Frontend**: ${plan.tech_stack.frontend}
+- **Backend**: ${plan.tech_stack.backend}
+- **Database**: ${plan.tech_stack.database}
+- **AI / LLM**: ${plan.tech_stack.ai}
+${(plan.tech_stack.other ?? []).length > 0 ? `- **Other**: ${plan.tech_stack.other!.join(", ")}` : ""}
+
+## Features
+${plan.features.map((f) => `- ${f}`).join("\n")}
+
+## Getting Started
+
+### Prerequisites
+- Node.js 18+ and npm
+
+### Run Locally
+
+\`\`\`bash
+npm install
+npm run dev
+\`\`\`
+
+Open [http://localhost:5173](http://localhost:5173) in your browser.
+
+### Build for Production
+
+\`\`\`bash
+npm run build
+npm run preview
+\`\`\`
+
+## Architecture
+
+${plan.architecture}
+
+## Build Phases
+${plan.phases.map((ph) => `\n### Phase ${ph.phase}: ${ph.name}\n${ph.tasks.map((t) => `- ${t}`).join("\n")}`).join("")}
+
+---
+
+*Scaffolded by [AgentForge](https://github.com/agentforge) · Powered by Azure OpenAI GPT-4o*
+`;
+
+  // ── sandbox.html — the original self-contained working preview ───────────────
+  const sandboxHtml = `<!--
+  Original AgentForge sandbox preview
+  Run this file directly in a browser for an instant demo (no build step needed)
+-->
+${html}`;
+
+  // Assemble ZIP
+  zip.file("package.json", packageJson);
+  zip.file("index.html", indexHtml);
+  zip.file("vite.config.ts", viteConfig);
+  zip.file("tsconfig.json", tsconfig);
+  zip.file("tsconfig.node.json", tsconfigNode);
+  zip.file("tailwind.config.js", tailwindConfig);
+  zip.file("postcss.config.js", postcssConfig);
+  zip.file(".gitignore", gitignore);
+  zip.file("README.md", readme);
+  zip.file("src/main.tsx", mainTsx);
+  zip.file("src/App.tsx", appTsx);
+  zip.file("src/index.css", indexCss);
+  zip.file("sandbox.html", sandboxHtml);
+
+  return zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
+}
+
 function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressStep }: {
   plan?: Plan;
   uiHtml?: string;
@@ -422,11 +719,31 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
   }
 
   if (uiHtml) {
+    const [downloading, setDownloading] = useState(false);
+
     const openInBrowser = () => {
       const blob = new Blob([uiHtml], { type: "text/html" });
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
       setTimeout(() => URL.revokeObjectURL(url), 60000);
+    };
+
+    const downloadZip = async () => {
+      if (downloading) return;
+      setDownloading(true);
+      try {
+        const blob = await buildSourceZip(uiHtml, plan);
+        const appSlug = (plan.summary.split(" ").slice(0, 4).join("-") || "agentforge-app")
+          .toLowerCase().replace(/[^a-z0-9-]/g, "-");
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${appSlug}-source.zip`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      } finally {
+        setDownloading(false);
+      }
     };
 
     return (
@@ -445,6 +762,25 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             Live
           </span>
+          {/* Download source ZIP */}
+          <button
+            onClick={downloadZip}
+            disabled={downloading}
+            title="Download source code as ZIP"
+            className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs text-emerald-700 font-medium transition-colors flex-shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {downloading ? (
+              <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+              </svg>
+            ) : (
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+            )}
+            {downloading ? "Packaging…" : "Download"}
+          </button>
           <button
             onClick={openInBrowser}
             title="Open in browser"
@@ -806,12 +1142,17 @@ export default function Architect() {
       if (data.plan) {
         setTab("plan");
         // Capture v1 prompt history for the initial plan
+        // enhancedPrompt = full LLM output (summary + architecture), locked forever
+        const enhancedFull = [
+          data.plan.summary,
+          data.plan.architecture ? `\nArchitecture:\n${data.plan.architecture}` : "",
+        ].filter(Boolean).join("\n\n");
         const v1: PromptVersion = {
           version: 1,
           ts: Date.now(),
           changeType: "initial",
           userInput: displayText,
-          enhancedPrompt: data.plan.summary,
+          enhancedPrompt: enhancedFull,
           addedFeatures: data.plan.features?.slice(0, 6),
           changeLabel: "v1 · Initial prompt",
         };
@@ -838,9 +1179,9 @@ export default function Architect() {
             version: nextVersion,
             ts: Date.now(),
             changeType,
-            userInput: displayText,
-            enhancedPrompt: currentSession.plan.summary + `\n\nRefinement: ${displayText}`,
-            changeLabel: `v${nextVersion} · ${changeType.charAt(0).toUpperCase() + changeType.slice(1)}`,
+            userInput: displayText,   // only the user's raw instruction; enhanced prompt is v1 only
+            enhancedPrompt: "",       // not used for change entries
+            changeLabel: `Change ${nextVersion - 1} · ${changeType.charAt(0).toUpperCase() + changeType.slice(1)}`,
           };
           setSessions((p) =>
             p.map((s) =>
