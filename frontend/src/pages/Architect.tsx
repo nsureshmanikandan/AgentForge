@@ -245,34 +245,74 @@ function AgentsTab({ plan }: { plan?: Plan }) {
   );
 }
 
-function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError }: {
+function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressStep }: {
   plan?: Plan;
   uiHtml?: string;
   onGenerateUI: () => void;
   generatingUI: boolean;
+  progressStep?: number;
   uiError?: string;
 }) {
   if (!plan) return <EmptyState tab="app" />;
 
   if (generatingUI) {
+    const step = progressStep ?? 0;
+    const UI_STEPS = [
+      { label: "Reading attached documents",        icon: "📄" },
+      { label: "Extracting knowledge base content", icon: "🔍" },
+      { label: "Generating chatbot UI",             icon: "🎨" },
+      { label: "Wiring RAG & topic filters",        icon: "🔗" },
+      { label: "Sandbox ready",                     icon: "🚀" },
+    ];
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-4">
-        <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center">
-          <svg className="w-6 h-6 animate-spin text-indigo-600" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-          </svg>
-        </div>
-        <div className="text-center">
-          <p className="text-sm font-semibold text-slate-700 mb-1">Building your UI sandbox…</p>
-          <p className="text-xs text-gray-400">Generating React components, layouts, and mock data</p>
-        </div>
-        <div className="flex flex-wrap justify-center gap-1.5 mt-2 max-w-sm">
-          {["Analyzing features", "Writing components", "Adding mock data", "Finalizing UI"].map((s, i) => (
-            <span key={i} className="text-xs bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-2.5 py-1 animate-pulse" style={{ animationDelay: `${i * 0.3}s` }}>
-              {s}
-            </span>
-          ))}
+      <div className="flex flex-col items-center justify-center h-full px-8">
+        <div className="w-full max-w-sm">
+          {/* Animated icon */}
+          <div className="flex justify-center mb-6">
+            <div className="w-16 h-16 rounded-2xl bg-indigo-50 border-2 border-indigo-100 flex items-center justify-center relative">
+              <svg className="w-8 h-8 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+              </svg>
+              <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-indigo-500 rounded-full flex items-center justify-center">
+                <svg className="w-3 h-3 text-white animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                </svg>
+              </span>
+            </div>
+          </div>
+          <p className="text-center text-sm font-semibold text-slate-700 mb-1">Building your AI Sandbox</p>
+          <p className="text-center text-xs text-gray-400 mb-5">Powered by Azure OpenAI · GPT-4o</p>
+          {/* Step list */}
+          <div className="space-y-2 mb-5">
+            {UI_STEPS.map((s, idx) => {
+              const done   = idx < step;
+              const active = idx === step;
+              return (
+                <div key={idx} className={`flex items-center gap-3 rounded-xl px-3 py-2 transition-all duration-500 ${
+                  active ? "bg-indigo-50 border border-indigo-200" : done ? "bg-emerald-50/50" : "bg-gray-50"
+                }`}>
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-sm flex-shrink-0 ${
+                    done ? "bg-emerald-100 text-emerald-600" : active ? "bg-indigo-100 text-indigo-600 animate-pulse" : "bg-gray-100 text-gray-400"
+                  }`}>
+                    {done ? "✓" : s.icon}
+                  </div>
+                  <span className={`text-xs font-medium ${
+                    done ? "text-emerald-600 line-through decoration-emerald-300" : active ? "text-indigo-700" : "text-gray-400"
+                  }`}>{s.label}</span>
+                  {active && <span className="ml-auto text-indigo-400 text-xs animate-pulse">…</span>}
+                </div>
+              );
+            })}
+          </div>
+          {/* Progress bar */}
+          <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-700"
+              style={{ width: `${(step / 4) * 100}%` }}
+            />
+          </div>
+          <p className="text-center text-[11px] text-gray-400 mt-2">{Math.round((step / 4) * 100)}% complete</p>
         </div>
         <p className="text-xs text-gray-400 mt-1">This takes ~15–30 seconds…</p>
       </div>
@@ -724,6 +764,38 @@ export default function Architect() {
   const hasAnswers =
     lastMsg?.response?.type === "questions" && !qLocked && Object.keys(qAnswers).length > 0;
 
+  // Progress steps shown while the plan / UI is being generated
+  const PLAN_STEPS = [
+    { label: "Understanding your requirements", icon: "🧠" },
+    { label: "Designing architecture & agents",  icon: "🏗️" },
+    { label: "Building API & database schema",   icon: "🗄️" },
+    { label: "Generating tech stack plan",        icon: "⚙️" },
+    { label: "Finalising plan",                   icon: "✅" },
+  ];
+  const UI_STEPS = [
+    { label: "Reading attached documents",        icon: "📄" },
+    { label: "Extracting knowledge base content", icon: "🔍" },
+    { label: "Generating chatbot UI",             icon: "🎨" },
+    { label: "Wiring RAG & topic filters",        icon: "🔗" },
+    { label: "Sandbox ready",                     icon: "🚀" },
+  ];
+  // Drive step index from elapsed time so it animates without real backend events
+  const [progressStep, setProgressStep] = useState(0);
+  const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (loading || generatingUI) {
+      setProgressStep(0);
+      progressTimerRef.current = setInterval(() => {
+        setProgressStep((s) => Math.min(s + 1, 4));
+      }, 1800);
+    } else {
+      if (progressTimerRef.current) clearInterval(progressTimerRef.current);
+      setProgressStep(0);
+    }
+    return () => { if (progressTimerRef.current) clearInterval(progressTimerRef.current); };
+  }, [loading, generatingUI]);
+
   const TABS: { id: RightTab; label: string }[] = [
     { id: "plan", label: "Plan" },
     { id: "agents", label: `Agents${plan?.agents?.length ? ` (${plan.agents.length})` : ""}` },
@@ -780,6 +852,55 @@ export default function Architect() {
             {mode === "features" && "Extend app"}
           </p>
         </div>
+
+        {/* ── Persistent attached-files bar ── shown whenever the active session has docs/refs */}
+        {((active?.documents?.length ?? 0) > 0 || (active?.visualRefs?.length ?? 0) > 0) && (
+          <div className="border-b border-white/10 px-4 py-2.5" style={{ background: "rgba(255,255,255,0.03)" }}>
+            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-2">Attached to this session</p>
+            <div className="flex flex-wrap gap-1.5">
+              {(active?.documents ?? []).map((d) => (
+                <span
+                  key={d.name}
+                  className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-emerald-300 border border-emerald-500/25"
+                  style={{ background: "rgba(16,185,129,0.08)" }}
+                  title="RAG Knowledge Base Document"
+                >
+                  <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <span className="truncate max-w-[110px]">{d.name}</span>
+                  <span className="text-[9px] text-emerald-600 font-bold ml-0.5">KB</span>
+                </span>
+              ))}
+              {(active?.visualRefs ?? []).map((v) => (
+                <span
+                  key={v.name}
+                  className={`flex items-center gap-1 rounded-lg px-2 py-1 text-xs border ${
+                    v.asSource
+                      ? "text-amber-300 border-amber-500/25"
+                      : "text-sky-300 border-sky-500/25"
+                  }`}
+                  style={{ background: v.asSource ? "rgba(245,158,11,0.07)" : "rgba(14,165,233,0.07)" }}
+                  title={v.asSource ? "Explicitly designated as source document" : "Screenshot visual reference"}
+                >
+                  {v.asSource ? (
+                    <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  ) : (
+                    <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                    </svg>
+                  )}
+                  <span className="truncate max-w-[110px]">{v.name}</span>
+                  <span className={`text-[9px] font-bold ml-0.5 ${v.asSource ? "text-amber-600" : "text-sky-600"}`}>
+                    {v.asSource ? "SRC" : "REF"}
+                  </span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Past sessions */}
         {sessions.filter((s) => s.id !== activeSid).length > 0 && (
@@ -909,14 +1030,71 @@ export default function Architect() {
                   </div>
                 );
               })}
-              {loading && (
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center flex-shrink-0">
-                    <svg className="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-                    </svg>
+              {(loading || generatingUI) && (
+                <div className="px-4 py-3">
+                  <div className="rounded-2xl border border-indigo-500/20 overflow-hidden" style={{ background: "rgba(99,102,241,0.07)" }}>
+                    {/* Header row */}
+                    <div className="flex items-center gap-2.5 px-4 pt-3 pb-2 border-b border-white/5">
+                      <div className="w-6 h-6 rounded-full bg-indigo-600 flex items-center justify-center flex-shrink-0 animate-pulse">
+                        <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-indigo-300">
+                          {generatingUI ? "Building your sandbox…" : "Generating architecture plan…"}
+                        </p>
+                        <p className="text-[10px] text-gray-500 mt-0.5">
+                          {generatingUI ? "Reading documents · Extracting Q&A · Rendering UI" : "Analysing requirements · Designing agents · Structuring API"}
+                        </p>
+                      </div>
+                    </div>
+                    {/* Step list */}
+                    <div className="px-4 py-3 space-y-2">
+                      {(generatingUI ? UI_STEPS : PLAN_STEPS).map((step, idx) => {
+                        const done    = idx < progressStep;
+                        const active  = idx === progressStep;
+                        const pending = idx > progressStep;
+                        return (
+                          <div key={idx} className="flex items-center gap-3">
+                            {/* Step indicator */}
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] transition-all duration-500 ${
+                              done    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                              : active  ? "bg-indigo-500/30 text-indigo-300 border border-indigo-500/50 animate-pulse"
+                              : "bg-white/5 text-gray-600 border border-white/8"
+                            }`}>
+                              {done ? "✓" : active ? step.icon : "○"}
+                            </div>
+                            <span className={`text-xs transition-all duration-300 ${
+                              done    ? "text-emerald-400 line-through decoration-emerald-700"
+                              : active  ? "text-white font-medium"
+                              : "text-gray-600"
+                            }`}>
+                              {step.label}
+                            </span>
+                            {active && (
+                              <span className="ml-auto flex gap-0.5">
+                                {[0,1,2].map((d) => (
+                                  <span
+                                    key={d}
+                                    className="w-1 h-1 rounded-full bg-indigo-400"
+                                    style={{ animation: `bounce 1.2s ${d * 0.2}s infinite` }}
+                                  />
+                                ))}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {/* Progress bar */}
+                    <div className="mx-4 mb-3 h-1 rounded-full bg-white/5 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-700"
+                        style={{ width: `${(progressStep / 4) * 100}%` }}
+                      />
+                    </div>
                   </div>
-                  <Dots />
                 </div>
               )}
               <div ref={bottomRef} />
@@ -1135,7 +1313,7 @@ export default function Architect() {
         <div className={`flex-1 ${tab === "app" ? "flex flex-col overflow-hidden" : "overflow-hidden"}`}>
           {tab === "plan" && <PlanTab plan={plan} />}
           {tab === "agents" && <AgentsTab plan={plan} />}
-          {tab === "app" && <AppTab plan={plan} uiHtml={uiHtml} onGenerateUI={() => handleGenerateUI()} generatingUI={generatingUI} uiError={uiError} />}
+          {tab === "app" && <AppTab plan={plan} uiHtml={uiHtml} onGenerateUI={() => handleGenerateUI()} generatingUI={generatingUI} uiError={uiError} progressStep={progressStep} />}
           {tab === "database" && <DatabaseTab plan={plan} />}
         </div>
       </div>
