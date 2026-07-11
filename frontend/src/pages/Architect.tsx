@@ -47,6 +47,18 @@ interface Message {
   response?: ArchitectResponse;
 }
 
+type PromptChangeType = "initial" | "suggest" | "feature" | "bugfix" | "enhance" | "refine";
+
+interface PromptVersion {
+  version: number;
+  ts: number;
+  changeType: PromptChangeType;
+  userInput: string;           // raw user message that triggered this version
+  enhancedPrompt: string;      // LLM-refined summary / plan summary at this point
+  addedFeatures?: string[];    // features added in this version
+  changeLabel: string;         // human-readable label e.g. "v1 · Initial prompt"
+}
+
 interface Session {
   id: string;
   title: string;
@@ -55,6 +67,7 @@ interface Session {
   uiHtml?: string;
   documents?: { name: string; text: string }[];          // RAG knowledge-base sources (docx/pdf/txt)
   visualRefs?: { name: string; asSource: boolean }[];    // Images: default=visual ref, asSource=user promoted to source
+  promptHistory?: PromptVersion[];                       // Tracked prompt evolution across all turns
   ts: number;
 }
 
@@ -138,10 +151,99 @@ function EmptyState({ tab }: { tab: RightTab }) {
   );
 }
 
-function PlanTab({ plan }: { plan?: Plan }) {
+const CHANGE_TYPE_META: Record<PromptChangeType, { label: string; color: string; bg: string; dot: string }> = {
+  initial:  { label: "Initial",  color: "text-indigo-700", bg: "bg-indigo-50 border-indigo-200",  dot: "bg-indigo-500" },
+  feature:  { label: "Feature",  color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200", dot: "bg-emerald-500" },
+  bugfix:   { label: "Bug Fix",  color: "text-rose-700",    bg: "bg-rose-50 border-rose-200",       dot: "bg-rose-500" },
+  enhance:  { label: "Enhance",  color: "text-violet-700",  bg: "bg-violet-50 border-violet-200",   dot: "bg-violet-500" },
+  refine:   { label: "Refine",   color: "text-amber-700",   bg: "bg-amber-50 border-amber-200",     dot: "bg-amber-500" },
+  suggest:  { label: "Suggest",  color: "text-sky-700",     bg: "bg-sky-50 border-sky-200",         dot: "bg-sky-500" },
+};
+
+function PromptEvolutionSection({ history }: { history: PromptVersion[] }) {
+  const [expanded, setExpanded] = useState<number | null>(history.length > 0 ? history[history.length - 1].version : null);
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Prompt Evolution</h3>
+        <span className="text-xs text-gray-400 bg-gray-100 rounded-full px-2 py-0.5 border border-gray-200">{history.length} version{history.length !== 1 ? "s" : ""}</span>
+      </div>
+      {/* Timeline */}
+      <div className="relative pl-5">
+        {/* Vertical spine */}
+        <div className="absolute left-2 top-2 bottom-2 w-px bg-gradient-to-b from-indigo-300 via-gray-200 to-gray-100" />
+        <div className="space-y-3">
+          {history.map((v, idx) => {
+            const meta = CHANGE_TYPE_META[v.changeType];
+            const isOpen = expanded === v.version;
+            const isLatest = idx === history.length - 1;
+            return (
+              <div key={v.version} className="relative">
+                {/* Timeline dot */}
+                <div className={`absolute -left-3 top-3 w-2.5 h-2.5 rounded-full border-2 border-white shadow-sm ${meta.dot} ${isLatest ? "ring-2 ring-offset-1 ring-indigo-300" : ""}`} />
+                <div
+                  className={`border rounded-xl overflow-hidden transition-all cursor-pointer ${meta.bg} ${isOpen ? "shadow-sm" : "hover:shadow-sm"}`}
+                  onClick={() => setExpanded(isOpen ? null : v.version)}
+                >
+                  {/* Header row */}
+                  <div className="flex items-center gap-2 px-3 py-2.5">
+                    <span className={`text-[10px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded-full border ${meta.bg} ${meta.color}`}>{meta.label}</span>
+                    <span className="text-xs font-semibold text-slate-700">v{v.version}</span>
+                    {isLatest && <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-100 border border-indigo-200 rounded-full px-1.5 py-0.5 ml-auto">Latest</span>}
+                    {!isLatest && <span className="text-[10px] text-gray-400 ml-auto">{new Date(v.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
+                    <svg className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform ${isOpen ? "rotate-180" : ""} ${isLatest ? "" : "ml-0"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                  {/* Collapsed preview */}
+                  {!isOpen && (
+                    <div className="px-3 pb-2.5">
+                      <p className="text-xs text-gray-500 truncate">{v.userInput}</p>
+                    </div>
+                  )}
+                  {/* Expanded detail */}
+                  {isOpen && (
+                    <div className="border-t border-current/10 px-3 py-3 space-y-3" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
+                      <div>
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">User Input</p>
+                        <p className="text-xs text-gray-700 leading-relaxed bg-white/60 rounded-lg p-2 border border-white">{v.userInput}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Enhanced Prompt (LLM)</p>
+                        <p className="text-xs text-gray-700 leading-relaxed bg-white/60 rounded-lg p-2 border border-white whitespace-pre-line">{v.enhancedPrompt}</p>
+                      </div>
+                      {v.addedFeatures && v.addedFeatures.length > 0 && (
+                        <div>
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Changes in this version</p>
+                          <div className="flex flex-wrap gap-1">
+                            {v.addedFeatures.map((f, fi) => (
+                              <span key={fi} className="text-[10px] bg-white/80 border border-current/10 rounded-full px-2 py-0.5 text-gray-600" style={{ borderColor: "rgba(0,0,0,0.08)" }}>+ {f}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <p className="text-[10px] text-gray-400">{new Date(v.ts).toLocaleString()}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PlanTab({ plan, promptHistory }: { plan?: Plan; promptHistory?: PromptVersion[] }) {
   if (!plan) return <EmptyState tab="plan" />;
   return (
     <div className="p-6 space-y-6 overflow-y-auto h-full">
+      {/* Prompt Evolution — shown only when history exists */}
+      {promptHistory && promptHistory.length > 0 && (
+        <PromptEvolutionSection history={promptHistory} />
+      )}
       <section>
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Overview</h3>
         <p className="text-sm text-gray-700 leading-relaxed">{plan.summary}</p>
@@ -502,6 +604,16 @@ export default function Architect() {
   const uiHtml = active?.uiHtml;
   const firstPrompt = messages.find((m) => m.role === "user")?.content ?? "";
 
+  function detectChangeType(text: string): PromptChangeType {
+    const t = text.toLowerCase();
+    if (/\b(bug|fix|broken|error|not working|crash|issue|problem|wrong|incorrect|missing)\b/.test(t)) return "bugfix";
+    if (/\b(add|include|new feature|support|enable|allow|integrate|connect)\b/.test(t)) return "feature";
+    if (/\b(improve|better|enhance|upgrade|optimize|polish|refine|clean)\b/.test(t)) return "enhance";
+    if (/\b(change|update|modify|adjust|tweak|different|instead|replace|switch)\b/.test(t)) return "refine";
+    if (/\b(suggest|recommend|idea|what if|consider|maybe|how about)\b/.test(t)) return "suggest";
+    return "refine";
+  }
+
   async function handleGenerateUI(
     currentPlan?: Plan,
     currentSid?: string,
@@ -693,6 +805,23 @@ export default function Architect() {
 
       if (data.plan) {
         setTab("plan");
+        // Capture v1 prompt history for the initial plan
+        const v1: PromptVersion = {
+          version: 1,
+          ts: Date.now(),
+          changeType: "initial",
+          userInput: displayText,
+          enhancedPrompt: data.plan.summary,
+          addedFeatures: data.plan.features?.slice(0, 6),
+          changeLabel: "v1 · Initial prompt",
+        };
+        setSessions((p) =>
+          p.map((s) =>
+            s.id === sid
+              ? { ...s, promptHistory: [v1] }
+              : s
+          )
+        );
         // First-time generation — pass captured files directly (state cleared by now)
         setTimeout(() => handleGenerateUI(data.plan, sid, capturedFiles), 800);
       } else {
@@ -701,6 +830,25 @@ export default function Architect() {
         const hasExistingSandbox = !!currentSession?.uiHtml;
         const isRefinement = REFINE_TRIGGERS.test(displayText);
         if (hasExistingSandbox && isRefinement && currentSession?.plan) {
+          // Append a new prompt history version
+          const prevHistory = currentSession.promptHistory ?? [];
+          const nextVersion = (prevHistory[prevHistory.length - 1]?.version ?? 0) + 1;
+          const changeType = detectChangeType(displayText);
+          const newVersion: PromptVersion = {
+            version: nextVersion,
+            ts: Date.now(),
+            changeType,
+            userInput: displayText,
+            enhancedPrompt: currentSession.plan.summary + `\n\nRefinement: ${displayText}`,
+            changeLabel: `v${nextVersion} · ${changeType.charAt(0).toUpperCase() + changeType.slice(1)}`,
+          };
+          setSessions((p) =>
+            p.map((s) =>
+              s.id === sid
+                ? { ...s, promptHistory: [...(s.promptHistory ?? []), newVersion] }
+                : s
+            )
+          );
           const feedbackMessages = (currentSession.messages ?? [])
             .filter((m) => m.role === "user")
             .slice(-5)
@@ -1311,7 +1459,7 @@ export default function Architect() {
 
         {/* Content — overflow-hidden on non-app tabs; app tab needs full height */}
         <div className={`flex-1 ${tab === "app" ? "flex flex-col overflow-hidden" : "overflow-hidden"}`}>
-          {tab === "plan" && <PlanTab plan={plan} />}
+          {tab === "plan" && <PlanTab plan={plan} promptHistory={active?.promptHistory} />}
           {tab === "agents" && <AgentsTab plan={plan} />}
           {tab === "app" && <AppTab plan={plan} uiHtml={uiHtml} onGenerateUI={() => handleGenerateUI()} generatingUI={generatingUI} uiError={uiError} progressStep={progressStep} />}
           {tab === "database" && <DatabaseTab plan={plan} />}
