@@ -53,7 +53,8 @@ interface Session {
   messages: Message[];
   plan?: Plan;
   uiHtml?: string;
-  documents?: { name: string; text: string }[];
+  documents?: { name: string; text: string }[];          // RAG knowledge-base sources (docx/pdf/txt)
+  visualRefs?: { name: string; asSource: boolean }[];    // Images: default=visual ref, asSource=user promoted to source
   ts: number;
 }
 
@@ -74,6 +75,10 @@ const MODE_LABELS: Record<Mode, string> = {
   suggest: "Suggest",
   features: "Add Features",
 };
+
+// Detects whether the user's message explicitly designates attached images as RAG/source files.
+// Images are Visual References by default — only promoted to source when user says so explicitly.
+const SOURCE_INTENT_RE = /\b(use (?:this|these|it|them) (?:as|for)|this is (?:the |a |my )?source|treat (?:this|these) as|add (?:this|these) to|source (?:document|file|reference)|rag (?:document|source|file)|knowledge.?base (?:document|source|file)|include (?:this|these) in (?:the )?(?:rag|kb|knowledge|source)|use (?:for|as) (?:rag|kb|knowledge base|source|prompt|idea))\b/i;
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
@@ -412,9 +417,32 @@ function DatabaseTab({ plan }: { plan?: Plan }) {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
+const STORAGE_KEY = "agentforge_architect_sessions";
+const ACTIVE_KEY  = "agentforge_architect_active";
+
+function loadSessions(): Session[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as Session[]) : [];
+  } catch { return []; }
+}
+
+function saveSessions(sessions: Session[]) {
+  try {
+    // Documents can be large — store only the last 5 sessions to stay under 5 MB
+    const trimmed = sessions.slice(0, 5);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
+  } catch { /* storage full — silent */ }
+}
+
+// Keywords that signal the user wants to refine/update the chatbot sandbox
+const REFINE_TRIGGERS = /\b(add|change|update|fix|improve|make|show|display|include|remove|replace|adjust|increase|decrease|more|less|better|different|regenerate|redo|rebuild|refresh|enhance)\b/i;
+
 export default function Architect() {
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [activeSid, setActiveSid] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<Session[]>(() => loadSessions());
+  const [activeSid, setActiveSid] = useState<string | null>(
+    () => localStorage.getItem(ACTIVE_KEY)
+  );
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<Mode>("build");
@@ -422,6 +450,7 @@ export default function Architect() {
   const [qAnswers, setQAnswers] = useState<Record<string, string>>({});
   const [qLocked, setQLocked] = useState(false);
   const [files, setFiles] = useState<{ name: string; text: string }[]>([]);
+  const [visualFiles, setVisualFiles] = useState<{ name: string; asSource: boolean }[]>([]); // image refs
   const [generatingUI, setGeneratingUI] = useState(false);
   const [uiError, setUiError] = useState<string | undefined>();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -433,7 +462,12 @@ export default function Architect() {
   const uiHtml = active?.uiHtml;
   const firstPrompt = messages.find((m) => m.role === "user")?.content ?? "";
 
-  async function handleGenerateUI(currentPlan?: Plan, currentSid?: string, inlineDocs?: { name: string; text: string }[]) {
+  async function handleGenerateUI(
+    currentPlan?: Plan,
+    currentSid?: string,
+    inlineDocs?: { name: string; text: string }[],
+    feedbackHint?: string,
+  ) {
     const p = currentPlan ?? plan;
     const sid = currentSid ?? activeSid;
     if (!p || !sid) return;
@@ -441,7 +475,7 @@ export default function Architect() {
     setUiError(undefined);
     setTab("app");
     try {
-      // Prefer inline docs (passed at call time) then session state
+      // Always use session documents — they persist across all chat turns
       const sessionDocs = inlineDocs ?? sessions.find((s) => s.id === sid)?.documents;
 
       const summaryLow = p.summary.toLowerCase();
@@ -485,6 +519,7 @@ export default function Architect() {
         domain: p.summary,
         doc_types: docTypes,
         documents: sessionDocs?.length ? sessionDocs : undefined,
+        user_feedback: feedbackHint ?? undefined,
       });
       const html = res.data.html;
       if (!html || html.trim().length < 50) {
@@ -506,6 +541,13 @@ export default function Architect() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
+  // Persist sessions and active session to localStorage whenever they change
+  useEffect(() => { saveSessions(sessions); }, [sessions]);
+  useEffect(() => {
+    if (activeSid) localStorage.setItem(ACTIVE_KEY, activeSid);
+    else localStorage.removeItem(ACTIVE_KEY);
+  }, [activeSid]);
+
   function newSession() {
     const id = crypto.randomUUID();
     setSessions((p) => [{ id, title: "New Session", messages: [], ts: Date.now() }, ...p]);
@@ -513,6 +555,7 @@ export default function Architect() {
     setQAnswers({});
     setQLocked(false);
     setFiles([]);
+    setVisualFiles([]);
     setInput("");
   }
 
@@ -520,7 +563,7 @@ export default function Architect() {
 
   async function send(overrideContent?: string) {
     const rawText = overrideContent ?? input.trim();
-    if (!rawText && files.length === 0) return;
+    if (!rawText && files.length === 0 && visualFiles.length === 0) return;
     // Strip the hidden suffix for display
     const displayText = rawText.replace(PLAN_SUFFIX, "").trim();
     const text = rawText;
@@ -533,8 +576,26 @@ export default function Architect() {
       sid = id;
     }
 
-    const userMsg: Message = { role: "user", content: displayText };
     const capturedFiles = files.length > 0 ? [...files] : undefined;
+
+    // Auto-promote images to source if message explicitly requests it; otherwise keep as visual ref
+    const userWantsSource = SOURCE_INTENT_RE.test(displayText);
+    const capturedVisuals = visualFiles.length > 0
+      ? visualFiles.map((v) => ({ ...v, asSource: v.asSource || userWantsSource }))
+      : undefined;
+
+    // Build annotated message content for the AI
+    let msgContent = displayText;
+    if (capturedVisuals?.length) {
+      const sourceOnes = capturedVisuals.filter((v) => v.asSource).map((v) => v.name);
+      const refOnes    = capturedVisuals.filter((v) => !v.asSource).map((v) => v.name);
+      if (sourceOnes.length)
+        msgContent += `\n\n[SOURCE DOCUMENT] The user has explicitly designated the following image(s) as source/RAG documents for the knowledge base: ${sourceOnes.join(", ")}.`;
+      if (refOnes.length)
+        msgContent += `\n\n[VISUAL REFERENCE] The following screenshot(s) are UI reference images for fixes/enhancements only — NOT knowledge-base documents: ${refOnes.join(", ")}. Use them to understand what the output currently looks like.`;
+    }
+
+    const userMsg: Message = { role: "user", content: displayText }; // display without annotation
     setSessions((p) =>
       p.map((s) =>
         s.id === sid
@@ -542,16 +603,27 @@ export default function Architect() {
               ...s,
               title: s.messages.length === 0 ? displayText.slice(0, 50) : s.title,
               messages: [...s.messages, userMsg],
-              // Merge new files with any already stored on the session
+              // Merge RAG docs — images never go here unless user has no doc files
               documents: capturedFiles
                 ? [...(s.documents ?? []), ...capturedFiles.filter(f => !(s.documents ?? []).some(d => d.name === f.name))]
                 : s.documents,
+              // Merge image refs — preserve existing asSource promotions, apply new ones
+              visualRefs: capturedVisuals
+                ? [
+                    ...(s.visualRefs ?? []).map((r) => {
+                      const updated = capturedVisuals.find((v) => v.name === r.name);
+                      return updated ? { ...r, asSource: r.asSource || updated.asSource } : r;
+                    }),
+                    ...capturedVisuals.filter((v) => !(s.visualRefs ?? []).some((r) => r.name === v.name)),
+                  ]
+                : s.visualRefs,
             }
           : s
       )
     );
     setInput("");
     setFiles([]);
+    setVisualFiles([]);
     setQLocked(true);
     setLoading(true);
 
@@ -561,7 +633,8 @@ export default function Architect() {
         role: m.role === "assistant" ? "assistant" : "user",
         content: m.content,
       }));
-      history.push({ role: "user", content: text });
+      // Use annotated content (includes visual-ref note) for the AI, not display text
+      history.push({ role: "user", content: msgContent });
 
       const res = await architectApi.chat(history);
       const data: ArchitectResponse = res.data;
@@ -580,8 +653,33 @@ export default function Architect() {
 
       if (data.plan) {
         setTab("plan");
-        // Auto-generate UI sandbox — pass captured files directly (state cleared by now)
+        // First-time generation — pass captured files directly (state cleared by now)
         setTimeout(() => handleGenerateUI(data.plan, sid, capturedFiles), 800);
+      } else {
+        // No new plan — check if this is a refinement request for the existing sandbox
+        const currentSession = sessions.find((s) => s.id === sid);
+        const hasExistingSandbox = !!currentSession?.uiHtml;
+        const isRefinement = REFINE_TRIGGERS.test(displayText);
+        if (hasExistingSandbox && isRefinement && currentSession?.plan) {
+          const feedbackMessages = (currentSession.messages ?? [])
+            .filter((m) => m.role === "user")
+            .slice(-5)
+            .map((m) => m.content)
+            .join("\n");
+          // Separate session visual refs by their designation
+          const sourceRefs = (currentSession.visualRefs ?? []).filter((v) => v.asSource);
+          const visualOnlyRefs = (currentSession.visualRefs ?? []).filter((v) => !v.asSource);
+          const visualNote = [
+            sourceRefs.length
+              ? `User explicitly designated these images as source/RAG documents: ${sourceRefs.map((v) => v.name).join(", ")}.`
+              : "",
+            visualOnlyRefs.length
+              ? `Screenshot visual references (UI fix guides only, not RAG sources): ${visualOnlyRefs.map((v) => v.name).join(", ")}.`
+              : "",
+          ].filter(Boolean).join("\n");
+          const feedbackHint = feedbackMessages + "\n" + displayText + visualNote;
+          setTimeout(() => handleGenerateUI(currentSession.plan, sid, undefined, feedbackHint), 400);
+        }
       }
       if (data.type === "questions") {
         setQLocked(false);
@@ -840,21 +938,58 @@ export default function Architect() {
 
         {/* Input */}
         <div className="px-4 pb-4 pt-2 border-t border-white/10">
-          {files.length > 0 && (
+          {(files.length > 0 || visualFiles.length > 0) && (
             <div className="flex flex-wrap gap-1.5 mb-2">
               {files.map((f) => (
                 <span
                   key={f.name}
-                  className="flex items-center gap-1 border border-white/10 rounded-lg px-2 py-1 text-xs text-gray-300"
-                  style={{ background: "rgba(255,255,255,0.08)" }}
+                  className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-emerald-300 border border-emerald-500/30"
+                  style={{ background: "rgba(16,185,129,0.08)" }}
+                  title="RAG Knowledge Base Document"
                 >
-                  📎 {f.name}
+                  📄 {f.name}
+                  <span className="text-[10px] text-emerald-500 font-medium ml-1">KB</span>
                   <button
                     onClick={() => setFiles((p) => p.filter((x) => x.name !== f.name))}
-                    className="ml-1 text-gray-500 hover:text-gray-200"
+                    className="ml-1 text-emerald-700 hover:text-emerald-200"
+                  >×</button>
+                </span>
+              ))}
+              {visualFiles.map((v) => (
+                <span
+                  key={v.name}
+                  className={`flex items-center gap-1 rounded-lg px-2 py-1 text-xs border ${
+                    v.asSource
+                      ? "text-amber-300 border-amber-500/30"
+                      : "text-sky-300 border-sky-500/30"
+                  }`}
+                  style={{ background: v.asSource ? "rgba(245,158,11,0.08)" : "rgba(14,165,233,0.08)" }}
+                  title={
+                    v.asSource
+                      ? "Explicitly designated as source/RAG document by user — click label to revert to visual ref"
+                      : "Screenshot visual reference (UI fix guide) — click label to designate as source document"
+                  }
+                >
+                  {v.asSource ? "📄" : "🖼️"} {v.name}
+                  {/* Toggle button: lets user manually flip between Ref ↔ Source */}
+                  <button
+                    onClick={() =>
+                      setVisualFiles((p) =>
+                        p.map((x) => x.name === v.name ? { ...x, asSource: !x.asSource } : x)
+                      )
+                    }
+                    className={`ml-1 text-[10px] font-semibold px-1 rounded transition-colors ${
+                      v.asSource
+                        ? "bg-amber-500/20 text-amber-400 hover:bg-amber-500/40"
+                        : "bg-sky-500/20 text-sky-400 hover:bg-sky-500/40"
+                    }`}
                   >
-                    ×
+                    {v.asSource ? "Source ✓" : "Ref →"}
                   </button>
+                  <button
+                    onClick={() => setVisualFiles((p) => p.filter((x) => x.name !== v.name))}
+                    className="ml-1 text-gray-600 hover:text-gray-200"
+                  >×</button>
                 </span>
               ))}
             </div>
@@ -866,26 +1001,49 @@ export default function Architect() {
             <input
               ref={fileRef}
               type="file"
-              accept=".docx,.txt,.pdf,.md,.json,.csv"
+              accept=".docx,.txt,.pdf,.md,.json,.csv,.png,.jpg,.jpeg,.gif,.webp,.bmp"
               multiple
               className="hidden"
               onChange={async (e) => {
                 const picked = Array.from(e.target.files ?? []);
                 e.target.value = "";
-                const results = await Promise.all(
-                  picked.map(async (f) => {
-                    try {
-                      const res = await architectApi.extractDocText(f);
-                      return { name: f.name, text: res.data.text };
-                    } catch {
-                      return { name: f.name, text: "" };
-                    }
-                  })
-                );
-                setFiles((p) => {
-                  const existing = new Set(p.map((x) => x.name));
-                  return [...p, ...results.filter((r) => !existing.has(r.name))];
-                });
+                const RAG_EXTS   = new Set([".docx", ".pdf", ".txt", ".md", ".csv", ".json"]);
+                const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]);
+
+                const getExt = (name: string) =>
+                  name.includes(".") ? "." + name.split(".").pop()!.toLowerCase() : "";
+
+                // Route images to visualFiles — they are screenshot references, NOT RAG docs
+                const imageFiles = picked.filter((f) => IMAGE_EXTS.has(getExt(f.name)));
+                if (imageFiles.length > 0) {
+                  setVisualFiles((p) => {
+                    const existing = new Set(p.map((x) => x.name));
+                    return [...p, ...imageFiles
+                      .filter((f) => !existing.has(f.name))
+                      .map((f) => ({ name: f.name, asSource: false }))]; // default = visual ref
+                  });
+                }
+
+                // Route document files to RAG pipeline
+                const docFiles = picked.filter((f) => RAG_EXTS.has(getExt(f.name)));
+                if (docFiles.length > 0) {
+                  const results = await Promise.all(
+                    docFiles.map(async (f) => {
+                      try {
+                        const res = await architectApi.extractDocText(f);
+                        if (!res.data.text || res.data.skipped) return null;
+                        return { name: f.name, text: res.data.text as string };
+                      } catch { return null; }
+                    })
+                  );
+                  const valid = results.filter(
+                    (r): r is { name: string; text: string } => r !== null && r.text.trim().length > 0
+                  );
+                  setFiles((p) => {
+                    const existing = new Set(p.map((x) => x.name));
+                    return [...p, ...valid.filter((r) => !existing.has(r.name))];
+                  });
+                }
               }}
             />
             <button
@@ -921,7 +1079,7 @@ export default function Architect() {
               }}
             />
             <button
-              disabled={loading || (!input.trim() && files.length === 0)}
+              disabled={loading || (!input.trim() && files.length === 0 && visualFiles.length === 0)}
               onClick={() => send()}
               className="w-8 h-8 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 flex items-center justify-center flex-shrink-0 transition-colors"
             >

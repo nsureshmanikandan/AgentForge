@@ -1,6 +1,37 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { agentsApi } from "../api/client";
+
+// ─── Output format auto-detection ────────────────────────────────────────────
+type OutputToggles = { example_text: boolean; structured_json: boolean; image_output: boolean; file_output: boolean };
+
+function detectOutputFormats(role: string, goal: string, instructions: string): Partial<OutputToggles> {
+  const text = `${role} ${goal} ${instructions}`.toLowerCase();
+
+  const result: Partial<OutputToggles> = {};
+
+  // Structured JSON: data extraction, reports, schemas, APIs, forms, analytics, tables, structured
+  if (/\b(json|structured|schema|data extract|report|analytics|dashboard|table|spreadsheet|csv|database|api response|form data|invoice|receipt|parse|extract)\b/.test(text)) {
+    result.structured_json = true;
+  }
+
+  // File output: documents, PDFs, exports, downloads, generate files
+  if (/\b(pdf|docx|word document|excel|ppt|powerpoint|file|download|export|generate report|produce|create document|attachment|spreadsheet)\b/.test(text)) {
+    result.file_output = true;
+  }
+
+  // Image output: charts, diagrams, visuals, image generation, visualization
+  if (/\b(image|chart|diagram|graph|visual|infographic|picture|photo|screenshot|render|draw|illustrat|design|figure|plot)\b/.test(text)) {
+    result.image_output = true;
+  }
+
+  // Example text: conversational, QA, support, chat, explain, answer, summarize
+  if (/\b(example|sample|conversation|chat|q&a|qa|support|explain|answer|summarize|help|assist|respond|reply|faq|tutorial|guide)\b/.test(text)) {
+    result.example_text = true;
+  }
+
+  return result;
+}
 
 const TOUR_STEPS = [
   { title: "Agent Builder has been revamped", body: "We've redesigned the Agent Builder experience to make agent creation more intuitive, guided, and organized.", step: 1 },
@@ -347,7 +378,16 @@ export default function CreateAgent() {
 
   // Right panel
   const [model, setModel] = useState("gpt-4o");
-  const [outputFormat, setOutputFormat] = useState(false);
+  const [outputFormatOpen, setOutputFormatOpen] = useState(true);
+  const [outputToggles, setOutputToggles] = useState<OutputToggles>({
+    example_text: false,
+    structured_json: false,
+    image_output: false,
+    file_output: false,
+  });
+  // Tracks which toggles were set by auto-detection (shown with "Auto" badge)
+  const [autoDetected, setAutoDetected] = useState<Partial<OutputToggles>>({});
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
@@ -365,6 +405,27 @@ export default function CreateAgent() {
 
   const tour = TOUR_STEPS[tourStep - 1];
 
+  // Auto-detect output formats from prompt text with 600ms debounce
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      const detected = detectOutputFormats(role, goal, instructions);
+      if (Object.keys(detected).length > 0) {
+        setAutoDetected(detected);
+        setOutputToggles((prev) => {
+          const next = { ...prev };
+          (Object.keys(detected) as (keyof OutputToggles)[]).forEach((k) => {
+            // Only auto-enable; never auto-disable a toggle the user already set
+            if (detected[k]) next[k] = true;
+          });
+          return next;
+        });
+        setOutputFormatOpen(true);
+      }
+    }, 600);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [role, goal, instructions]);
+
   const handleGenerate = async () => {
     if (!role && !goal) return;
     setGenerating(true);
@@ -374,6 +435,17 @@ export default function CreateAgent() {
       const cfg = res.data;
       if (cfg.instructions) setInstructions(cfg.instructions);
       if (cfg.name) setAgentName(cfg.name);
+      // Immediately re-detect now that instructions are populated
+      const detected = detectOutputFormats(role, goal, cfg.instructions ?? instructions);
+      if (Object.keys(detected).length > 0) {
+        setAutoDetected(detected);
+        setOutputToggles((prev) => {
+          const next = { ...prev };
+          (Object.keys(detected) as (keyof OutputToggles)[]).forEach((k) => { if (detected[k]) next[k] = true; });
+          return next;
+        });
+        setOutputFormatOpen(true);
+      }
     } catch { /* ignore */ } finally {
       setGenerating(false);
     }
@@ -567,17 +639,89 @@ export default function CreateAgent() {
 
           {/* Output Format */}
           <div className={`border-b border-gray-100 ${tourStep === 4 && showTour ? "ring-2 ring-teal-400 ring-inset" : ""}`}>
-            <button onClick={() => setOutputFormat(!outputFormat)} className="w-full flex items-center justify-between p-4 text-sm font-medium text-gray-800 hover:bg-gray-50">
-              <span>Output Format</span>
-              <span className="text-gray-400">›</span>
+            <button
+              onClick={() => setOutputFormatOpen(!outputFormatOpen)}
+              className="w-full flex items-center justify-between p-4 text-sm font-semibold text-gray-800 hover:bg-gray-50"
+            >
+              <div className="flex items-center gap-2">
+                <span>Output Format</span>
+                {Object.keys(autoDetected).length > 0 && (
+                  <span className="text-xs bg-teal-100 text-teal-700 px-1.5 py-0.5 rounded-full font-medium">Auto</span>
+                )}
+              </div>
+              <svg
+                className={`w-4 h-4 text-gray-400 transition-transform ${outputFormatOpen ? "rotate-180" : ""}`}
+                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
             </button>
-            {outputFormat && (
-              <div className="px-4 pb-4 space-y-2">
-                {["Plain text", "Markdown", "JSON", "Structured"].map((f) => (
-                  <label key={f} className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-                    <input type="radio" name="output" className="accent-teal-600" /> {f}
-                  </label>
-                ))}
+            {outputFormatOpen && (
+              <div className="px-4 pb-4">
+                {Object.keys(autoDetected).length > 0 && (
+                  <div className="flex items-center justify-between mb-3 px-1">
+                    <p className="text-xs text-teal-600 flex items-center gap-1">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                      </svg>
+                      Auto-detected from your prompt
+                    </p>
+                    <button
+                      onClick={() => {
+                        setAutoDetected({});
+                        setOutputToggles({ example_text: false, structured_json: false, image_output: false, file_output: false });
+                      }}
+                      className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                )}
+                <div className="space-y-3">
+                  {([
+                    { key: "example_text",    label: "Example (Text)",          desc: "Provide examples of how users might interact with the agent" },
+                    { key: "structured_json", label: "Structured output (JSON)", desc: "Define the format for the agent's responses using JSON schema" },
+                    { key: "image_output",    label: "Image as Output",          desc: "Enable image output format with provider selection" },
+                    { key: "file_output",     label: "File as Output",           desc: "Enable File as Output so your agent can share results as downloadable Docx, PDFs, CSVs or PPTs" },
+                  ] as { key: keyof OutputToggles; label: string; desc: string }[]).map(({ key, label, desc }) => (
+                    <div
+                      key={key}
+                      className={`flex items-start justify-between gap-3 py-2 px-3 rounded-xl transition-colors ${
+                        outputToggles[key]
+                          ? autoDetected[key]
+                            ? "bg-teal-50 border border-teal-200"
+                            : "bg-gray-50 border border-gray-200"
+                          : "border border-transparent"
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-sm font-medium text-gray-800 leading-snug">{label}</p>
+                          {autoDetected[key] && outputToggles[key] && (
+                            <span className="text-xs bg-teal-100 text-teal-600 px-1.5 py-0.5 rounded-full font-medium">Auto</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{desc}</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setOutputToggles((t) => ({ ...t, [key]: !t[key] }));
+                          // Manually toggling removes the auto badge for that key
+                          if (autoDetected[key]) setAutoDetected((a) => { const n = { ...a }; delete n[key]; return n; });
+                        }}
+                        className={`relative inline-flex h-5 w-9 flex-shrink-0 mt-0.5 items-center rounded-full transition-colors ${
+                          outputToggles[key] ? "bg-teal-500" : "bg-gray-200"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                            outputToggles[key] ? "translate-x-4" : "translate-x-0.5"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
