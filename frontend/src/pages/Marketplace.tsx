@@ -37,6 +37,10 @@ export default function Marketplace() {
     try { return JSON.parse(localStorage.getItem("af_marketplace_agents") ?? "[]"); }
     catch { return []; }
   });
+  const [installedAgentIds, setInstalledAgentIds] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("af_installed_agents") ?? "[]"); }
+    catch { return []; }
+  });
 
   const filteredItems = MARKETPLACE_ITEMS.filter((item) => {
     const matchSearch = item.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -191,8 +195,21 @@ export default function Marketplace() {
                   )}
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-gray-400">{new Date(agent.publishedAt).toLocaleDateString()}</span>
-                    <button className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg transition-colors">
-                      Install
+                    <button
+                      onClick={() => {
+                        const newIds = installedAgentIds.includes(agent.id)
+                          ? installedAgentIds.filter((id) => id !== agent.id)
+                          : [...installedAgentIds, agent.id];
+                        setInstalledAgentIds(newIds);
+                        localStorage.setItem("af_installed_agents", JSON.stringify(newIds));
+                      }}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                        installedAgentIds.includes(agent.id)
+                          ? "bg-emerald-50 border border-emerald-200 text-emerald-700"
+                          : "bg-indigo-600 hover:bg-indigo-700 text-white"
+                      }`}
+                    >
+                      {installedAgentIds.includes(agent.id) ? "✓ Installed" : "Install"}
                     </button>
                   </div>
                 </div>

@@ -135,15 +135,37 @@ function TraceDetailPanel({ log, onClose }: { log: AuditLog; onClose: () => void
   );
 }
 
+const PAGE_SIZE = 10;
+
 export default function Usage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
+  const [filterText, setFilterText] = useState("");
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     controlPlaneApi.stats().then((r) => setStats(r.data)).catch(() => {});
     controlPlaneApi.auditLogs().then((r) => setLogs(r.data)).catch(() => {});
   }, []);
+
+  const filteredLogs = filterText.trim()
+    ? logs.filter((log) => {
+        const q = filterText.toLowerCase();
+        return (
+          log.action?.toLowerCase().includes(q) ||
+          log.agent_id?.toLowerCase().includes(q)
+        );
+      })
+    : logs;
+
+  const totalPages = Math.ceil(filteredLogs.length / PAGE_SIZE);
+  const pagedLogs = filteredLogs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFilterText(e.target.value);
+    setPage(0);
+  };
 
   return (
     <div className="p-8 bg-gray-50 min-h-screen">
@@ -205,13 +227,20 @@ export default function Usage() {
 
       {/* Audit Logs Table */}
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm">
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4">
           <div>
             <h2 className="font-semibold text-slate-900">Audit Logs</h2>
             <p className="text-xs text-gray-400 mt-0.5">
-              {logs.length === 0 ? "No activity recorded yet" : `${logs.length} event${logs.length !== 1 ? "s" : ""} — click any row to view trace details`}
+              {logs.length === 0 ? "No activity recorded yet" : `${filteredLogs.length} of ${logs.length} event${logs.length !== 1 ? "s" : ""} — click any row to view trace details`}
             </p>
           </div>
+          <input
+            type="text"
+            value={filterText}
+            onChange={handleFilterChange}
+            placeholder="Filter by action or agent ID..."
+            className="ml-auto text-sm border border-gray-200 rounded-lg px-3 py-1.5 w-64 focus:outline-none focus:ring-2 focus:ring-indigo-300 text-slate-700 placeholder-gray-400"
+          />
         </div>
 
         {logs.length === 0 ? (
@@ -226,6 +255,7 @@ export default function Usage() {
             <p className="text-gray-400 text-xs mt-1">Run an agent to see audit logs here.</p>
           </div>
         ) : (
+          <>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -241,13 +271,13 @@ export default function Usage() {
                 </tr>
               </thead>
               <tbody>
-                {logs.map((log, idx) => {
+                {pagedLogs.map((log, idx) => {
                   const inputPreview = (log.input_snapshot?.input as string) || Object.values(log.input_snapshot)[0] as string || "";
                   const outputPreview = (log.output_snapshot?.output as string) || Object.values(log.output_snapshot)[0] as string || "";
                   return (
                     <tr
                       key={log.id}
-                      className={`border-b border-gray-100 hover:bg-indigo-50/40 transition-colors cursor-pointer ${idx === logs.length - 1 ? "border-b-0" : ""}`}
+                      className={`border-b border-gray-100 hover:bg-indigo-50/40 transition-colors cursor-pointer ${idx === pagedLogs.length - 1 ? "border-b-0" : ""}`}
                       onClick={() => setSelectedLog(log)}
                     >
                       <td className="px-6 py-4 font-medium text-slate-800">{log.action}</td>
@@ -299,6 +329,30 @@ export default function Usage() {
               </tbody>
             </table>
           </div>
+          {totalPages > 1 && (
+            <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-between">
+              <span className="text-xs text-gray-400">
+                Page {page + 1} of {totalPages}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="px-3 py-1 text-xs rounded-lg border border-gray-200 text-slate-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Prev
+                </button>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                  className="px-3 py-1 text-xs rounded-lg border border-gray-200 text-slate-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+          </>
         )}
       </div>
     </div>

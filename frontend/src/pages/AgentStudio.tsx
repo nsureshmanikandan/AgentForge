@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { agentsApi } from "../api/client";
 import type { PromptVersion } from "../components/PromptEvolution";
 import { detectChangeType, PromptEvolutionSection, buildRepairEntry } from "../components/PromptEvolution";
@@ -28,6 +28,216 @@ const AVATAR_COLORS = [
 function getAvatarColor(name: string): string {
   const idx = name.charCodeAt(0) % AVATAR_COLORS.length;
   return AVATAR_COLORS[idx];
+}
+
+const API_BASE = "http://localhost:8000";
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+      className="text-xs text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
+    >
+      {copied ? "Copied!" : "Copy"}
+    </button>
+  );
+}
+
+function DeployModal({ agent, onClose }: { agent: Agent; onClose: () => void }) {
+  const [tab, setTab] = useState<"api" | "json" | "howto">("api");
+
+  const curlCmd = `curl -X POST ${API_BASE}/api/agents/${agent.id}/run \\
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "input": "Hello, what can you help me with?",
+    "chat_history": []
+  }'`;
+
+  const pythonSnippet = `import requests
+
+response = requests.post(
+    "${API_BASE}/api/agents/${agent.id}/run",
+    headers={
+        "Authorization": "Bearer YOUR_JWT_TOKEN",
+        "Content-Type": "application/json",
+    },
+    json={
+        "input": "Hello, what can you help me with?",
+        "chat_history": []
+    }
+)
+data = response.json()
+print(data["output"])
+# data["guardrail_triggered"] → True/False
+# data["pii_triggered"]       → True/False
+# data["latency_ms"]          → response time`;
+
+  const agentJson = JSON.stringify({
+    id: agent.id,
+    name: agent.name,
+    model: agent.model,
+    description: agent.description,
+    version: `v${agent.current_version}`,
+    tools: agent.tools,
+    endpoint: `${API_BASE}/api/agents/${agent.id}/run`,
+    method: "POST",
+    auth: "Bearer <JWT Token>",
+    request_body: { input: "string", chat_history: "array (optional)" },
+    response_fields: {
+      output: "string — agent reply (PII redacted if triggered)",
+      guardrail_triggered: "bool",
+      pii_triggered: "bool",
+      input_pii_triggered: "bool",
+      output_pii_triggered: "bool",
+      hallucination_triggered: "bool",
+      latency_ms: "number",
+    },
+  }, null, 2);
+
+  const steps = [
+    { num: "01", icon: ">_", title: "Get a JWT token", desc: 'POST /api/auth/login with your email + password to receive a Bearer token.' },
+    { num: "02", icon: "{ }", title: "Call the agent", desc: `POST /api/agents/${agent.id}/run with JSON body: { "input": "your message" }` },
+    { num: "03", icon: "✓", title: "Read the response", desc: 'Use the "output" field. Check "guardrail_triggered" to know if PII was detected.' },
+  ];
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+          <div>
+            <h3 className="font-semibold text-gray-900 text-lg">Deploy — {agent.name}</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Your agent is live behind an API endpoint. Integrate it into any app.</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 text-lg">✕</button>
+        </div>
+
+        {/* Status + 3 steps */}
+        <div className="px-6 pt-4 flex-shrink-0">
+          <div className="flex items-center gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl mb-4">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-sm font-medium text-emerald-700">Agent live</span>
+            <span className="ml-auto text-xs text-emerald-600 font-mono">v{agent.current_version}</span>
+          </div>
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            {steps.map((s) => (
+              <div key={s.num} className="border border-gray-200 rounded-xl p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-mono text-indigo-500 text-sm">{s.icon}</span>
+                  <span className="text-xs text-gray-300 font-mono">{s.num}</span>
+                </div>
+                <p className="text-xs font-semibold text-gray-800 mb-1">{s.title}</p>
+                <p className="text-xs text-gray-500 leading-relaxed">{s.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="px-6 flex-shrink-0">
+          <div className="flex border-b border-gray-200 gap-1">
+            {(["api", "json", "howto"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`px-4 py-2 text-xs font-medium rounded-t-lg transition-colors ${
+                  tab === t ? "bg-white border border-b-white border-gray-200 text-indigo-600 -mb-px" : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                {t === "api" ? "Agent API" : t === "json" ? "Agent JSON" : "How to Use"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Tab content */}
+        <div className="px-6 py-4 overflow-y-auto flex-1">
+          {tab === "api" && (
+            <div className="space-y-4">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs text-gray-500">The primary way to call your agent. Paste into your terminal or app.</p>
+                  <CopyButton text={curlCmd} />
+                </div>
+                <pre className="bg-gray-950 text-green-400 rounded-xl p-4 text-xs overflow-x-auto whitespace-pre font-mono leading-relaxed">{curlCmd}</pre>
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-gray-600">Python SDK</p>
+                  <CopyButton text={pythonSnippet} />
+                </div>
+                <pre className="bg-gray-950 text-blue-300 rounded-xl p-4 text-xs overflow-x-auto whitespace-pre font-mono leading-relaxed">{pythonSnippet}</pre>
+              </div>
+            </div>
+          )}
+
+          {tab === "json" && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs text-gray-500">Full agent specification — use this to recreate or document the agent.</p>
+                <CopyButton text={agentJson} />
+              </div>
+              <pre className="bg-gray-950 text-yellow-300 rounded-xl p-4 text-xs overflow-x-auto whitespace-pre font-mono leading-relaxed">{agentJson}</pre>
+            </div>
+          )}
+
+          {tab === "howto" && (
+            <div className="space-y-4 text-sm text-gray-700">
+              <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+                <p className="font-semibold text-indigo-800 mb-1">Step 1 — Authenticate</p>
+                <pre className="text-xs text-indigo-700 font-mono whitespace-pre-wrap">{`POST ${API_BASE}/api/auth/login
+Content-Type: application/x-www-form-urlencoded
+
+username=your@email.com&password=yourpassword
+
+→ returns: { "access_token": "eyJ..." }`}</pre>
+              </div>
+              <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+                <p className="font-semibold text-indigo-800 mb-1">Step 2 — Run your agent</p>
+                <pre className="text-xs text-indigo-700 font-mono whitespace-pre-wrap">{`POST ${API_BASE}/api/agents/${agent.id}/run
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{ "input": "Your message here", "chat_history": [] }`}</pre>
+              </div>
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                <p className="font-semibold text-emerald-800 mb-1">Step 3 — Parse the response</p>
+                <pre className="text-xs text-emerald-700 font-mono whitespace-pre-wrap">{`{
+  "output":                "Agent reply text",
+  "guardrail_triggered":   false,
+  "pii_triggered":         false,
+  "input_pii_triggered":   false,
+  "output_pii_triggered":  false,
+  "hallucination_triggered": false,
+  "latency_ms":            1240
+}`}</pre>
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                <p className="font-semibold text-amber-800 mb-2">Guardrails</p>
+                <ul className="text-xs text-amber-700 space-y-1 list-disc list-inside">
+                  <li><strong>pii_triggered</strong> — PII was detected and redacted (email, phone, SSN, credit card)</li>
+                  <li><strong>input_pii_triggered</strong> — PII was in the user's message (redacted before LLM)</li>
+                  <li><strong>output_pii_triggered</strong> — PII was in the LLM's response (redacted before returning)</li>
+                  <li><strong>hallucination_triggered</strong> — LLM expressed uncertainty (flagged, not blocked)</li>
+                </ul>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-between flex-shrink-0 bg-gray-50 rounded-b-2xl">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400 font-mono">{API_BASE}/api/agents/{agent.id}/run</span>
+          </div>
+          <CopyButton text={`${API_BASE}/api/agents/${agent.id}/run`} />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ModelBadge({ model }: { model: string }) {
@@ -154,6 +364,9 @@ export default function AgentStudio() {
     catch { return []; }
   });
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const highlightId = searchParams.get("id");
+  const highlightRef = useRef<HTMLDivElement | null>(null);
 
   // Per-agent run history with self-healing prompt evolution
   const [runHistory, setRunHistory] = useState<{ [agentId: string]: PromptVersion[] }>(() => {
@@ -213,6 +426,12 @@ export default function AgentStudio() {
   };
 
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    if (!loading && highlightId && highlightRef.current) {
+      setTimeout(() => highlightRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
+    }
+  }, [loading, highlightId]);
 
   const runAgent = async (id: string) => {
     const input = runInput[id];
@@ -323,7 +542,8 @@ export default function AgentStudio() {
           {agents.map((agent) => (
             <div
               key={agent.id}
-              className="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow flex flex-col"
+              ref={agent.id === highlightId ? highlightRef : null}
+              className={`bg-white border rounded-xl shadow-sm hover:shadow-md transition-shadow flex flex-col ${agent.id === highlightId ? "border-indigo-400 ring-2 ring-indigo-200" : "border-gray-200"}`}
             >
               <div className="p-5 flex-1">
                 {/* Card Header */}
@@ -538,57 +758,7 @@ export default function AgentStudio() {
 
       {/* Deploy Modal */}
       {deployAgent && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <div>
-                <h3 className="font-semibold text-gray-900">Deploy — {deployAgent.name}</h3>
-                <p className="text-xs text-gray-400 mt-0.5">Share and integrate your agent</p>
-              </div>
-              <button onClick={() => setDeployAgent(null)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400">✕</button>
-            </div>
-            <div className="p-6 space-y-5">
-              {/* Status */}
-              <div className="flex items-center gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
-                <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                <span className="text-sm font-medium text-emerald-700">Agent deployed</span>
-                <span className="ml-auto text-xs text-emerald-600">v{deployAgent.current_version}</span>
-              </div>
-
-              {/* cURL */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">cURL</p>
-                  <button onClick={() => { navigator.clipboard.writeText(`curl -X POST https://api.agentforge.io/v1/agents/${deployAgent.id}/run \\\n  -H "Authorization: Bearer YOUR_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{"message": "Hello"}'`); }} className="text-xs text-teal-600 hover:underline">Copy</button>
-                </div>
-                <pre className="bg-gray-900 text-green-400 rounded-xl p-3 text-xs overflow-x-auto whitespace-pre-wrap">{`curl -X POST https://api.agentforge.io/v1/agents/${deployAgent.id}/run \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{"message": "Hello"}'`}</pre>
-              </div>
-
-              {/* Embed */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Embed Widget</p>
-                  <button onClick={() => { navigator.clipboard.writeText(`<iframe src="https://agentforge.io/embed/${deployAgent.id}" width="400" height="600" frameborder="0" />`); }} className="text-xs text-teal-600 hover:underline">Copy</button>
-                </div>
-                <pre className="bg-gray-900 text-blue-400 rounded-xl p-3 text-xs overflow-x-auto whitespace-pre-wrap">{`<iframe\n  src="https://agentforge.io/embed/${deployAgent.id}"\n  width="400" height="600"\n  frameborder="0"\n/>`}</pre>
-              </div>
-
-              {/* Share link */}
-              <div>
-                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2">Share Link</p>
-                <div className="flex items-center gap-2">
-                  <input readOnly value={`https://agentforge.io/agents/${deployAgent.id}`}
-                    className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-600 bg-gray-50 outline-none" />
-                  <button onClick={() => navigator.clipboard.writeText(`https://agentforge.io/agents/${deployAgent.id}`)}
-                    className="px-3 py-2 bg-gray-900 text-white rounded-xl text-xs hover:bg-gray-700">Copy</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <DeployModal agent={deployAgent} onClose={() => setDeployAgent(null)} />
       )}
     </div>
   );

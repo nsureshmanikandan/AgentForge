@@ -20,6 +20,9 @@ async function extractFileText(file: File): Promise<string> {
   if (ext === "txt" || ext === "md" || ext === "csv" || ext === "json") {
     return (await file.text()).slice(0, 3000);
   }
+  if (ext === "pdf") {
+    return `[PDF text extraction not supported in browser — please copy-paste the text content instead]`;
+  }
   return `[Binary file: ${file.name}]`;
 }
 
@@ -111,6 +114,7 @@ export default function Home() {
   const [showMenu, setShowMenu] = useState(false);
   const [showThemePicker, setShowThemePicker] = useState(false);
   const [showIntegrationModal, setShowIntegrationModal] = useState<(typeof TOOL_INTEGRATIONS)[0] | null>(null);
+  const [showComingSoonModal, setShowComingSoonModal] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [fileContents, setFileContents] = useState<Record<string, string>>({});
   const [selectedTheme, setSelectedTheme] = useState("default");
@@ -300,14 +304,48 @@ export default function Home() {
               </button>
               <button
                 onClick={() => {
-                  alert(`${showIntegrationModal.name} connected! (demo mode)`);
                   setShowIntegrationModal(null);
+                  setShowComingSoonModal(true);
                 }}
                 className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
               >
                 Connect
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Coming Soon Modal */}
+      {showComingSoonModal && (
+        <div
+          className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center"
+          onClick={() => setShowComingSoonModal(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl border border-gray-200 p-6 w-96 max-w-[calc(100vw-2rem)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-900 text-sm">Coming Soon</h3>
+                <p className="text-xs text-gray-400">Integration connections</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 leading-relaxed mb-5">
+              Integration connections coming soon — this feature will let you connect live credentials to your agent.
+            </p>
+            <button
+              onClick={() => setShowComingSoonModal(false)}
+              className="w-full px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              Close
+            </button>
           </div>
         </div>
       )}

@@ -683,6 +683,8 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
   progressStep?: number;
   uiError?: string;
 }) {
+  const [downloading, setDownloading] = useState(false);
+
   if (!plan) return <EmptyState tab="app" />;
 
   if (generatingUI) {
@@ -750,8 +752,6 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
   }
 
   if (uiHtml) {
-    const [downloading, setDownloading] = useState(false);
-
     const openInBrowser = () => {
       const blob = new Blob([uiHtml], { type: "text/html" });
       const url = URL.createObjectURL(blob);
@@ -991,8 +991,10 @@ export default function Architect() {
     const sid = currentSid ?? activeSid;
     if (!p || !sid) return;
     setGeneratingUI(true);
+    setProgressStep(1);
     setUiError(undefined);
     setTab("app");
+    const step2Timer = setTimeout(() => setProgressStep(2), 1500);
     try {
       // Always use session documents — they persist across all chat turns
       const sessionDocs = inlineDocs ?? sessions.find((s) => s.id === sid)?.documents;
@@ -1041,6 +1043,7 @@ export default function Architect() {
         user_feedback: feedbackHint ?? undefined,
       });
       const html = res.data.html;
+      setProgressStep(3);
       if (!html || html.trim().length < 50) {
         setUiError("The sandbox returned empty content. Please try again.");
         return;
@@ -1052,6 +1055,8 @@ export default function Architect() {
       const msg = err instanceof Error ? err.message : "Failed to generate UI sandbox.";
       setUiError(`${msg} — Check that the backend is running and your Azure OpenAI key is valid.`);
     } finally {
+      clearTimeout(step2Timer);
+      setProgressStep(0);
       setGeneratingUI(false);
     }
   }

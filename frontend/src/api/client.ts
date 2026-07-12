@@ -68,6 +68,7 @@ export const architectApi = {
     company?: string;
     doc_types?: string[];
     documents?: { name: string; text: string }[];
+    user_feedback?: string;
   }) => api.post("/architect/generate-ui", payload),
 };
 

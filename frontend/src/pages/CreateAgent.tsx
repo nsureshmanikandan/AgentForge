@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { agentsApi } from "../api/client";
+import { agentsApi, ragApi } from "../api/client";
 import type { PromptVersion, PromptChangeType } from "../components/PromptEvolution";
 import { detectChangeType, PromptEvolutionSection, buildRepairEntry } from "../components/PromptEvolution";
 
@@ -431,7 +431,11 @@ export default function CreateAgent() {
   const [triggerConfig, setTriggerConfig] = useState({ enabled: false, event: "webhook", endpoint: "" });
 
   // Knowledge base files
-  const [kbFiles, setKbFiles] = useState<{name: string; size: string; status: "uploading"|"done"|"error"}[]>([]);
+  const [kbFiles, setKbFiles] = useState<{name: string; size: string; status: "uploading"|"done"|"error"; kbId?: string}[]>([]);
+  const [kbId, setKbId] = useState<string | null>(null);
+
+  // Tools
+  const [selectedTools, setSelectedTools] = useState<string[]>([]);
 
   // Skills
   const [skillsSearch, setSkillsSearch] = useState("");
@@ -575,14 +579,19 @@ export default function CreateAgent() {
 
       await agentsApi.create({
         name: agentName,
-        description: goal || role || agentName,
+        description: goal || instructions || role || agentName,
         model,
         system_prompt: systemPrompt || `You are ${agentName}, a helpful AI assistant.`,
-        tools: [],
+        tools: [...selectedTools, ...selectedSkills],
         guardrails: {
           pii: responsibleAIConfig.enabledPolicies.includes("pii"),
           hallucination: responsibleAIConfig.enabledPolicies.includes("hallucination"),
         },
+        knowledge_base_id: kbId ?? undefined,
+        temperature: temperature,
+        top_p: topP,
+        memory_config: enabledFeatures.includes("memory") ? memoryConfig : undefined,
+        schedule: scheduleConfig.enabled ? scheduleConfig : undefined,
       });
       navigate("/studio");
     } catch (err: unknown) {
@@ -1020,16 +1029,25 @@ export default function CreateAgent() {
                 ))}
                 <label className="block w-full border border-dashed border-gray-300 rounded-xl py-3 px-4 text-sm text-gray-500 hover:border-teal-400 hover:text-teal-600 transition-colors cursor-pointer text-center">
                   <input type="file" accept=".pdf,.docx,.txt,.md,.csv" multiple className="hidden"
-                    onChange={(e) => {
+                    onChange={async (e) => {
                       const files = Array.from(e.target.files ?? []);
-                      files.forEach(file => {
+                      e.target.value = "";
+                      for (const file of files) {
                         const entry = { name: file.name, size: (file.size / 1024).toFixed(0) + " KB", status: "uploading" as const };
                         setKbFiles(prev => [...prev, entry]);
-                        setTimeout(() => {
+                        try {
+                          let activeKbId = kbId;
+                          if (!activeKbId) {
+                            const res = await ragApi.createKB(agentName || "Agent KB", `Knowledge base for ${agentName}`);
+                            activeKbId = res.data.id;
+                            setKbId(activeKbId);
+                          }
+                          await ragApi.upload(activeKbId!, file);
                           setKbFiles(prev => prev.map(f => f.name === file.name ? {...f, status: "done" as const} : f));
-                        }, 1200);
-                      });
-                      e.target.value = "";
+                        } catch {
+                          setKbFiles(prev => prev.map(f => f.name === file.name ? {...f, status: "error" as const} : f));
+                        }
+                      }
                     }} />
                   + Upload document (PDF, DOCX, TXT, CSV)
                 </label>
@@ -1048,7 +1066,12 @@ export default function CreateAgent() {
               <div className="px-4 pb-4 space-y-2">
                 {["calculator", "web_search", "email_sender", "slack_notifier", "github_reader"].map((t) => (
                   <label key={t} className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-                    <input type="checkbox" className="accent-teal-600" /> {t}
+                    <input
+                      type="checkbox"
+                      className="accent-teal-600"
+                      checked={selectedTools.includes(t)}
+                      onChange={(e) => setSelectedTools(prev => e.target.checked ? [...prev, t] : prev.filter(x => x !== t))}
+                    /> {t}
                   </label>
                 ))}
               </div>

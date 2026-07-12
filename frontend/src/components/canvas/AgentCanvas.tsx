@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import {
   ReactFlow,
   addEdge,
@@ -14,7 +14,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-const initialNodes: Node[] = [
+const defaultNodes: Node[] = [
   {
     id: "input",
     type: "input",
@@ -37,18 +37,25 @@ const initialNodes: Node[] = [
   },
 ];
 
-const initialEdges: Edge[] = [
+const defaultEdges: Edge[] = [
   { id: "e-input-agent1", source: "input", target: "agent-1", animated: true },
   { id: "e-agent1-output", source: "agent-1", target: "output", animated: true },
 ];
 
 interface AgentCanvasProps {
   onNodeSelect: (nodeId: string) => void;
+  onWorkflowChange?: (nodes: Node[], edges: Edge[]) => void;
+  initialNodes?: Node[];
+  initialEdges?: Edge[];
 }
 
-export default function AgentCanvas({ onNodeSelect }: AgentCanvasProps) {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+export default function AgentCanvas({ onNodeSelect, onWorkflowChange, initialNodes, initialEdges }: AgentCanvasProps) {
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes ?? defaultNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges ?? defaultEdges);
+
+  useEffect(() => {
+    onWorkflowChange?.(nodes, edges);
+  }, [nodes, edges, onWorkflowChange]);
 
   const onConnect = useCallback(
     (connection: Connection) => setEdges((eds) => addEdge({ ...connection, animated: true }, eds)),

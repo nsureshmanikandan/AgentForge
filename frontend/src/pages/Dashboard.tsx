@@ -66,14 +66,28 @@ function StatusBadge({ active }: { active: boolean }) {
   );
 }
 
+interface AuditLog {
+  id: string;
+  action: string;
+  resource_type: string;
+  resource_id: string;
+  guardrail_triggered: boolean;
+  latency_ms: number;
+  created_at: string;
+  input_snapshot?: { input?: string };
+  output_snapshot?: { output?: string };
+}
+
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [recentLogs, setRecentLogs] = useState<AuditLog[]>([]);
   const navigate = useNavigate();
 
   useEffect(() => {
     controlPlaneApi.stats().then((r) => setStats(r.data)).catch(() => {});
     agentsApi.list().then((r) => setAgents(r.data)).catch(() => {});
+    controlPlaneApi.auditLogs().then((r) => setRecentLogs((r.data as AuditLog[]).slice(0, 5))).catch(() => {});
   }, []);
 
   return (
@@ -189,7 +203,7 @@ export default function Dashboard() {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => navigate("/studio")}
+                          onClick={() => navigate(`/studio?id=${a.id}`)}
                           className="text-xs text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
                         >
                           View
@@ -207,6 +221,40 @@ export default function Dashboard() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+
+      {/* Recent Activity */}
+      <div className="bg-white border border-gray-200 rounded-xl shadow-sm mt-6">
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+          <div>
+            <h2 className="font-semibold text-slate-900">Recent Activity</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Last 5 agent runs</p>
+          </div>
+          <button onClick={() => navigate("/usage")} className="text-xs text-indigo-600 hover:text-indigo-800 font-medium">View all →</button>
+        </div>
+        {recentLogs.length === 0 ? (
+          <div className="px-6 py-8 text-center text-gray-400 text-sm">No runs yet.</div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {recentLogs.map((log) => (
+              <div key={log.id} className="px-6 py-3 flex items-center justify-between hover:bg-gray-50">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${log.guardrail_triggered ? "bg-amber-400" : "bg-emerald-400"}`} />
+                  <p className="text-sm text-slate-700 truncate max-w-xs">
+                    {log.input_snapshot?.input ?? log.action}
+                  </p>
+                </div>
+                <div className="flex items-center gap-4 flex-shrink-0 ml-4">
+                  {log.guardrail_triggered && (
+                    <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-2 py-0.5">Guardrail</span>
+                  )}
+                  <span className="text-xs text-gray-400">{log.latency_ms}ms</span>
+                  <span className="text-xs text-gray-300">{new Date(log.created_at).toLocaleTimeString()}</span>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>

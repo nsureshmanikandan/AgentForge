@@ -234,6 +234,17 @@ if __name__ == "__main__":
     b.click();
     URL.revokeObjectURL(readmeUrl);
   }, 300);
+
+  // Also download run_agent.py
+  const pyBlob = new Blob([files["run_agent.py"]], { type: "text/x-python" });
+  const pyUrl = URL.createObjectURL(pyBlob);
+  setTimeout(() => {
+    const c = document.createElement("a");
+    c.href = pyUrl;
+    c.download = `${agent.name.replace(/\s+/g, "_")}_run_agent.py`;
+    c.click();
+    URL.revokeObjectURL(pyUrl);
+  }, 600);
 }
 
 export default function MyProjects() {
@@ -332,7 +343,7 @@ export default function MyProjects() {
                 <div className="border-t border-gray-100 pt-4 flex items-center gap-2">
                   {/* Open in Studio */}
                   <button
-                    onClick={() => navigate("/studio")}
+                    onClick={() => navigate(`/studio?id=${agent.id}`)}
                     className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 text-xs font-medium rounded-lg transition-colors"
                     title="Open in Agent Studio"
                   >

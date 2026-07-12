@@ -9,27 +9,37 @@ export default function Login() {
   const [error, setError] = useState("");
   const [tab, setTab] = useState<"login" | "register">("login");
   const [fullName, setFullName] = useState("");
+  const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
   const handleLogin = async () => {
+    if (loading) return;
+    setLoading(true);
     try {
       const res = await authApi.login(email, password);
       login(res.data.access_token);
       navigate("/");
     } catch {
       setError("Invalid email or password");
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleRegister = async () => {
+    if (loading) return;
+    setLoading(true);
     try {
       await authApi.register(email, password, fullName);
       const res = await authApi.login(email, password);
       login(res.data.access_token);
       navigate("/");
-    } catch {
-      setError("Registration failed. Try a different email.");
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(detail ? `Registration failed: ${detail}` : "Registration failed. Try a different email.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -98,9 +108,16 @@ export default function Login() {
         />
         <button
           onClick={tab === "login" ? handleLogin : handleRegister}
-          className="w-full bg-teal-600 hover:bg-teal-700 text-white rounded-lg py-2.5 text-sm font-semibold transition-colors"
+          disabled={loading}
+          className="w-full bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white rounded-lg py-2.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2"
         >
-          {tab === "login" ? "Sign In" : "Create Account"}
+          {loading && (
+            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          )}
+          {loading ? (tab === "login" ? "Signing in..." : "Creating account...") : (tab === "login" ? "Sign In" : "Create Account")}
         </button>
       </div>
     </div>
