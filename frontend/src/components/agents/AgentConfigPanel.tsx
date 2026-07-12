@@ -1,19 +1,26 @@
 import { useState } from "react";
 import { agentsApi } from "../../api/client";
 import { X } from "lucide-react";
+import type { NodeUpdateData } from "../canvas/AgentCanvas";
 
 const TOOLS = [
   "email", "slack", "github", "jira",
   "google_drive", "web_search", "calculator",
 ];
 
+const NODE_ROLES = [
+  "input", "classifier", "router", "responder", "guard", "rag", "output", "agent",
+];
+
 interface Props {
   nodeId: string;
+  nodeData?: { label?: string; role?: string; description?: string };
+  onUpdate?: (nodeId: string, data: NodeUpdateData) => void;
   onSave: () => void;
   onClose: () => void;
 }
 
-export default function AgentConfigPanel({ onSave, onClose }: Props) {
+export default function AgentConfigPanel({ nodeId, nodeData, onUpdate, onSave, onClose }: Props) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -23,6 +30,12 @@ export default function AgentConfigPanel({ onSave, onClose }: Props) {
   const [loading, setLoading] = useState(false);
   const [saveLoading, setSaveLoading] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // Node config fields (inline canvas editing)
+  const [nodeLabel, setNodeLabel] = useState(nodeData?.label ?? "");
+  const [nodeRole, setNodeRole] = useState(nodeData?.role ?? "agent");
+  const [nodeDesc, setNodeDesc] = useState(nodeData?.description ?? "");
+  const [nodeUpdated, setNodeUpdated] = useState(false);
 
   const generateFromNL = async () => {
     if (!nlPrompt.trim()) return;
@@ -61,13 +74,17 @@ export default function AgentConfigPanel({ onSave, onClose }: Props) {
     }
   };
 
+  const handleUpdateNode = () => {
+    if (!onUpdate) return;
+    onUpdate(nodeId, { label: nodeLabel, role: nodeRole, description: nodeDesc });
+    setNodeUpdated(true);
+    setTimeout(() => setNodeUpdated(false), 1500);
+  };
+
   const toggleTool = (tool: string) =>
     setTools((prev) =>
       prev.includes(tool) ? prev.filter((t) => t !== tool) : [...prev, tool]
     );
-
-  // suppress unused warning — nodeId is passed for future per-node state
-  void description;
 
   return (
     <div className="w-80 bg-gray-900 border-l border-gray-800 flex flex-col h-full">
@@ -79,6 +96,63 @@ export default function AgentConfigPanel({ onSave, onClose }: Props) {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
+
+        {/* ── Node config (inline canvas editing) ── */}
+        <div className="bg-gray-800 rounded-lg p-3 space-y-2">
+          <p className="text-gray-400 text-xs font-medium mb-1">Node Settings</p>
+
+          <div>
+            <label className="text-gray-400 text-xs mb-1 block">Label</label>
+            <input
+              className="w-full bg-gray-700 text-white rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-violet-500"
+              placeholder="Node label"
+              value={nodeLabel}
+              onChange={(e) => setNodeLabel(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label className="text-gray-400 text-xs mb-1 block">Role</label>
+            <select
+              className="w-full bg-gray-700 text-white rounded px-3 py-1.5 text-sm focus:outline-none"
+              value={nodeRole}
+              onChange={(e) => setNodeRole(e.target.value)}
+            >
+              {NODE_ROLES.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-gray-400 text-xs mb-1 block">Description</label>
+            <textarea
+              className="w-full bg-gray-700 text-white rounded px-3 py-1.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-violet-500"
+              rows={2}
+              placeholder="What does this node do?"
+              value={nodeDesc}
+              onChange={(e) => setNodeDesc(e.target.value)}
+            />
+          </div>
+
+          <button
+            onClick={handleUpdateNode}
+            disabled={!onUpdate}
+            className={`w-full py-1.5 rounded text-sm font-medium transition-colors ${
+              nodeUpdated
+                ? "bg-green-700 text-white"
+                : "bg-violet-600 hover:bg-violet-700 text-white disabled:opacity-40"
+            }`}
+          >
+            {nodeUpdated ? "Updated!" : "Update Node"}
+          </button>
+        </div>
+
+        {/* ── Divider ── */}
+        <div className="border-t border-gray-700 pt-1">
+          <p className="text-gray-500 text-xs font-medium uppercase tracking-wider mb-2">Save as Agent</p>
+        </div>
+
         {/* Generate from NL */}
         <div className="bg-gray-800 rounded-lg p-3">
           <p className="text-gray-400 text-xs mb-2 font-medium">Generate from description</p>

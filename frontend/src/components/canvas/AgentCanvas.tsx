@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, type MutableRefObject } from "react";
 import {
   ReactFlow,
   addEdge,
@@ -8,11 +8,25 @@ import {
   MiniMap,
   Background,
   BackgroundVariant,
+  MarkerType,
   type Connection,
   type Edge,
   type Node,
+  type DefaultEdgeOptions,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import RoleNode from "./RoleNode";
+import { layoutWorkflow } from "../../utils/layoutWorkflow";
+
+const defaultEdgeOptions: DefaultEdgeOptions = {
+  animated: true,
+  style: { stroke: "#7c3aed", strokeWidth: 2.5 },
+  markerEnd: { type: MarkerType.ArrowClosed, color: "#7c3aed", width: 20, height: 20 },
+};
+
+const nodeTypes = {
+  roleNode: RoleNode,
+};
 
 const defaultNodes: Node[] = [
   {
@@ -38,28 +52,105 @@ const defaultNodes: Node[] = [
 ];
 
 const defaultEdges: Edge[] = [
-  { id: "e-input-agent1", source: "input", target: "agent-1", animated: true },
-  { id: "e-agent1-output", source: "agent-1", target: "output", animated: true },
+  { id: "e-input-agent1", source: "input", target: "agent-1", animated: true, style: { stroke: "#7c3aed", strokeWidth: 2.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: "#7c3aed", width: 20, height: 20 } },
+  { id: "e-agent1-output", source: "agent-1", target: "output", animated: true, style: { stroke: "#7c3aed", strokeWidth: 2.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: "#7c3aed", width: 20, height: 20 } },
 ];
+
+export type NodeUpdateData = { label: string; role: string; description: string };
 
 interface AgentCanvasProps {
   onNodeSelect: (nodeId: string) => void;
   onWorkflowChange?: (nodes: Node[], edges: Edge[]) => void;
+  nodeUpdaterRef?: MutableRefObject<((nodeId: string, data: NodeUpdateData) => void) | null>;
+  exportRef?: MutableRefObject<(() => { nodes: Node[]; edges: Edge[] }) | null>;
   initialNodes?: Node[];
   initialEdges?: Edge[];
+  onNodeDelete?: (nodeId: string) => void;
 }
 
-export default function AgentCanvas({ onNodeSelect, onWorkflowChange, initialNodes, initialEdges }: AgentCanvasProps) {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes ?? defaultNodes);
+export default function AgentCanvas({
+  onNodeSelect,
+  onWorkflowChange,
+  nodeUpdaterRef,
+  exportRef,
+  initialNodes,
+  initialEdges,
+  onNodeDelete,
+}: AgentCanvasProps) {
+  const [nodes, setNodes, onNodesChange] = useNodesState(
+    layoutWorkflow(initialNodes ?? defaultNodes, initialEdges ?? defaultEdges)
+  );
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges ?? defaultEdges);
+
+  useEffect(() => {
+    if (initialNodes !== undefined && initialEdges !== undefined) {
+      setNodes(layoutWorkflow(initialNodes, initialEdges));
+      setEdges(initialEdges);
+    } else if (initialNodes !== undefined) {
+      setNodes(layoutWorkflow(initialNodes, []));
+    }
+  }, [initialNodes, initialEdges, setNodes, setEdges]);
 
   useEffect(() => {
     onWorkflowChange?.(nodes, edges);
   }, [nodes, edges, onWorkflowChange]);
 
+  const handleNodeUpdate = useCallback(
+    (nodeId: string, data: NodeUpdateData) => {
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === nodeId ? { ...n, data: { ...n.data, ...data } } : n
+        )
+      );
+    },
+    [setNodes]
+  );
+
+  useEffect(() => {
+    if (nodeUpdaterRef) nodeUpdaterRef.current = handleNodeUpdate;
+  }, [handleNodeUpdate, nodeUpdaterRef]);
+
+  useEffect(() => {
+    if (exportRef) exportRef.current = () => ({ nodes, edges });
+  }, [exportRef, nodes, edges]);
+
   const onConnect = useCallback(
-    (connection: Connection) => setEdges((eds) => addEdge({ ...connection, animated: true }, eds)),
-    [setEdges]
+    (connection: Connection) => {
+      const sourceNode = nodes.find((n) => n.id === connection.source);
+      const isRouter = (sourceNode?.data as Record<string, unknown>)?.role === "router";
+      let label = "";
+      if (isRouter) {
+        label = window.prompt("Edge label (e.g. Yes/No, Priority):") ?? "";
+      }
+      setEdges((eds) =>
+        addEdge(
+          label
+            ? {
+                ...connection,
+                animated: true,
+                label,
+                labelStyle: { fill: "#e5e7eb", fontSize: 11, fontWeight: 600 },
+                labelBgStyle: { fill: "#4c1d95" },
+                labelBgPadding: [6, 3] as [number, number],
+                labelBgBorderRadius: 4,
+                style: { stroke: "#7c3aed", strokeWidth: 2.5 },
+                markerEnd: { type: MarkerType.ArrowClosed, color: "#7c3aed", width: 20, height: 20 },
+              }
+            : { ...connection, animated: true, style: { stroke: "#7c3aed", strokeWidth: 2.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: "#7c3aed", width: 20, height: 20 } },
+          eds
+        )
+      );
+    },
+    [setEdges, nodes]
+  );
+
+  const handleNodesDelete = useCallback(
+    (deletedNodes: Node[]) => {
+      const deletedIds = new Set(deletedNodes.map((n) => n.id));
+      setEdges((eds) => eds.filter((e) => !deletedIds.has(e.source) && !deletedIds.has(e.target)));
+      deletedNodes.forEach((n) => onNodeDelete?.(n.id));
+    },
+    [setEdges, onNodeDelete]
   );
 
   const addAgentNode = () => {
@@ -92,6 +183,10 @@ export default function AgentCanvas({ onNodeSelect, onWorkflowChange, initialNod
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onNodeClick={(_, node) => onNodeSelect(node.id)}
+        onNodesDelete={handleNodesDelete}
+        nodeTypes={nodeTypes}
+        defaultEdgeOptions={defaultEdgeOptions}
+        deleteKeyCode={["Delete", "Backspace"]}
         fitView
         colorMode="dark"
       >

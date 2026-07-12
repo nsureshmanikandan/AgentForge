@@ -434,7 +434,6 @@ function Layout({ children }: { children: React.ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
 
   const fullscreen =
-    location.pathname === "/builder" ||
     location.pathname === "/studio/create" ||
     location.pathname === "/architect" ||
     location.pathname.startsWith("/playground/");
