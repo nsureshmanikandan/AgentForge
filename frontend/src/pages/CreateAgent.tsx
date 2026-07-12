@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { agentsApi, ragApi } from "../api/client";
 import type { PromptVersion, PromptChangeType } from "../components/PromptEvolution";
 import { detectChangeType, PromptEvolutionSection, buildRepairEntry } from "../components/PromptEvolution";
@@ -371,6 +371,11 @@ function ResponsibleAIPanel({
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function CreateAgent() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const editId = searchParams.get("id");
+
+  const [loadingAgent, setLoadingAgent] = useState(!!editId);
+
   const [tourStep, setTourStep] = useState(1);
   const [showTour, setShowTour] = useState(true);
 
@@ -452,6 +457,40 @@ export default function CreateAgent() {
   useEffect(() => {
     try { localStorage.setItem(CA_HISTORY_KEY, JSON.stringify(promptHistory)); } catch { /* full */ }
   }, [promptHistory]);
+
+  // Load existing agent when in edit mode
+  useEffect(() => {
+    if (!editId) return;
+    agentsApi.get(editId).then((res) => {
+      const agent = res.data;
+      if (agent.name) setAgentName(agent.name);
+      if (agent.model) setModel(agent.model);
+      if (agent.tools) setSelectedTools(agent.tools);
+      if (agent.temperature != null) setTemperature(agent.temperature);
+
+      // Parse system_prompt into role/goal/instructions
+      if (agent.system_prompt) {
+        const sp: string = agent.system_prompt;
+        const roleMatch = sp.match(/^Role:\s*(.+?)(?=\nGoal:|\nInstructions:|$)/ms);
+        const goalMatch = sp.match(/^Goal:\s*(.+?)(?=\nRole:|\nInstructions:|$)/ms);
+        const instrMatch = sp.match(/^Instructions:\s*([\s\S]+?)(?=\nRole:|\nGoal:|$)/ms);
+
+        if (roleMatch || goalMatch || instrMatch) {
+          if (roleMatch) setRole(roleMatch[1].trim());
+          if (goalMatch) setGoal(goalMatch[1].trim());
+          if (instrMatch) setInstructions(instrMatch[1].trim());
+        } else {
+          // Couldn't parse structured format — put full text in instructions
+          setInstructions(sp);
+        }
+      }
+    }).catch(() => {
+      // If fetch fails, continue with empty form in "edit" mode
+    }).finally(() => {
+      setLoadingAgent(false);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editId]);
 
   const tour = TOUR_STEPS[tourStep - 1];
 
@@ -567,7 +606,7 @@ export default function CreateAgent() {
     }
   };
 
-  const handleCreate = async () => {
+  const handleSubmit = async () => {
     if (!agentName.trim()) return;
     setCreating(true);
     try {
@@ -577,7 +616,7 @@ export default function CreateAgent() {
         instructions && `Instructions: ${instructions}`,
       ].filter(Boolean).join("\n");
 
-      await agentsApi.create({
+      const payload = {
         name: agentName,
         description: goal || instructions || role || agentName,
         model,
@@ -587,16 +626,26 @@ export default function CreateAgent() {
           pii: responsibleAIConfig.enabledPolicies.includes("pii"),
           hallucination: responsibleAIConfig.enabledPolicies.includes("hallucination"),
         },
-        knowledge_base_id: kbId ?? undefined,
-        temperature: temperature,
+        temperature,
         top_p: topP,
-        memory_config: enabledFeatures.includes("memory") ? memoryConfig : undefined,
-        schedule: scheduleConfig.enabled ? scheduleConfig : undefined,
-      });
-      navigate("/studio");
+      };
+
+      if (editId) {
+        await agentsApi.update(editId, payload);
+        navigate(`/studio?id=${editId}`);
+      } else {
+        await agentsApi.create({
+          ...payload,
+          knowledge_base_id: kbId ?? undefined,
+          memory_config: enabledFeatures.includes("memory") ? memoryConfig : undefined,
+          schedule: scheduleConfig.enabled ? scheduleConfig : undefined,
+        });
+        navigate("/studio");
+      }
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      alert(msg ? `Failed to create agent: ${msg}` : "Failed to create agent. Is the backend running?");
+      const action = editId ? "update" : "create";
+      alert(msg ? `Failed to ${action} agent: ${msg}` : `Failed to ${action} agent. Is the backend running?`);
     } finally {
       setCreating(false);
     }
@@ -641,6 +690,15 @@ export default function CreateAgent() {
     },
   ];
 
+  if (loadingAgent) {
+    return (
+      <div className="flex flex-col h-screen bg-white items-center justify-center">
+        <div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm text-gray-400 mt-3">Loading agent...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen bg-white">
       {/* Top Bar */}
@@ -649,6 +707,9 @@ export default function CreateAgent() {
           <button onClick={() => navigate("/studio")} className="hover:text-gray-800">Agents</button>
           <span>›</span>
           <span className="text-gray-800 font-medium truncate max-w-40">{agentName}</span>
+          {editId && (
+            <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">Edit</span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
@@ -658,11 +719,11 @@ export default function CreateAgent() {
             </svg>
           </button>
           <button
-            onClick={handleCreate}
+            onClick={handleSubmit}
             disabled={creating}
             className="px-5 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-colors"
           >
-            {creating ? "Creating..." : "Create"}
+            {creating ? (editId ? "Saving..." : "Creating...") : (editId ? "Save Changes" : "Create")}
           </button>
         </div>
       </div>

@@ -1,12 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from pydantic import BaseModel
 from app.database import get_db
 from app.models.agent import Agent, AgentVersion
 from app.models.audit import AuditLog
 from app.schemas.agent import AgentCreate, AgentOut, AgentRunRequest, AgentRunResponse, GenerateRequest
 from app.core.orchestrator import AgentOrchestrator
 from app.core.prompt_to_agent import generate_agent_config
+from app.core.azure_openai import AzureOpenAIClient
+import json
 
 router = APIRouter()
 
@@ -14,6 +17,47 @@ router = APIRouter()
 @router.post("/generate")
 async def generate_agent(body: GenerateRequest):
     return await generate_agent_config(body.description)
+
+
+class SuggestRequest(BaseModel):
+    problem: str
+
+
+@router.post("/suggest")
+async def suggest_agents(body: SuggestRequest):
+    """Given a problem description, return 3 AI-powered agent suggestions."""
+    system = """You are an expert AI agent architect. Given a user's problem or goal, suggest exactly 3 distinct AI agent ideas that would solve it.
+
+Return ONLY a valid JSON array with exactly 3 objects. Each object must have:
+{
+  "title": "short agent name",
+  "type": "one of: Customer Support | Research | Automation | Data Analysis | Content | HR | Finance | Engineering | Sales | Operations",
+  "description": "2-sentence description of what this agent does",
+  "prompt": "the ready-to-use prompt to build this agent (1-2 sentences, imperative)",
+  "tools": ["list of 2-4 tool names from: RAG, Knowledge Base, Email, Slack, GitHub, Web Search, Calendar, CRM, Webhook, PDF Parser"],
+  "complexity": "Starter | Intermediate | Advanced",
+  "why": "one sentence explaining why this agent fits the problem"
+}
+Return ONLY the JSON array. No explanation. No markdown."""
+
+    client = AzureOpenAIClient(model="gpt-4o")
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": f"My problem/goal: {body.problem}"},
+    ]
+    raw = await client.chat(messages, temperature=0.5)
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = "\n".join(raw.split("\n")[1:])
+        if raw.endswith("```"):
+            raw = raw[:-3].strip()
+    try:
+        suggestions = json.loads(raw)
+        if not isinstance(suggestions, list):
+            suggestions = [suggestions]
+        return {"suggestions": suggestions[:3]}
+    except Exception:
+        return {"suggestions": [], "error": "Could not parse suggestions"}
 
 
 @router.post("/", response_model=AgentOut, status_code=201)

@@ -13,6 +13,7 @@ interface Agent {
   description: string;
   current_version: number;
   tools: string[];
+  agent_type?: string;
 }
 
 const AVATAR_COLORS = [
@@ -363,6 +364,7 @@ export default function AgentStudio() {
     try { return JSON.parse(localStorage.getItem("af_published_ids") ?? "[]"); }
     catch { return []; }
   });
+  const [typeFilter, setTypeFilter] = useState<"all" | "agent" | "managerial" | "superflow">("all");
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const highlightId = searchParams.get("id");
@@ -538,8 +540,31 @@ export default function AgentStudio() {
           </button>
         </div>
       ) : (
+        <>
+        {/* Type filter tabs */}
+        <div className="mb-5 flex items-center gap-2">
+          {(["all", "agent", "managerial", "superflow"] as const).map((t) => {
+            const count = t === "all" ? agents.length : agents.filter(a => (a.agent_type ?? "agent") === t).length;
+            return (
+              <button
+                key={t}
+                onClick={() => setTypeFilter(t)}
+                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors capitalize ${
+                  typeFilter === t
+                    ? "bg-indigo-600 text-white shadow-sm"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >
+                {t === "all" ? "All" : t.charAt(0).toUpperCase() + t.slice(1)}
+                <span className={`ml-1.5 text-xs ${typeFilter === t ? "text-indigo-200" : "text-gray-400"}`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {agents.map((agent) => (
+          {(typeFilter === "all" ? agents : agents.filter(a => (a.agent_type ?? "agent") === typeFilter)).map((agent) => (
             <div
               key={agent.id}
               ref={agent.id === highlightId ? highlightRef : null}
@@ -584,6 +609,39 @@ export default function AgentStudio() {
 
               {/* Run Input */}
               <div className="px-5 pb-5">
+                {/* Navigation action row */}
+                <div className="flex gap-1.5 mb-2">
+                  <button
+                    onClick={() => navigate(`/studio/create?id=${agent.id}`)}
+                    title="Edit agent"
+                    className="flex items-center gap-1 px-2.5 py-1.5 border border-gray-200 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-50 transition-colors"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                    </svg>
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => navigate(`/playground/${agent.id}`)}
+                    title="Test in playground"
+                    className="flex items-center gap-1 px-2.5 py-1.5 border border-indigo-200 text-indigo-600 rounded-lg text-xs font-medium hover:bg-indigo-50 transition-colors"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
+                    </svg>
+                    Test
+                  </button>
+                  <button
+                    onClick={() => navigate(`/versions/${agent.id}`)}
+                    title="Version history"
+                    className="flex items-center gap-1 px-2.5 py-1.5 border border-gray-200 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-50 transition-colors"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    History
+                  </button>
+                </div>
                 <div className="flex gap-2 mb-2">
                   <button
                     onClick={() => setDeployAgent(agent)}
@@ -659,6 +717,7 @@ export default function AgentStudio() {
             </div>
           ))}
         </div>
+        </>
       )}
 
       {/* Publish Modal */}

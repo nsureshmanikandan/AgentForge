@@ -18,6 +18,7 @@ export default function Login() {
     setLoading(true);
     try {
       const res = await authApi.login(email, password);
+      localStorage.setItem("af_user_email", email);
       login(res.data.access_token);
       navigate("/");
     } catch {
@@ -33,6 +34,7 @@ export default function Login() {
     try {
       await authApi.register(email, password, fullName);
       const res = await authApi.login(email, password);
+      localStorage.setItem("af_user_email", email);
       login(res.data.access_token);
       navigate("/");
     } catch (err: unknown) {

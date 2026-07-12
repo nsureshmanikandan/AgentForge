@@ -18,6 +18,7 @@ class Agent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     current_version: Mapped[int] = mapped_column(Integer, default=1)
+    agent_type: Mapped[str] = mapped_column(String, default="agent", server_default="agent")
     versions: Mapped[list["AgentVersion"]] = relationship("AgentVersion", back_populates="agent")
 
     def __init__(self, **kwargs):

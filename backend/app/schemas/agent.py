@@ -9,6 +9,7 @@ class AgentCreate(BaseModel):
     model: str = "gpt-4o"
     tools: list[str] = []
     guardrails: dict = Field(default_factory=lambda: {"pii": True, "hallucination": True})
+    agent_type: str = "agent"
 
 
 class AgentOut(BaseModel):
@@ -21,6 +22,7 @@ class AgentOut(BaseModel):
     guardrails: dict
     created_by: str
     current_version: int
+    agent_type: str
     created_at: datetime
     updated_at: datetime
 

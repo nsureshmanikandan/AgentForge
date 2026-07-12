@@ -7,6 +7,9 @@ $env:AZURE_OPENAI_DEPLOYMENT_GPT4O = "gpt-4o"
 $env:DATABASE_URL                  = "postgresql+asyncpg://architect:architect@localhost:5432/agentforge"
 $env:JWT_SECRET                    = "change-this-in-production"
 $env:OTEL_EXPORTER                 = "console"
+$env:AZURE_SPEECH_KEY              = "your-azure-speech-key-here"
+$env:AZURE_SPEECH_REGION           = "eastus"
+$env:AZURE_SPEECH_ENDPOINT         = "https://YOUR_RESOURCE.cognitiveservices.azure.com/"
 
 Write-Host "Starting AgentForge backend..." -ForegroundColor Cyan
 & venv\Scripts\uvicorn app.main:app --reload --port 8000

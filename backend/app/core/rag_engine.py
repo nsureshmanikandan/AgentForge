@@ -1,3 +1,4 @@
+import io
 import os
 import tempfile
 from app.core.azure_openai import AzureOpenAIClient
@@ -9,6 +10,27 @@ try:
     _LANGCHAIN_AVAILABLE = True
 except ImportError:
     _LANGCHAIN_AVAILABLE = False
+
+try:
+    from docx import Document as DocxDocument
+    _DOCX_AVAILABLE = True
+except ImportError:
+    _DOCX_AVAILABLE = False
+
+
+def _extract_docx_text(file_bytes: bytes) -> str:
+    """Extract plain text from a .docx binary blob."""
+    if not _DOCX_AVAILABLE:
+        return file_bytes.decode("utf-8", errors="ignore")
+    doc = DocxDocument(io.BytesIO(file_bytes))
+    paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+    # also grab table cells
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                if cell.text.strip():
+                    paragraphs.append(cell.text.strip())
+    return "\n\n".join(paragraphs)
 
 
 class RAGEngine:
@@ -29,15 +51,21 @@ class RAGEngine:
                 return 1
 
             suffix = os.path.splitext(filename)[1].lower()
-            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                tmp.write(file_bytes)
-                tmp_path = tmp.name
 
-            try:
-                loader = PyPDFLoader(tmp_path) if suffix == ".pdf" else TextLoader(tmp_path, encoding="utf-8")
-                docs = loader.load()
-            finally:
-                os.unlink(tmp_path)
+            # DOCX: extract text in-memory without a temp file loader
+            if suffix == ".docx":
+                raw_text = _extract_docx_text(file_bytes)
+                from langchain_core.documents import Document as LCDoc
+                docs = [LCDoc(page_content=raw_text, metadata={"source": filename})]
+            else:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                    tmp.write(file_bytes)
+                    tmp_path = tmp.name
+                try:
+                    loader = PyPDFLoader(tmp_path) if suffix == ".pdf" else TextLoader(tmp_path, encoding="utf-8")
+                    docs = loader.load()
+                finally:
+                    os.unlink(tmp_path)
 
             splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
             chunks = splitter.split_documents(docs)

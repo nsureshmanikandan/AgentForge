@@ -13,6 +13,9 @@ export const authApi = {
     api.post("/auth/login", new URLSearchParams({ username: email, password })),
   register: (email: string, password: string, full_name: string) =>
     api.post("/auth/register", { email, password, full_name }),
+  me: () => api.get("/auth/me"),
+  changePassword: (current_password: string, new_password: string) =>
+    api.post("/auth/change-password", { current_password, new_password }),
 };
 
 export const agentsApi = {
@@ -70,6 +73,19 @@ export const architectApi = {
     documents?: { name: string; text: string }[];
     user_feedback?: string;
   }) => api.post("/architect/generate-ui", payload),
+};
+
+export const apiKeysApi = {
+  list: () => api.get("/api-keys/"),
+  create: (name: string) => api.post("/api-keys/", { name }),
+  delete: (id: string) => api.delete(`/api-keys/${id}`),
+};
+
+export const teamApi = {
+  list: () => api.get("/team/"),
+  invite: (email: string, role: string) => api.post("/team/invite", { email, role }),
+  updateRole: (userId: string, role: string) => api.put(`/team/${userId}/role`, { role }),
+  remove: (userId: string) => api.delete(`/team/${userId}`),
 };
 
 export default api;

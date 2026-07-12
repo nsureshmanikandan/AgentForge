@@ -1065,6 +1065,18 @@ export default function Architect() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
+  // Auto-submit prompt coming from Prompt Library / Blueprints / What Should I Build
+  useEffect(() => {
+    const queued = sessionStorage.getItem("architectPrompt");
+    if (queued) {
+      sessionStorage.removeItem("architectPrompt");
+      setInput(queued);
+      // Defer so state is flushed and the send() call sees the new session
+      setTimeout(() => send(queued), 80);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Persist sessions and active session to localStorage whenever they change
   useEffect(() => { saveSessions(sessions); }, [sessions]);
   useEffect(() => {

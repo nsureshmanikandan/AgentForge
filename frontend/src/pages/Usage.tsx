@@ -255,7 +255,7 @@ export default function Usage() {
             <p className="text-gray-400 text-xs mt-1">Run an agent to see audit logs here.</p>
           </div>
         ) : (
-          <>
+          <div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -352,7 +352,7 @@ export default function Usage() {
               </div>
             </div>
           )}
-          </>
+          </div>
         )}
       </div>
     </div>

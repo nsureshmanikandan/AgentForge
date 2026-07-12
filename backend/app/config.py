@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     azure_search_key: str = ""
     azure_search_index: str = "aiarchitect-index"
 
+    azure_speech_key: str = ""
+    azure_speech_region: str = "eastus"
+    azure_speech_endpoint: str = ""
+
     otel_exporter: str = "console"
     otel_service_name: str = "agentforge"
     otel_exporter_otlp_endpoint: str = "http://localhost:4318"

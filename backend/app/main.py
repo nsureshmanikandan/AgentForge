@@ -7,6 +7,11 @@ from app.api.tools import router as tools_router
 from app.api.control_plane import router as control_plane_router
 from app.api.simulation import router as simulation_router
 from app.api.architect import router as architect_router
+from app.api.api_keys import router as api_keys_router
+from app.api.team import router as team_router
+from app.api.safety import router as safety_router
+from app.api.evaluations import router as evaluations_router
+from app.api.voice import router as voice_router
 from app.core.telemetry import setup_telemetry
 from app.core.seed import seed_admin
 
@@ -67,6 +72,11 @@ app.include_router(tools_router, prefix="/api/tools", tags=["tools"])
 app.include_router(control_plane_router, prefix="/api/control-plane", tags=["control-plane"])
 app.include_router(simulation_router, prefix="/api/simulation", tags=["simulation"])
 app.include_router(architect_router, prefix="/api/architect", tags=["architect"])
+app.include_router(api_keys_router, prefix="/api", tags=["api-keys"])
+app.include_router(team_router, prefix="/api", tags=["team"])
+app.include_router(safety_router, prefix="/api/safety", tags=["safety"])
+app.include_router(evaluations_router, prefix="/api/evaluations", tags=["evaluations"])
+app.include_router(voice_router, prefix="/api/voice", tags=["voice"])
 
 @app.get("/health")
 async def health():
