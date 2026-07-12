@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.azure_openai import AzureOpenAIClient
 from app.database import get_db
-from app.models.workflow import Workflow
+from app.models.workflow import Workflow, WorkflowRun
 import uuid
 import time
 
@@ -323,14 +323,34 @@ async def get_workflow(workflow_id: str, db: AsyncSession = Depends(get_db)):
     return data
 
 
+async def _persist_run(
+    db: AsyncSession,
+    workflow_id: str,
+    trigger_input: str,
+    logs: list[WorkflowRunLog],
+    final_output: str,
+    status: str = "completed",
+) -> WorkflowRun:
+    """Save a workflow execution trace to workflow_runs table."""
+    total_ms = sum(log.duration_ms for log in logs)
+    run = WorkflowRun(
+        id=str(uuid.uuid4()),
+        workflow_id=workflow_id,
+        trigger_input=trigger_input,
+        final_output=final_output,
+        status=status,
+        node_logs=[log.model_dump() for log in logs],
+        total_duration_ms=float(total_ms),
+    )
+    db.add(run)
+    await db.commit()
+    await db.refresh(run)
+    return run
+
+
 @router.post("/workflows/{workflow_id}/deploy")
 async def deploy_workflow(workflow_id: str, db: AsyncSession = Depends(get_db)):
-    """
-    Simulate pipeline execution.
-    Iterates nodes in topological order; calls GPT-4o for each non-input/output node.
-    Returns a list of WorkflowRunLog entries.
-    """
-    # Try cache, then DB
+    """Execute pipeline; persist run trace and return logs."""
     wf = _workflows.get(workflow_id)
     if not wf:
         result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
@@ -340,18 +360,14 @@ async def deploy_workflow(workflow_id: str, db: AsyncSession = Depends(get_db)):
         wf = _wf_to_dict(db_wf)
         _workflows[workflow_id] = wf
 
-    logs, _ = await _run_pipeline(wf["nodes"], wf["edges"])
+    logs, final_output = await _run_pipeline(wf["nodes"], wf["edges"])
+    await _persist_run(db, workflow_id, "", logs, final_output)
     return {"logs": [log.model_dump() for log in logs]}
 
 
 @router.post("/workflows/{workflow_id}/trigger")
 async def trigger_workflow(workflow_id: str, body: TriggerRequest, db: AsyncSession = Depends(get_db)):
-    """
-    Trigger a workflow with a user-provided input.
-    Runs the same pipeline execution as /deploy but uses body.input as the starting value.
-    Returns logs and the final output of the last node.
-    """
-    # Try cache, then DB
+    """Trigger workflow with input; persist full execution trace."""
     wf = _workflows.get(workflow_id)
     if not wf:
         result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
@@ -362,9 +378,78 @@ async def trigger_workflow(workflow_id: str, body: TriggerRequest, db: AsyncSess
         _workflows[workflow_id] = wf
 
     logs, final_output = await _run_pipeline(wf["nodes"], wf["edges"], initial_input=body.input)
+    run = await _persist_run(db, workflow_id, body.input, logs, final_output)
     return {
+        "run_id": run.id,
         "logs": [log.model_dump() for log in logs],
         "final_output": final_output,
+    }
+
+
+@router.get("/workflows/{workflow_id}/runs")
+async def list_workflow_runs(workflow_id: str, db: AsyncSession = Depends(get_db)):
+    """Return all stored execution traces for a workflow (newest first)."""
+    result = await db.execute(
+        select(WorkflowRun)
+        .where(WorkflowRun.workflow_id == workflow_id)
+        .order_by(WorkflowRun.triggered_at.desc())
+    )
+    runs = result.scalars().all()
+    return [
+        {
+            "run_id": r.id,
+            "workflow_id": r.workflow_id,
+            "trigger_input": r.trigger_input,
+            "final_output": r.final_output,
+            "status": r.status,
+            "node_logs": r.node_logs,
+            "total_duration_ms": r.total_duration_ms,
+            "triggered_at": r.triggered_at.isoformat() if r.triggered_at else None,
+        }
+        for r in runs
+    ]
+
+
+@router.get("/runs")
+async def list_all_runs(db: AsyncSession = Depends(get_db)):
+    """Return the 50 most recent execution traces across all workflows."""
+    result = await db.execute(
+        select(WorkflowRun).order_by(WorkflowRun.triggered_at.desc()).limit(50)
+    )
+
+
+    runs = result.scalars().all()
+    return [
+        {
+            "run_id": r.id,
+            "workflow_id": r.workflow_id,
+            "trigger_input": r.trigger_input[:120] if r.trigger_input else "",
+            "final_output": r.final_output[:120] if r.final_output else "",
+            "status": r.status,
+            "node_count": len(r.node_logs),
+            "total_duration_ms": r.total_duration_ms,
+            "triggered_at": r.triggered_at.isoformat() if r.triggered_at else None,
+        }
+        for r in runs
+    ]
+
+
+@router.get("/runs/{run_id}")
+async def get_run_detail(run_id: str, db: AsyncSession = Depends(get_db)):
+    """Return full execution trace for a single run including all node logs."""
+    result = await db.execute(select(WorkflowRun).where(WorkflowRun.id == run_id))
+    r = result.scalar_one_or_none()
+    if not r:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return {
+        "run_id": r.id,
+        "workflow_id": r.workflow_id,
+        "trigger_input": r.trigger_input,
+        "final_output": r.final_output,
+        "status": r.status,
+        "node_logs": r.node_logs,
+        "total_duration_ms": r.total_duration_ms,
+        "triggered_at": r.triggered_at.isoformat() if r.triggered_at else None,
     }
 
 

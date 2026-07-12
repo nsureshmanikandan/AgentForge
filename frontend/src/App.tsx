@@ -24,6 +24,7 @@ import Profile from "./pages/Profile";
 import Safety from "./pages/Safety";
 import Evaluations from "./pages/Evaluations";
 import VoiceAgents from "./pages/VoiceAgents";
+import WorkflowObservability from "./pages/WorkflowObservability";
 import GlobalSearch from "./components/GlobalSearch";
 
 // ─── Inline SVG Icons ────────────────────────────────────────────────────────
@@ -341,6 +342,9 @@ function Sidebar() {
         <NavLink to="/dashboard" className={linkClass} title={collapsed ? "Control Plane" : undefined}>
           <IconMonitor />{!collapsed && "Control Plane"}
         </NavLink>
+        <NavLink to="/workflow-runs" className={linkClass} title={collapsed ? "Workflow Runs" : undefined}>
+          <IconChart />{!collapsed && "Workflow Runs"}
+        </NavLink>
 
         {/* BUILD */}
         {!collapsed && <p className="text-xs font-semibold text-gray-400 px-3 pt-4 pb-2 uppercase tracking-wider">Build</p>}
@@ -488,6 +492,7 @@ export default function App() {
                   <Route path="/shared" element={<MyProjects />} />
                   <Route path="/usage" element={<Usage />} />
                   <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/workflow-runs" element={<WorkflowObservability />} />
                   <Route path="/builder" element={<WorkflowBuilder />} />
                   <Route path="/prompts" element={<PromptLibrary />} />
                   <Route path="/blueprints" element={<Blueprints />} />

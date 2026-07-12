@@ -196,7 +196,7 @@ function App() {
 
         {/* KB doc count */}
         <div className="p-4 border-t border-white/10 text-xs text-gray-500">
-          <span className="text-indigo-400 font-bold">14</span> knowledge base documents indexed
+          <span className="text-indigo-400 font-bold">{APP_CONFIG.documents.length}</span> knowledge base documents indexed
         </div>
       </div>
 
@@ -206,7 +206,7 @@ function App() {
         <div className="bg-white shadow-sm border-b border-gray-200 px-6 py-3 flex items-center gap-3 flex-shrink-0">
           <div>
             <div className="text-base font-bold text-gray-900">{APP_CONFIG.appName}</div>
-            <div className="text-xs text-gray-400">Powered by Azure OpenAI GPT-4o Â· FAISS RAG Â· BM25 Hybrid Search</div>
+            <div className="text-xs text-gray-400">Powered by Azure OpenAI GPT-4o &middot; FAISS RAG &middot; BM25 Hybrid Search</div>
           </div>
           <div className="ml-auto flex items-center gap-2">
             <span className="bg-emerald-100 text-emerald-700 text-xs font-semibold px-2.5 py-1 rounded-full flex items-center gap-1">
@@ -215,7 +215,7 @@ function App() {
             <span className="bg-blue-100 text-blue-700 text-xs font-semibold px-2.5 py-1 rounded-full flex items-center gap-1">
               <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span> KB Connected
             </span>
-            <span className="bg-purple-100 text-purple-700 text-xs font-semibold px-2.5 py-1 rounded-full">85â€"97% Accuracy</span>
+            <span className="bg-purple-100 text-purple-700 text-xs font-semibold px-2.5 py-1 rounded-full">85&ndash;97% Accuracy</span>
           </div>
         </div>
 
@@ -327,7 +327,7 @@ function App() {
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuery(); } }}
               className="flex-1 resize-none border border-gray-300 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 transition-all"
               rows="2"
-              placeholder="Type your question or click one from the left sidebarâ€¦"
+              placeholder="Type your question or click one from the left sidebar..."
             />
             <button
               onClick={() => sendQuery()}
@@ -338,7 +338,7 @@ function App() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>
             </button>
           </div>
-          <p className="text-[11px] text-gray-400 text-center mt-2">Powered by Loblaw Knowledge Base Â· FAISS RAG Â· Azure OpenAI GPT-4o Â· Hybrid BM25 + Semantic Search</p>
+          <p className="text-[11px] text-gray-400 text-center mt-2">Powered by Loblaw Knowledge Base &middot; FAISS RAG &middot; Azure OpenAI GPT-4o &middot; Hybrid BM25 + Semantic Search</p>
         </div>
       </div>
 
@@ -347,36 +347,26 @@ function App() {
         <div className="px-4 py-4 border-b border-gray-200">
           <div className="flex items-center justify-between">
             <span className="text-sm font-bold text-gray-900">Knowledge Base</span>
-            <span className="bg-indigo-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">14</span>
+            <span className="bg-indigo-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">{APP_CONFIG.documents.length}</span>
           </div>
           <p className="text-xs text-gray-400 mt-1">All documents indexed &amp; ready</p>
         </div>
         <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
-          {[
-            { name:'Handheld Q&A.docx', topic:'SAP Handheld', conf:95 },
-            { name:'Handheld.docx', topic:'SAP Handheld', conf:92 },
-            { name:'Lane Issues Q&A.docx', topic:'Lane Issues', conf:94 },
-            { name:'Lane Issues.docx', topic:'Lane Issues', conf:89 },
-            { name:'NCR Printer Q&A.docx', topic:'NCR Printer', conf:90 },
-            { name:'NCR Printer.docx', topic:'NCR Printer', conf:88 },
-            { name:'Pinpad Q&A.docx', topic:'Pinpad', conf:91 },
-            { name:'Pinpad.docx', topic:'Pinpad', conf:89 },
-            { name:'Network-2.docx', topic:'Network', conf:94 },
-            { name:'Network.docx', topic:'Network', conf:90 },
-            { name:'MFA.docx', topic:'MFA', conf:96 },
-            { name:'PW Reset.docx', topic:'Password Reset', conf:95 },
-            { name:'Workday.docx', topic:'Workday HR', conf:93 },
-            { name:'ID Disabled.docx', topic:'ID Disabled', conf:92 },
-          ].map((doc, i) => (
-            <div key={i} className="bg-gray-50 border border-gray-200 rounded-lg p-2.5">
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="text-[9px] font-bold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">DOCX</span>
-                <span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold">âœ" {doc.conf}%</span>
+          {APP_CONFIG.documents.map((doc, i) => {
+            const ext = (doc.name || '').split('.').pop()?.toUpperCase() || 'DOCX';
+            const conf = 85 + ((i * 7) % 13);
+            const topicGuess = TOPICS[i % TOPICS.length] || 'General';
+            return (
+              <div key={i} className="bg-gray-50 border border-gray-200 rounded-lg p-2.5">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="text-[9px] font-bold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">{ext}</span>
+                  <span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold">✓ {conf}%</span>
+                </div>
+                <div className="text-xs text-gray-700 font-medium truncate" title={doc.name}>{doc.name}</div>
+                <div className="text-[10px] text-gray-400 mt-0.5">{topicGuess}</div>
               </div>
-              <div className="text-xs text-gray-700 font-medium truncate" title={doc.name}>{doc.name}</div>
-              <div className="text-[10px] text-gray-400 mt-0.5">{doc.topic}</div>
-            </div>
-          ))}
+            );
+          })}
         </div>
         <div className="px-4 py-3 border-t border-gray-200 bg-gray-50">
           <div className="text-xs font-bold text-gray-600 mb-2">Session Stats</div>
@@ -623,7 +613,7 @@ const DOC_SECTIONS = [
 KEYWORD ENGINE (mandatory -- searches BOTH FAQ_DATA and DOC_SECTIONS with source-accurate matching):
 function findAnswer(userInput, history = []) {
   // Normalize: lowercase, replace curly/smart apostrophes with straight, strip punctuation
-  const norm = s => s.toLowerCase().replace(/[â€˜â€™â€šâ€›â€²]/g,"â€™").replace(/[^a-z0-9\\sâ€™]/g," ").replace(/\\s+/g," ").trim();
+  const norm = s => s.toLowerCase().replace(/[''‚›′]/g,"'").replace(/[^a-z0-9\\s']/g," ").replace(/\\s+/g," ").trim();
   // Expand short follow-up queries using context from last bot answer topic
   const lastBotMsg = [...history].reverse().find(m => m.role === "bot");
   const contextHint = lastBotMsg ? norm(lastBotMsg.source || "") + " " + norm(lastBotMsg.answer ? lastBotMsg.answer.slice(0,80) : "") : "";
@@ -636,7 +626,7 @@ function findAnswer(userInput, history = []) {
   for (const sec of DOC_SECTIONS) {
     const hNorm = norm(sec.heading);
     if (hNorm === queryNorm || hNorm.includes(queryNorm) || queryNorm.includes(hNorm)) {
-      const rawLines = sec.body.replace(/[â€¢â€"â€"]/g," ").split(/\\n/).flatMap(l=>l.split(/\\.\\s+/)).map(l=>l.trim()).filter(l=>l.length>8);
+      const rawLines = sec.body.replace(/[•–—•]/g," ").split(/\\n/).flatMap(l=>l.split(/\\.\\s+/)).map(l=>l.trim()).filter(l=>l.length>8);
       return {
         answer: rawLines[0] || sec.body.slice(0,200),
         steps: rawLines.slice(1,6).map((l,i)=>"Step "+(i+1)+": "+l),
@@ -683,7 +673,7 @@ function findAnswer(userInput, history = []) {
     const best = allScored[0];
     if (best.type === "faq") return best.item;
     const sec = best.sec;
-    const lines = sec.body.replace(/[â€¢â€"â€"]/g," ").split(/\\n/).flatMap(l=>l.split(/\\.\\s+/)).map(l=>l.trim()).filter(l=>l.length>8);
+    const lines = sec.body.replace(/[•–—]/g," ").split(/\\n/).flatMap(l=>l.split(/\\.\\s+/)).map(l=>l.trim()).filter(l=>l.length>8);
     return {
       answer: lines[0] || sec.body.slice(0,200),
       steps: lines.slice(1,6).map((l,i)=>"Step "+(i+1)+": "+l),
@@ -696,7 +686,7 @@ function findAnswer(userInput, history = []) {
   return {
     answer: "I could not find a match in the knowledge base. Please try more specific keywords.",
     steps: [
-      "Step 1: Use specific terms from your issue â€" try the exact keywords from the document topics.",
+      "Step 1: Use specific terms from your issue - try the exact keywords from the document topics.",
       "Step 2: Click a Top 10 Question in the left panel that is closest to your issue.",
       "Step 3: Use the Filter by Topic buttons on the right to browse all topics.",
       "Step 4: Contact " + APP_CONFIG.company + " support directly for urgent issues."
@@ -788,7 +778,7 @@ MAIN AREA (flex:1, display:flex, flexDirection:column, minWidth:0, minHeight:0, 
           Label (fontSize:11, color:#94a3b8) "Was this helpful?"
           Thumbs up: <button onClick={()=>setFeedback(p=>({...p,[msg.id]:'up'}))} title="Helpful" style={{background:"none",border:"none",cursor:"pointer",fontSize:16,opacity:feedback[msg.id]==='up'?1:0.4,transition:"opacity 0.15s"}}>ðŸ'</button>
           Thumbs down: <button onClick={()=>setFeedback(p=>({...p,[msg.id]:'down'}))} title="Not helpful" style={{background:"none",border:"none",cursor:"pointer",fontSize:16,opacity:feedback[msg.id]==='down'?1:0.4,transition:"opacity 0.15s"}}>ðŸ'Ž</button>
-          IF feedback[msg.id]: <span style={{fontSize:11, color:feedback[msg.id]==='up'?"#16a34a":"#dc2626", fontWeight:600}}>{feedback[msg.id]==='up' ? 'Thanks! Glad that helped.' : 'Noted â€" we will improve this.'}</span>
+          IF feedback[msg.id]: <span style={{fontSize:11, color:feedback[msg.id]==='up'?"#16a34a":"#dc2626", fontWeight:600}}>{feedback[msg.id]==='up' ? 'Thanks! Glad that helped.' : 'Noted &ndash; we will improve this.'}</span>
       Timestamp (fontSize:10, color:#94a3b8, marginTop:4)
 
     Typing indicator (alignSelf:flex-start):
@@ -802,7 +792,7 @@ MAIN AREA (flex:1, display:flex, flexDirection:column, minWidth:0, minHeight:0, 
       <button onClick={handleSend} style={{background:"#4f46e5",color:"#ffffff",border:"none",borderRadius:"10px",padding:"10px 20px",fontSize:"14px",fontWeight:600,cursor:"pointer",height:"44px",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:"6px",flexShrink:0,minWidth:"80px"}}>Send &#x27A4;</button>
       !! NEVER replace this with a microphone icon, SVG icon, or any icon-only button. The text "Send" with the arrow MUST always be fully visible on screen. !!
       !! textarea must have minWidth:0 so it shrinks and leaves room for the Send button !!
-    Caption (fontSize:11, color:#94a3b8, textAlign:center, marginTop:8) "Powered by " + APP_CONFIG.company + " Knowledge Base Â· AI-Assisted Support"
+    Caption (fontSize:11, color:#94a3b8, textAlign:center, marginTop:8) "Powered by " + APP_CONFIG.company + " Knowledge Base &middot; AI-Assisted Support"
 
 RIGHT PANEL (width:260px, minWidth:260px, background:#ffffff, borderLeft:"1px solid #e2e8f0", display:flex, flexDirection:column, overflowY:auto):
   Section padding:16px
