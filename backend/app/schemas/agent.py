@@ -37,6 +37,8 @@ class AgentRunResponse(BaseModel):
     output: str
     guardrail_triggered: bool
     pii_triggered: bool
+    input_pii_triggered: bool = False   # PII found in user input (redacted before LLM)
+    output_pii_triggered: bool = False  # PII found in LLM output (redacted before response)
     hallucination_triggered: bool
     latency_ms: int
 

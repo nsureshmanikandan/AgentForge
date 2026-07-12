@@ -107,6 +107,8 @@ async def run_agent(agent_id: str, body: AgentRunRequest, db: AsyncSession = Dep
         output=result["output"],
         guardrail_triggered=result["guardrail_triggered"],
         pii_triggered=result["pii_triggered"],
+        input_pii_triggered=result.get("input_pii_triggered", False),
+        output_pii_triggered=result.get("output_pii_triggered", False),
         hallucination_triggered=result["hallucination_triggered"],
         latency_ms=result["latency_ms"],
     )

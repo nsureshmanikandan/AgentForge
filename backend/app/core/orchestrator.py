@@ -22,26 +22,40 @@ class AgentOrchestrator:
             span.set_attribute("agent.model", self.config.get("model", "gpt-4o"))
 
             start = time.monotonic()
+
+            # --- INPUT GUARDRAILS: redact PII before it reaches the LLM ---
+            input_guardrail = await self._guardrails.check(user_input)
+            safe_input = input_guardrail["output"]
+            input_pii_triggered = input_guardrail["pii_triggered"]
+            span.set_attribute("agent.input_pii_triggered", input_pii_triggered)
+
             messages = [{"role": "system", "content": self.config.get("system_prompt", "")}]
             if chat_history:
                 messages.extend(chat_history)
-            messages.append({"role": "user", "content": user_input})
+            messages.append({"role": "user", "content": safe_input})
 
             raw_output = await self._llm.chat(messages)
-            guardrail_result = await self._guardrails.check(raw_output)
+
+            # --- OUTPUT GUARDRAILS: redact PII / flag hallucinations in response ---
+            output_guardrail = await self._guardrails.check(raw_output)
             latency_ms = int((time.monotonic() - start) * 1000)
 
-            span.set_attribute("agent.guardrail_triggered", guardrail_result["pii_triggered"] or guardrail_result["hallucination_triggered"])
-            span.set_attribute("agent.pii_triggered", guardrail_result["pii_triggered"])
-            span.set_attribute("agent.hallucination_triggered", guardrail_result["hallucination_triggered"])
+            pii_triggered = input_pii_triggered or output_guardrail["pii_triggered"]
+            hallucination_triggered = output_guardrail["hallucination_triggered"]
+
+            span.set_attribute("agent.guardrail_triggered", pii_triggered or hallucination_triggered)
+            span.set_attribute("agent.pii_triggered", pii_triggered)
+            span.set_attribute("agent.hallucination_triggered", hallucination_triggered)
             span.set_attribute("agent.latency_ms", latency_ms)
 
             return {
-                "output": guardrail_result["output"],
+                "output": output_guardrail["output"],
                 "raw_output": raw_output,
-                "guardrail_triggered": guardrail_result["pii_triggered"] or guardrail_result["hallucination_triggered"],
-                "pii_triggered": guardrail_result["pii_triggered"],
-                "hallucination_triggered": guardrail_result["hallucination_triggered"],
+                "guardrail_triggered": pii_triggered or hallucination_triggered,
+                "pii_triggered": pii_triggered,
+                "input_pii_triggered": input_pii_triggered,
+                "output_pii_triggered": output_guardrail["pii_triggered"],
+                "hallucination_triggered": hallucination_triggered,
                 "latency_ms": latency_ms,
             }
 

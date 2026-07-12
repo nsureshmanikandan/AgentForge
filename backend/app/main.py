@@ -8,6 +8,7 @@ from app.api.control_plane import router as control_plane_router
 from app.api.simulation import router as simulation_router
 from app.api.architect import router as architect_router
 from app.core.telemetry import setup_telemetry
+from app.core.seed import seed_admin
 
 from fastapi.openapi.utils import get_openapi
 from fastapi.security import OAuth2PasswordBearer
@@ -46,6 +47,10 @@ def custom_openapi():
 app.openapi = custom_openapi
 
 setup_telemetry(app)
+
+@app.on_event("startup")
+async def on_startup():
+    await seed_admin()
 
 app.add_middleware(
     CORSMiddleware,
