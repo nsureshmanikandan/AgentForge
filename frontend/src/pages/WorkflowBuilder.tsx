@@ -44,6 +44,11 @@ export default function WorkflowBuilder() {
   const [expandedLog, setExpandedLog] = useState<string | null>(null);
   const [webhookUrl, setWebhookUrl] = useState<string | null>(null);
 
+  // Run with Input modal state
+  const [showRunModal, setShowRunModal] = useState(false);
+  const [runInput, setRunInput] = useState("");
+  const [running, setRunning] = useState(false);
+
   // Resizable left panel
   const [panelWidth, setPanelWidth] = useState(288);
   const isResizing = useRef(false);
@@ -134,6 +139,44 @@ export default function WorkflowBuilder() {
       showToast(err instanceof Error ? err.message : "Deploy failed");
     } finally {
       setDeploying(false);
+    }
+  };
+
+  const handleRunWithInput = async () => {
+    if (!workflowRef.current || running) return;
+    setRunning(true);
+    setRunLogs(null);
+    const token = localStorage.getItem("token") || localStorage.getItem("agentforge_token");
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    try {
+      const saveRes = await fetch(`${API_BASE}/builder/workflows`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          name: "Workflow " + new Date().toLocaleTimeString(),
+          nodes: workflowRef.current.nodes,
+          edges: workflowRef.current.edges,
+        }),
+      });
+      if (!saveRes.ok) throw new Error("Failed to save workflow");
+      const { workflow_id } = await saveRes.json() as { workflow_id: string };
+      const triggerRes = await fetch(`${API_BASE}/builder/workflows/${workflow_id}/trigger`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ input: runInput }),
+      });
+      if (!triggerRes.ok) throw new Error("Workflow execution failed");
+      const { logs, final_output } = await triggerRes.json() as { logs: RunLog[]; final_output: string; run_id: string };
+      setRunLogs(logs);
+      setWebhookUrl(`http://localhost:8000/api/builder/workflows/${workflow_id}/trigger`);
+      setShowRunModal(false);
+      showToast(`✅ Run complete — ${logs.length} nodes executed`);
+      console.log("Final output:", final_output);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Run failed");
+    } finally {
+      setRunning(false);
     }
   };
 
@@ -280,11 +323,12 @@ if __name__ == "__main__":
   return (
     <div className="flex h-full bg-gray-950 flex-col">
       {/* Header bar */}
-      <div className="flex items-center gap-2 px-4 py-2 bg-gray-900 border-b border-gray-800 z-10">
-        <span className="text-white font-semibold text-sm mr-auto">Workflow Builder</span>
+      <div className="flex items-center gap-2 px-4 py-2 bg-gray-900 border-b border-gray-800 z-10 overflow-x-auto flex-shrink-0">
+        <span className="text-white font-semibold text-sm flex-shrink-0 mr-2 whitespace-nowrap">Workflow Builder</span>
+        <div className="flex items-center gap-2 flex-shrink-0">
         <button
           onClick={handleLoad}
-          className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow"
+          className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow whitespace-nowrap"
         >
           Load
         </button>
@@ -313,6 +357,12 @@ if __name__ == "__main__":
           Export Code
         </button>
         <button
+          onClick={() => { setShowRunModal(true); setRunInput(""); }}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow flex items-center gap-1.5"
+        >
+          ▶ Run
+        </button>
+        <button
           onClick={handleDeploy}
           disabled={deploying}
           className="bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow flex items-center gap-1.5"
@@ -326,6 +376,7 @@ if __name__ == "__main__":
             "🚀 Deploy"
           )}
         </button>
+        </div>
       </div>
 
       {/* Toast */}
@@ -583,6 +634,46 @@ if __name__ == "__main__":
           />
         )}
       </div>
+
+      {/* Run with Input Modal */}
+      {showRunModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-lg p-6 flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-white font-semibold text-base">▶ Run Workflow</h2>
+              <button onClick={() => setShowRunModal(false)} className="text-gray-400 hover:text-white text-xl leading-none">×</button>
+            </div>
+            <p className="text-gray-400 text-sm">Enter a real-world input to trigger this workflow. The execution trace will be saved to Observability.</p>
+            <textarea
+              rows={4}
+              value={runInput}
+              onChange={(e) => setRunInput(e.target.value)}
+              placeholder="e.g. Analyse Q3 sales trends for APAC region and flag anomalies..."
+              className="bg-gray-800 text-white text-sm border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500 resize-none"
+            />
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowRunModal(false)}
+                className="text-gray-400 hover:text-white px-4 py-2 rounded-lg text-sm border border-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRunWithInput}
+                disabled={running || !runInput.trim()}
+                className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-5 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
+              >
+                {running ? (
+                  <>
+                    <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Running...
+                  </>
+                ) : "▶ Execute & Save Trace"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

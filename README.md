@@ -32,11 +32,12 @@ AgentForge is a full-stack enterprise AI agent platform that lets teams:
 - **Test** agents in a simulation engine before promoting to production
 - **Observe** every run through a control plane with full audit logs
 - **Trace** every agent call end-to-end with OpenTelemetry — export to Jaeger, Azure Monitor, GCP, AWS, or Datadog
+- **Design apps** with the Planning Architect AI — describe what you want to build, get a full project plan + working UI preview + deployable full-stack ZIP in one session
 - **Govern** access with JWT-based RBAC (Admin / Developer / Viewer)
 
 ---
 
-## Core Features
+## Core Features (20)
 
 ### 1. Visual Agent Builder (ReactFlow Canvas)
 - Drag-drop canvas powered by **ReactFlow v12** with dark mode and animated edges
@@ -112,6 +113,29 @@ AgentForge is a full-stack enterprise AI agent platform that lets teams:
 - `postgres` service with `pgvector` extension and `pg_isready` healthcheck
 - Backend `depends_on: postgres: condition: service_healthy` — no race condition
 - Frontend served via Vite dev server on port `5173`
+
+### 13. Planning Architect
+- Describe your app in natural language → GPT-4o generates full project plan (phases, features, tech stack, architecture)
+- Visual UI preview: generates a working React chatbot/dashboard as sandboxed HTML
+- Session management: multiple named sessions (#N · title · timestamp), scrollable list, per-session delete
+- Document upload: attach PDFs/DOCXs to inform KB-grounded generation
+- Two-pass KB extraction: structured FAQ/topic data → injected into UI template (no hallucination)
+- **Full-stack deployable ZIP** containing:
+  - `src/App.tsx` — React+TypeScript frontend
+  - `backend/main.py` — FastAPI app
+  - `backend/app/rag.py` — FAISS + Azure OpenAI RAG engine
+  - `backend/app/models.py` — PostgreSQL tables (auto-created on startup)
+  - `backend/requirements.txt`, `backend/.env.example`
+  - `docker-compose.yml` — one command to run everything
+  - `sandbox.html` — standalone demo (no install needed)
+
+### 14. Workflow Observability
+- Dedicated page (`/workflow-runs`) showing all workflow execution traces
+- Stats bar: Total Runs, Completed, Failed, Avg Duration
+- Search by input/output/run ID + status filter
+- Fixed overlay drawer: click any run → full execution trace slides in from right
+- Per-node logs: node name, status (done/error/running), duration, output text
+- Backed by `workflow_runs` PostgreSQL table with full JSONB node logs
 
 ---
 
@@ -499,7 +523,7 @@ AgentForge/
 │   │   ├── components/
 │   │   │   ├── agents/     # AgentConfigPanel
 │   │   │   └── canvas/     # AgentCanvas (ReactFlow)
-│   │   ├── pages/          # Dashboard, WorkflowBuilder, Login
+│   │   ├── pages/          # Dashboard, WorkflowBuilder, Login, Architect, WorkflowObservability
 │   │   ├── store/          # Zustand auth store
 │   │   └── App.tsx         # Router + protected routes
 │   ├── package.json
@@ -539,6 +563,8 @@ Expected output: **32 passed**
 
 | Priority | Feature |
 |----------|---------|
+| **Shipped v4.0** | **Planning Architect** — NL to full project plan + React UI preview + deployable ZIP |
+| **Shipped v4.0** | **Workflow Observability** — /workflow-runs trace dashboard with overlay drawer |
 | High | Azure AI Search — replace in-memory RAG with full vector search |
 | High | WebSocket streaming — real-time token-by-token agent responses |
 | High | Live tool credentials UI — connect real Slack, GitHub, email |

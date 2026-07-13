@@ -56,6 +56,15 @@ setup_telemetry(app)
 
 @app.on_event("startup")
 async def on_startup():
+    # Import all models so SQLAlchemy sees them before create_all
+    import app.models.user      # noqa
+    import app.models.audit     # noqa
+    import app.models.rag       # noqa
+    import app.models.workflow  # noqa
+    import app.models.voice     # noqa
+    from app.database import Base, engine
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     await seed_admin()
 
 app.add_middleware(

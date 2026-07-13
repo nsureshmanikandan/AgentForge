@@ -15,14 +15,22 @@ export default function Login() {
 
   const handleLogin = async () => {
     if (loading) return;
+    setError("");
     setLoading(true);
     try {
       const res = await authApi.login(email, password);
       localStorage.setItem("af_user_email", email);
       login(res.data.access_token);
       navigate("/");
-    } catch {
-      setError("Invalid email or password");
+    } catch (err: unknown) {
+      const e = err as { code?: string; response?: { status?: number } };
+      if (e?.code === "ERR_NETWORK" || e?.code === "ERR_CONNECTION_REFUSED") {
+        setError("Cannot reach server — make sure the backend is running on port 8000.");
+      } else if (e?.response?.status === 401) {
+        setError("Invalid email or password.");
+      } else {
+        setError("Login failed. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -83,7 +91,14 @@ export default function Login() {
           </button>
         </div>
 
-        {error && <p className="text-red-500 text-sm mb-4 bg-red-50 px-3 py-2 rounded-lg">{error}</p>}
+        {error && (
+          <div className="mb-4 bg-red-50 border border-red-200 px-3 py-2 rounded-lg">
+            <p className="text-red-600 text-sm font-medium">{error}</p>
+            {error.includes("Invalid") && (
+              <p className="text-red-400 text-xs mt-0.5">Default: admin@example.com / admin123</p>
+            )}
+          </div>
+        )}
 
         {tab === "register" && (
           <input
