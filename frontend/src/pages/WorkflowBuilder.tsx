@@ -37,6 +37,7 @@ export default function WorkflowBuilder() {
   const [loadedEdges, setLoadedEdges] = useState<Edge[] | undefined>(undefined);
   const workflowRef = useRef<{ nodes: Node[]; edges: Edge[] } | null>(null);
   const nodeUpdaterRef = useRef<((nodeId: string, data: NodeUpdateData) => void) | null>(null);
+  const edgeUpdaterRef = useRef<((source: string, target: string, data: import("../components/canvas/AgentCanvas").EdgeUpdateData) => void) | null>(null);
 
   // Deploy state
   const [deploying, setDeploying] = useState(false);
@@ -47,6 +48,7 @@ export default function WorkflowBuilder() {
   // Run with Input modal state
   const [showRunModal, setShowRunModal] = useState(false);
   const [runInput, setRunInput] = useState("");
+  const [lastLoadedTemplate, setLastLoadedTemplate] = useState<WorkflowTemplate | null>(null);
   const [running, setRunning] = useState(false);
 
   // Resizable left panel
@@ -149,10 +151,11 @@ export default function WorkflowBuilder() {
     const token = localStorage.getItem("token") || localStorage.getItem("agentforge_token");
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = `Bearer ${token}`;
+
     try {
+      // Save workflow first
       const saveRes = await fetch(`${API_BASE}/builder/workflows`, {
-        method: "POST",
-        headers,
+        method: "POST", headers,
         body: JSON.stringify({
           name: "Workflow " + new Date().toLocaleTimeString(),
           nodes: workflowRef.current.nodes,
@@ -161,18 +164,71 @@ export default function WorkflowBuilder() {
       });
       if (!saveRes.ok) throw new Error("Failed to save workflow");
       const { workflow_id } = await saveRes.json() as { workflow_id: string };
-      const triggerRes = await fetch(`${API_BASE}/builder/workflows/${workflow_id}/trigger`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ input: runInput }),
+
+      // Reset all nodes to idle before starting
+      workflowRef.current.nodes.forEach((n) => {
+        nodeUpdaterRef.current?.(n.id, { executionState: "idle" });
       });
-      if (!triggerRes.ok) throw new Error("Workflow execution failed");
-      const { logs, final_output } = await triggerRes.json() as { logs: RunLog[]; final_output: string; run_id: string };
-      setRunLogs(logs);
+
       setWebhookUrl(`http://localhost:8000/api/builder/workflows/${workflow_id}/trigger`);
       setShowRunModal(false);
-      showToast(`✅ Run complete — ${logs.length} nodes executed`);
-      console.log("Final output:", final_output);
+
+      // Start SSE stream
+      const streamRes = await fetch(`${API_BASE}/builder/workflows/${workflow_id}/trigger-stream`, {
+        method: "POST", headers,
+        body: JSON.stringify({ input: runInput }),
+      });
+      if (!streamRes.ok) throw new Error("Stream failed");
+
+      const reader = streamRes.body!.getReader();
+      const decoder = new TextDecoder();
+      const collectedLogs: RunLog[] = [];
+
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const evt = JSON.parse(line.slice(6)) as Record<string, unknown>;
+
+            if (evt.event === "node_start") {
+              nodeUpdaterRef.current?.(evt.node_id as string, { executionState: "running" });
+            } else if (evt.event === "node_done") {
+              nodeUpdaterRef.current?.(evt.node_id as string, { executionState: "done" });
+              collectedLogs.push({
+                node_id: evt.node_id as string,
+                node_label: evt.node_label as string,
+                status: "done",
+                output: evt.output as string,
+                duration_ms: evt.duration_ms as number,
+              });
+            } else if (evt.event === "node_error") {
+              nodeUpdaterRef.current?.(evt.node_id as string, { executionState: "error" });
+              collectedLogs.push({
+                node_id: evt.node_id as string,
+                node_label: evt.node_label as string,
+                status: "error",
+                output: evt.error as string,
+                duration_ms: 0,
+              });
+            } else if (evt.event === "edge_activate") {
+              const edgeList = evt.edges as Array<{ source: string; target: string }>;
+              edgeList.forEach((e) => edgeUpdaterRef.current?.(e.source, e.target, { active: true }));
+            } else if (evt.event === "pipeline_done") {
+              setRunLogs(collectedLogs);
+              showToast(`✅ Run complete — ${collectedLogs.length} nodes executed`);
+            }
+          } catch {
+            // skip malformed SSE line
+          }
+        }
+      }
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Run failed");
     } finally {
@@ -310,6 +366,12 @@ if __name__ == "__main__":
     setLoadedEdges(tpl.edges);
     setCanvasKey((k) => k + 1);
     setShowTemplates(false);
+    setLastLoadedTemplate(tpl);
+    // Close any open panels so the fresh canvas isn't obscured
+    setSelectedNode(null);
+    setSelectedNodeData(undefined);
+    setRunLogs(null);
+    setWebhookUrl(null);
     showToast(`Loaded: ${tpl.name}`);
   };
 
@@ -357,7 +419,7 @@ if __name__ == "__main__":
           Export Code
         </button>
         <button
-          onClick={() => { setShowRunModal(true); setRunInput(""); }}
+          onClick={() => { setShowRunModal(true); setRunInput(lastLoadedTemplate?.sampleInput ?? ""); }}
           className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow flex items-center gap-1.5"
         >
           ▶ Run
@@ -477,6 +539,7 @@ if __name__ == "__main__":
             onNodeSelect={handleNodeSelect}
             onWorkflowChange={handleWorkflowChange}
             nodeUpdaterRef={nodeUpdaterRef}
+            edgeUpdaterRef={edgeUpdaterRef}
             initialNodes={loadedNodes}
             initialEdges={loadedEdges}
             onNodeDelete={handleNodeDelete}
@@ -626,6 +689,7 @@ if __name__ == "__main__":
 
         {selectedNode && (
           <AgentConfigPanel
+            key={selectedNode}
             nodeId={selectedNode}
             nodeData={selectedNodeData}
             onUpdate={handleNodeUpdate}
@@ -644,8 +708,16 @@ if __name__ == "__main__":
               <button onClick={() => setShowRunModal(false)} className="text-gray-400 hover:text-white text-xl leading-none">×</button>
             </div>
             <p className="text-gray-400 text-sm">Enter a real-world input to trigger this workflow. The execution trace will be saved to Observability.</p>
+            {lastLoadedTemplate && (
+              <div className="flex items-start gap-2 bg-emerald-950/50 border border-emerald-800/60 rounded-lg px-3 py-2">
+                <span className="text-emerald-400 text-sm mt-0.5">📋</span>
+                <p className="text-emerald-300 text-xs leading-relaxed">
+                  Sample input loaded from <span className="font-semibold text-emerald-200">{lastLoadedTemplate.name}</span>. Edit it or run as-is.
+                </p>
+              </div>
+            )}
             <textarea
-              rows={4}
+              rows={5}
               value={runInput}
               onChange={(e) => setRunInput(e.target.value)}
               placeholder="e.g. Analyse Q3 sales trends for APAC region and flag anomalies..."

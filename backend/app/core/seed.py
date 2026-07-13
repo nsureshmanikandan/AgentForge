@@ -3,7 +3,7 @@ from app.database import AsyncSessionLocal
 from app.models.user import User, Role
 from app.core.security import hash_password
 
-ADMIN_EMAIL = "admin@example.com"
+ADMIN_EMAIL = "admin@agentforge.ai"
 ADMIN_PASSWORD = "admin123"
 ADMIN_NAME = "Admin"
 

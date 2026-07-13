@@ -274,12 +274,12 @@ function App() {
                               onClick={() => setFeedback(prev => ({ ...prev, [msg.id]: 'up' }))}
                               className={`p-1.5 rounded-lg transition-colors text-sm ${feedback[msg.id] === 'up' ? 'bg-emerald-100 text-emerald-600' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}
                               title="Helpful"
-                            >ðŸ'</button>
+                            >&#128077;</button>
                             <button
                               onClick={() => setFeedback(prev => ({ ...prev, [msg.id]: 'down' }))}
                               className={`p-1.5 rounded-lg transition-colors text-sm ${feedback[msg.id] === 'down' ? 'bg-red-100 text-red-500' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}
                               title="Not helpful"
-                            >ðŸ'Ž</button>
+                            >&#128078;</button>
                             {feedback[msg.id] && (
                               <span className="text-[10px] text-gray-400 ml-1">{feedback[msg.id] === 'up' ? 'Thanks!' : 'Noted'}</span>
                             )}
@@ -451,6 +451,499 @@ If the user asks follow-up questions or requests changes, respond with:
 - **MOST IMPORTANT**: You may ONLY ask questions ONCE per conversation. The moment the user has answered your questions (i.e., you see a user message after your "questions" response), you MUST generate the full plan immediately. NEVER ask another round of questions. NEVER say "a couple more questions". Generate the plan.
 - If the conversation already has a {"type":"questions"} response from you, treat the next user message as final answers and output {"type":"plan",...} immediately.
 """
+
+
+# ── Dashboard data extraction prompt ─────────────────────────────────────────
+_DASH_DATA_PROMPT = """You are a data extraction engine. Read the application description below and output ONLY valid JSON (no markdown, no explanation).
+
+Output this exact structure:
+{
+  "app_title": "<concise app name, e.g. 'Sales Analytics Dashboard'>",
+  "company": "<company name from description, or 'Enterprise'>",
+  "nav_items": [
+    {"id": "overview", "label": "Overview", "icon": "📊"},
+    {"id": "reports",  "label": "Reports",  "icon": "📋"},
+    {"id": "data",     "label": "Data",     "icon": "🗂️"},
+    {"id": "settings", "label": "Settings", "icon": "⚙️"}
+  ],
+  "kpis": [
+    {"label": "<domain metric>", "value": "<realistic number with unit>", "trend": "+12.4%", "up": true,  "color": "#4f46e5"},
+    {"label": "<domain metric>", "value": "<realistic number>",           "trend": "-3.1%",  "up": false, "color": "#10b981"},
+    {"label": "<domain metric>", "value": "<realistic number>",           "trend": "+8.7%",  "up": true,  "color": "#f59e0b"},
+    {"label": "<domain metric>", "value": "<realistic number>",           "trend": "+5.2%",  "up": true,  "color": "#ef4444"}
+  ],
+  "bar_chart": {
+    "title": "<domain-relevant chart title>",
+    "labels": ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug"],
+    "values": [42, 68, 55, 80, 73, 91, 64, 88]
+  },
+  "line_chart": {
+    "title": "<domain-relevant trend title>",
+    "labels": ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug"],
+    "values": [30, 45, 38, 60, 55, 72, 65, 80]
+  },
+  "table_columns": ["<col1>", "<col2>", "<col3>", "<col4>", "<col5>"],
+  "table_rows": [
+    ["<val>","<val>","<val>","<val>","<status>"],
+    ["<val>","<val>","<val>","<val>","<status>"],
+    ["<val>","<val>","<val>","<val>","<status>"],
+    ["<val>","<val>","<val>","<val>","<status>"],
+    ["<val>","<val>","<val>","<val>","<status>"],
+    ["<val>","<val>","<val>","<val>","<status>"],
+    ["<val>","<val>","<val>","<val>","<status>"],
+    ["<val>","<val>","<val>","<val>","<status>"]
+  ],
+  "report_types": ["<report type 1>", "<report type 2>", "<report type 3>", "<report type 4>"],
+  "status_colors": {"Active":"#10b981","Completed":"#4f46e5","Pending":"#f59e0b","Failed":"#ef4444","Draft":"#94a3b8"}
+}
+
+RULES:
+- All labels, values, columns, rows must reflect the ACTUAL DOMAIN from the description
+- KPI values must be realistic numbers (not 0 or 1) with proper units ($, %, K, M etc.)
+- bar_chart and line_chart values must be plausible for the domain
+- table_rows: each row must match table_columns order, last column should be a status word
+- nav_items labels should reflect the domain (e.g. "Revenue" not just "Overview")
+- report_types: 4 meaningful report names relevant to the domain
+"""
+
+# ── Dashboard HTML template (React UMD + Babel + Tailwind — fully working) ───
+_DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>%%APP_TITLE%%</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.22.20/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family:'Inter','Segoe UI',sans-serif; background:#f8fafc; }
+::-webkit-scrollbar { width:4px; }
+::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:4px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// ── Domain data injected by backend ──────────────────────────────────────────
+const APP_DATA = %%APP_DATA_JSON%%;
+const { app_title, company, nav_items, kpis, bar_chart, line_chart,
+        table_columns, table_rows, report_types, status_colors } = APP_DATA;
+
+// ── Inline SVG Bar Chart ─────────────────────────────────────────────────────
+function BarChart({ data }) {
+  const [hovered, setHovered] = useState(null);
+  if (!data || !data.values || data.values.length === 0) return null;
+  const max = Math.max(...data.values, 1);
+  const W = 560, H = 180, pad = 40, barW = Math.floor((W - pad * 2) / data.values.length) - 6;
+  return (
+    <div>
+      <p style={{fontSize:13, fontWeight:600, color:'#0f172a', marginBottom:12}}>{data.title}</p>
+      <svg width="100%" viewBox={`0 0 ${W} ${H + 30}`} style={{overflow:'visible'}}>
+        {data.values.map((v, i) => {
+          const bh = Math.max(4, Math.round((v / max) * (H - 20)));
+          const x = pad + i * (barW + 6);
+          const y = H - bh;
+          const isH = hovered === i;
+          return (
+            <g key={i} onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)} style={{cursor:'pointer'}}>
+              <rect x={x} y={y} width={barW} height={bh}
+                fill={isH ? '#3730a3' : '#4f46e5'} rx="4"
+                style={{transition:'fill 0.15s'}} />
+              {isH && (
+                <text x={x + barW/2} y={y - 6} textAnchor="middle" fontSize="11" fontWeight="600" fill="#0f172a">{v}</text>
+              )}
+              <text x={x + barW/2} y={H + 16} textAnchor="middle" fontSize="10" fill="#94a3b8"
+                style={{overflow:'hidden', textOverflow:'ellipsis'}}>
+                {(data.labels[i] || '').slice(0, 5)}
+              </text>
+            </g>
+          );
+        })}
+        <line x1={pad} y1={0} x2={pad} y2={H} stroke="#e2e8f0" strokeWidth="1"/>
+        <line x1={pad} y1={H} x2={W - pad} y2={H} stroke="#e2e8f0" strokeWidth="1"/>
+      </svg>
+    </div>
+  );
+}
+
+// ── Inline SVG Line Chart ────────────────────────────────────────────────────
+function LineChart({ data }) {
+  if (!data || !data.values || data.values.length === 0) return null;
+  const max = Math.max(...data.values, 1);
+  const min = Math.min(...data.values, 0);
+  const range = max - min || 1;
+  const W = 560, H = 160, pad = 40;
+  const pts = data.values.map((v, i) => {
+    const x = pad + i * ((W - pad * 2) / (data.values.length - 1));
+    const y = H - 10 - ((v - min) / range) * (H - 30);
+    return [x, y];
+  });
+  const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0]} ${p[1]}`).join(' ');
+  const areaD = `${pathD} L ${pts[pts.length-1][0]} ${H} L ${pts[0][0]} ${H} Z`;
+  return (
+    <div>
+      <p style={{fontSize:13, fontWeight:600, color:'#0f172a', marginBottom:12}}>{data.title}</p>
+      <svg width="100%" viewBox={`0 0 ${W} ${H + 20}`} style={{overflow:'visible'}}>
+        <defs>
+          <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#4f46e5" stopOpacity="0.2"/>
+            <stop offset="100%" stopColor="#4f46e5" stopOpacity="0"/>
+          </linearGradient>
+        </defs>
+        <path d={areaD} fill="url(#lineGrad)"/>
+        <path d={pathD} fill="none" stroke="#4f46e5" strokeWidth="2.5" strokeLinejoin="round"/>
+        {pts.map(([x, y], i) => (
+          <circle key={i} cx={x} cy={y} r="4" fill="#4f46e5" stroke="#ffffff" strokeWidth="2"/>
+        ))}
+        {data.labels.map((label, i) => (
+          <text key={i} x={pts[i]?.[0] || 0} y={H + 14} textAnchor="middle" fontSize="10" fill="#94a3b8">
+            {(label || '').slice(0, 5)}
+          </text>
+        ))}
+        <line x1={pad} y1={0} x2={pad} y2={H} stroke="#e2e8f0" strokeWidth="1"/>
+        <line x1={pad} y1={H} x2={W - pad} y2={H} stroke="#e2e8f0" strokeWidth="1"/>
+      </svg>
+    </div>
+  );
+}
+
+// ── KPI Card ─────────────────────────────────────────────────────────────────
+function KpiCard({ kpi }) {
+  return (
+    <div style={{background:'#ffffff', border:'1px solid #e2e8f0', borderLeft:`4px solid ${kpi.color}`,
+      borderRadius:12, padding:'16px 20px', boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+      <p style={{fontSize:11, color:'#94a3b8', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:6}}>
+        {kpi.label}
+      </p>
+      <p style={{fontSize:26, fontWeight:700, color:'#0f172a', lineHeight:1}}>{kpi.value}</p>
+      <div style={{display:'flex', alignItems:'center', gap:4, marginTop:8}}>
+        <span style={{fontSize:13, fontWeight:600, color: kpi.up ? '#10b981' : '#ef4444'}}>
+          {kpi.up ? '▲' : '▼'} {kpi.trend}
+        </span>
+        <span style={{fontSize:11, color:'#94a3b8'}}>vs last period</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Status Badge ─────────────────────────────────────────────────────────────
+function StatusBadge({ text }) {
+  const color = (status_colors && status_colors[text]) || '#94a3b8';
+  return (
+    <span style={{background: color + '20', color, border:`1px solid ${color}40`,
+      borderRadius:999, padding:'2px 10px', fontSize:11, fontWeight:600}}>
+      {text}
+    </span>
+  );
+}
+
+// ── Report Generator ─────────────────────────────────────────────────────────
+function ReportsTab() {
+  const [reportType, setReportType] = useState(report_types?.[0] || 'Summary Report');
+  const [dateFrom, setDateFrom] = useState('2024-01-01');
+  const [dateTo, setDateTo] = useState(new Date().toISOString().slice(0,10));
+  const [generated, setGenerated] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  function generate() {
+    setLoading(true);
+    setTimeout(() => { setLoading(false); setGenerated(true); }, 1200);
+  }
+
+  return (
+    <div>
+      <h2 style={{fontSize:18, fontWeight:700, color:'#0f172a', marginBottom:20}}>Generate Report</h2>
+      <div style={{background:'#ffffff', border:'1px solid #e2e8f0', borderRadius:12, padding:24, marginBottom:20, maxWidth:560}}>
+        <div style={{marginBottom:16}}>
+          <label style={{display:'block', fontSize:12, fontWeight:600, color:'#475569', marginBottom:6}}>Report Type</label>
+          <select value={reportType} onChange={e => setReportType(e.target.value)}
+            style={{width:'100%', padding:'8px 12px', border:'1px solid #e2e8f0', borderRadius:8,
+              fontSize:14, color:'#334155', background:'#f8fafc', cursor:'pointer'}}>
+            {(report_types || []).map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </div>
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:16}}>
+          <div>
+            <label style={{display:'block', fontSize:12, fontWeight:600, color:'#475569', marginBottom:6}}>From</label>
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+              style={{width:'100%', padding:'8px 12px', border:'1px solid #e2e8f0', borderRadius:8, fontSize:14, color:'#334155'}}/>
+          </div>
+          <div>
+            <label style={{display:'block', fontSize:12, fontWeight:600, color:'#475569', marginBottom:6}}>To</label>
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+              style={{width:'100%', padding:'8px 12px', border:'1px solid #e2e8f0', borderRadius:8, fontSize:14, color:'#334155'}}/>
+          </div>
+        </div>
+        <button onClick={generate} disabled={loading}
+          style={{background: loading ? '#a5b4fc' : '#4f46e5', color:'#ffffff', border:'none',
+            borderRadius:8, padding:'10px 24px', fontSize:14, fontWeight:600, cursor: loading ? 'not-allowed' : 'pointer',
+            display:'flex', alignItems:'center', gap:8, transition:'background 0.15s'}}>
+          {loading ? '⏳ Generating...' : '📊 Generate Report'}
+        </button>
+      </div>
+      {generated && (
+        <div style={{background:'#ffffff', border:'1px solid #e2e8f0', borderRadius:12, padding:24}}>
+          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16,
+            paddingBottom:16, borderBottom:'1px solid #f1f5f9'}}>
+            <div>
+              <p style={{fontSize:16, fontWeight:700, color:'#0f172a'}}>{reportType}</p>
+              <p style={{fontSize:12, color:'#94a3b8'}}>Period: {dateFrom} → {dateTo} · Generated: {new Date().toLocaleString()}</p>
+            </div>
+            <span style={{background:'#dcfce7', color:'#16a34a', borderRadius:999, padding:'4px 12px', fontSize:12, fontWeight:600}}>
+              ● Ready
+            </span>
+          </div>
+          <div style={{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:12, marginBottom:16}}>
+            {kpis.slice(0,3).map((k,i) => (
+              <div key={i} style={{background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:8, padding:'12px 16px'}}>
+                <p style={{fontSize:11, color:'#94a3b8', fontWeight:600, textTransform:'uppercase'}}>{k.label}</p>
+                <p style={{fontSize:20, fontWeight:700, color:'#0f172a', marginTop:4}}>{k.value}</p>
+                <p style={{fontSize:11, color: k.up ? '#10b981' : '#ef4444', fontWeight:600, marginTop:2}}>{k.up ? '▲' : '▼'} {k.trend}</p>
+              </div>
+            ))}
+          </div>
+          <BarChart data={bar_chart}/>
+          <p style={{marginTop:16, fontSize:13, color:'#64748b', lineHeight:1.7, borderTop:'1px solid #f1f5f9', paddingTop:16}}>
+            <strong>Executive Summary:</strong> The {reportType.toLowerCase()} for the period {dateFrom} to {dateTo}
+            shows {kpis[0]?.trend?.startsWith('+') ? 'positive' : 'mixed'} performance across key indicators.
+            {kpis[0] && ` ${kpis[0].label} reached ${kpis[0].value} (${kpis[0].trend}).`}
+            {kpis[1] && ` ${kpis[1].label} is ${kpis[1].value} (${kpis[1].trend}).`}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Data Table Tab ────────────────────────────────────────────────────────────
+function DataTab() {
+  const [search, setSearch] = useState('');
+  const [sortCol, setSortCol] = useState(null);
+  const [sortAsc, setSortAsc] = useState(true);
+
+  const filtered = (table_rows || []).filter(row =>
+    !search || row.some(cell => String(cell).toLowerCase().includes(search.toLowerCase()))
+  );
+
+  const sorted = sortCol !== null
+    ? [...filtered].sort((a, b) => {
+        const av = String(a[sortCol]), bv = String(b[sortCol]);
+        return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+      })
+    : filtered;
+
+  function toggleSort(i) {
+    if (sortCol === i) setSortAsc(!sortAsc);
+    else { setSortCol(i); setSortAsc(true); }
+  }
+
+  return (
+    <div>
+      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16}}>
+        <h2 style={{fontSize:18, fontWeight:700, color:'#0f172a'}}>Data Records</h2>
+        <div style={{position:'relative'}}>
+          <span style={{position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'#94a3b8', fontSize:14}}>🔍</span>
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search records..."
+            style={{paddingLeft:32, paddingRight:12, paddingTop:8, paddingBottom:8, border:'1px solid #e2e8f0',
+              borderRadius:8, fontSize:13, color:'#334155', outline:'none', width:220}}/>
+        </div>
+      </div>
+      <div style={{background:'#ffffff', border:'1px solid #e2e8f0', borderRadius:12, overflow:'hidden'}}>
+        <table style={{width:'100%', borderCollapse:'collapse'}}>
+          <thead>
+            <tr style={{background:'#f8fafc', borderBottom:'1px solid #e2e8f0'}}>
+              {(table_columns || []).map((col, i) => (
+                <th key={i} onClick={() => toggleSort(i)}
+                  style={{padding:'12px 16px', fontSize:11, fontWeight:700, color:'#64748b',
+                    textTransform:'uppercase', letterSpacing:'0.05em', textAlign:'left', cursor:'pointer',
+                    userSelect:'none', whiteSpace:'nowrap'}}>
+                  {col} {sortCol === i ? (sortAsc ? '↑' : '↓') : ''}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((row, ri) => (
+              <tr key={ri} style={{borderBottom:'1px solid #f1f5f9',
+                background: ri % 2 === 0 ? '#ffffff' : '#fafafa',
+                transition:'background 0.1s'}}
+                onMouseEnter={e => e.currentTarget.style.background = '#f0f4ff'}
+                onMouseLeave={e => e.currentTarget.style.background = ri % 2 === 0 ? '#ffffff' : '#fafafa'}>
+                {row.map((cell, ci) => (
+                  <td key={ci} style={{padding:'11px 16px', fontSize:13, color:'#334155'}}>
+                    {ci === row.length - 1 ? <StatusBadge text={String(cell)}/> : String(cell)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div style={{padding:'10px 16px', background:'#f8fafc', borderTop:'1px solid #e2e8f0',
+          fontSize:12, color:'#94a3b8'}}>
+          Showing {sorted.length} of {(table_rows||[]).length} records
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Overview Tab ──────────────────────────────────────────────────────────────
+function OverviewTab() {
+  return (
+    <div>
+      <div style={{display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16, marginBottom:24}}>
+        {kpis.map((k,i) => <KpiCard key={i} kpi={k}/>)}
+      </div>
+      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:16}}>
+        <div style={{background:'#ffffff', border:'1px solid #e2e8f0', borderRadius:12, padding:20,
+          boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+          <BarChart data={bar_chart}/>
+        </div>
+        <div style={{background:'#ffffff', border:'1px solid #e2e8f0', borderRadius:12, padding:20,
+          boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+          <LineChart data={line_chart}/>
+        </div>
+      </div>
+      <div style={{background:'#ffffff', border:'1px solid #e2e8f0', borderRadius:12, padding:20, marginTop:16}}>
+        <p style={{fontSize:13, fontWeight:700, color:'#0f172a', marginBottom:12}}>Recent Records</p>
+        <table style={{width:'100%', borderCollapse:'collapse'}}>
+          <thead>
+            <tr style={{borderBottom:'1px solid #e2e8f0'}}>
+              {(table_columns||[]).map((c,i) => (
+                <th key={i} style={{padding:'8px 12px', fontSize:11, fontWeight:700, color:'#64748b',
+                  textTransform:'uppercase', textAlign:'left'}}>{c}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {(table_rows||[]).slice(0,5).map((row,ri) => (
+              <tr key={ri} style={{borderBottom:'1px solid #f1f5f9'}}>
+                {row.map((cell,ci) => (
+                  <td key={ci} style={{padding:'10px 12px', fontSize:13, color:'#334155'}}>
+                    {ci === row.length-1 ? <StatusBadge text={String(cell)}/> : String(cell)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Settings Tab ──────────────────────────────────────────────────────────────
+function SettingsTab() {
+  const [saved, setSaved] = useState(false);
+  function handleSave() { setSaved(true); setTimeout(() => setSaved(false), 2500); }
+  return (
+    <div style={{maxWidth:560}}>
+      <h2 style={{fontSize:18, fontWeight:700, color:'#0f172a', marginBottom:20}}>Settings</h2>
+      <div style={{background:'#ffffff', border:'1px solid #e2e8f0', borderRadius:12, padding:24, marginBottom:16}}>
+        <p style={{fontSize:14, fontWeight:600, color:'#334155', marginBottom:16}}>Display Preferences</p>
+        {['Show trend indicators', 'Enable email notifications', 'Auto-refresh every 5 minutes'].map((opt,i) => (
+          <label key={i} style={{display:'flex', alignItems:'center', gap:10, marginBottom:12, cursor:'pointer'}}>
+            <input type="checkbox" defaultChecked={i < 2} style={{width:16, height:16, cursor:'pointer'}}/>
+            <span style={{fontSize:13, color:'#334155'}}>{opt}</span>
+          </label>
+        ))}
+      </div>
+      <button onClick={handleSave}
+        style={{background: saved ? '#10b981' : '#4f46e5', color:'#fff', border:'none', borderRadius:8,
+          padding:'10px 24px', fontSize:14, fontWeight:600, cursor:'pointer', transition:'background 0.2s'}}>
+        {saved ? '✓ Saved!' : 'Save Preferences'}
+      </button>
+    </div>
+  );
+}
+
+// ── Main App ──────────────────────────────────────────────────────────────────
+function App() {
+  const [activeNav, setActiveNav] = useState((nav_items && nav_items[0]?.id) || 'overview');
+
+  const tabMap = {
+    overview: <OverviewTab/>,
+    reports:  <ReportsTab/>,
+    data:     <DataTab/>,
+    settings: <SettingsTab/>,
+  };
+  // Map any custom nav ids to closest tab
+  function renderTab() {
+    if (tabMap[activeNav]) return tabMap[activeNav];
+    const idx = (nav_items || []).findIndex(n => n.id === activeNav);
+    const keys = Object.keys(tabMap);
+    return tabMap[keys[idx % keys.length]] || <OverviewTab/>;
+  }
+
+  return (
+    <div style={{display:'flex', height:'100vh', overflow:'hidden', fontFamily:"'Inter','Segoe UI',sans-serif"}}>
+      {/* Sidebar */}
+      <div style={{width:220, background:'#1e293b', color:'#ffffff', display:'flex', flexDirection:'column', flexShrink:0}}>
+        <div style={{padding:'20px 16px 16px', borderBottom:'1px solid rgba(255,255,255,0.08)'}}>
+          <div style={{display:'flex', alignItems:'center', gap:10}}>
+            <div style={{width:36, height:36, borderRadius:8, background:'#4f46e5', display:'flex',
+              alignItems:'center', justifyContent:'center', fontSize:16, fontWeight:700}}>
+              {(company||'A')[0]}
+            </div>
+            <div>
+              <p style={{fontSize:13, fontWeight:700, color:'#ffffff'}}>{app_title}</p>
+              <p style={{fontSize:11, color:'#64748b'}}>{company}</p>
+            </div>
+          </div>
+        </div>
+        <nav style={{flex:1, padding:'12px 8px', overflowY:'auto'}}>
+          {(nav_items||[]).map(item => (
+            <button key={item.id} onClick={() => setActiveNav(item.id)}
+              style={{display:'flex', alignItems:'center', gap:10, width:'100%', padding:'10px 12px',
+                marginBottom:2, borderRadius:8, border:'none', cursor:'pointer', textAlign:'left',
+                background: activeNav === item.id ? 'rgba(79,70,229,0.8)' : 'transparent',
+                color: activeNav === item.id ? '#ffffff' : '#94a3b8',
+                fontSize:13, fontWeight: activeNav === item.id ? 600 : 400,
+                transition:'all 0.15s ease'}}>
+              <span style={{fontSize:16}}>{item.icon}</span>
+              {item.label}
+            </button>
+          ))}
+        </nav>
+        <div style={{padding:'12px 16px', borderTop:'1px solid rgba(255,255,255,0.08)'}}>
+          <p style={{fontSize:11, color:'#475569'}}>Powered by AgentForge</p>
+        </div>
+      </div>
+      {/* Main content */}
+      <div style={{flex:1, display:'flex', flexDirection:'column', overflow:'hidden'}}>
+        {/* Top bar */}
+        <div style={{background:'#ffffff', borderBottom:'1px solid #e2e8f0', padding:'14px 24px',
+          display:'flex', alignItems:'center', gap:12, flexShrink:0}}>
+          <p style={{flex:1, fontSize:15, fontWeight:700, color:'#0f172a'}}>
+            {(nav_items||[]).find(n => n.id === activeNav)?.label || 'Overview'}
+          </p>
+          <span style={{background:'#dcfce7', color:'#16a34a', borderRadius:999, padding:'3px 10px', fontSize:11, fontWeight:600}}>● Live</span>
+          <div style={{width:32, height:32, borderRadius:'50%', background:'#4f46e5',
+            color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700}}>
+            {(company||'A')[0]}
+          </div>
+        </div>
+        {/* Page content */}
+        <div style={{flex:1, overflowY:'auto', padding:24}}>
+          {renderTab()}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App/>);
+</script>
+</body>
+</html>"""
 
 
 UI_GEN_PROMPT = """You are a world-class React engineer and enterprise UX designer. Generate a COMPLETE, self-contained, production-quality HTML application using React 18 + Tailwind CSS that perfectly matches the user's requirements.
@@ -751,7 +1244,7 @@ MAIN AREA (flex:1, display:flex, flexDirection:column, minWidth:0, minHeight:0, 
 
   Messages area (flex:1, overflowY:auto, padding:"20px", display:flex, flexDirection:column, gap:12):
     Welcome card (background:#ffffff, border:"1px solid #e2e8f0", borderRadius:12, padding:16, display:flex, gap:12):
-      Bot avatar (40px circle, background:#4f46e5, color:white, fontSize:18, flexShrink:0) "ðŸ¤–"
+      Bot avatar (40px circle, background:#4f46e5, color:white, fontSize:18, flexShrink:0) "&#128100;"
       Text: welcomeMessage (fontSize:14, color:#334155, lineHeight:1.6)
 
     USER message (alignSelf:flex-end, maxWidth:"72%"):
@@ -762,22 +1255,22 @@ MAIN AREA (flex:1, display:flex, flexDirection:column, minWidth:0, minHeight:0, 
       Card (background:#ffffff, border:"1px solid #e2e8f0", borderRadius:"4px 18px 18px 18px", padding:16, boxShadow:"0 1px 3px rgba(0,0,0,0.06)"):
         Answer text (fontSize:14, color:#1e293b, lineHeight:1.6, marginBottom:12, fontWeight:500)
         IF steps exist and steps.length > 0:
-          Steps heading (fontSize:11, fontWeight:700, color:#475569, textTransform:uppercase, letterSpacing:"0.05em", marginBottom:8) "ðŸ"‹ Step-by-Step Resolution"
+          Steps heading (fontSize:11, fontWeight:700, color:#475569, textTransform:uppercase, letterSpacing:"0.05em", marginBottom:8) "&#128269; Step-by-Step Resolution"
           Ordered list (margin:"0 0 12px 0", padding:"0 0 0 4px", listStyle:none):
             Each step: (display:flex, gap:8, marginBottom:6)
               Step number badge (20px circle, background:#f1f5f9, color:#475569, fontSize:10, fontWeight:700, flexShrink:0)
               Step text (fontSize:13, color:#334155, lineHeight:1.5)
         Meta bar (borderTop:"1px solid #f1f5f9", paddingTop:10, marginTop:4, display:flex, gap:16, flexWrap:wrap):
-          Source text (fontSize:11, color:#94a3b8) "ðŸ"Ž {source}"
+          Source text (fontSize:11, color:#94a3b8) "&#128203; {source}"
           Confidence (fontSize:11, color:#10b981, fontWeight:600) "âœ" {confidence}%"
         IF related and related.length > 0:
           Related row (display:flex, gap:6, flexWrap:wrap, marginTop:8):
-            Label (fontSize:11, color:#64748b) "ðŸ'¡ Related:"
+            Label (fontSize:11, color:#64748b) "&#128161; Related:"
             Each related: <button onClick={()=>handleSend(r)} style={{fontSize:11, background:#ede9fe, color:#4f46e5, border:"none", borderRadius:999, padding:"3px 10px", cursor:pointer}}>{r}</button>
         Thumbs feedback row (MANDATORY on every bot message, display:flex, alignItems:center, gap:6, marginTop:8):
           Label (fontSize:11, color:#94a3b8) "Was this helpful?"
-          Thumbs up: <button onClick={()=>setFeedback(p=>({...p,[msg.id]:'up'}))} title="Helpful" style={{background:"none",border:"none",cursor:"pointer",fontSize:16,opacity:feedback[msg.id]==='up'?1:0.4,transition:"opacity 0.15s"}}>ðŸ'</button>
-          Thumbs down: <button onClick={()=>setFeedback(p=>({...p,[msg.id]:'down'}))} title="Not helpful" style={{background:"none",border:"none",cursor:"pointer",fontSize:16,opacity:feedback[msg.id]==='down'?1:0.4,transition:"opacity 0.15s"}}>ðŸ'Ž</button>
+          Thumbs up: <button onClick={()=>setFeedback(p=>({...p,[msg.id]:'up'}))} title="Helpful" style={{background:"none",border:"none",cursor:"pointer",fontSize:16,opacity:feedback[msg.id]==='up'?1:0.4,transition:"opacity 0.15s"}}>&#128077;</button>
+          Thumbs down: <button onClick={()=>setFeedback(p=>({...p,[msg.id]:'down'}))} title="Not helpful" style={{background:"none",border:"none",cursor:"pointer",fontSize:16,opacity:feedback[msg.id]==='down'?1:0.4,transition:"opacity 0.15s"}}>&#128078;</button>
           IF feedback[msg.id]: <span style={{fontSize:11, color:feedback[msg.id]==='up'?"#16a34a":"#dc2626", fontWeight:600}}>{feedback[msg.id]==='up' ? 'Thanks! Glad that helped.' : 'Noted &ndash; we will improve this.'}</span>
       Timestamp (fontSize:10, color:#94a3b8, marginTop:4)
 
@@ -957,6 +1450,8 @@ ALL generated apps must have:
 FINAL OUTPUT RULES
 ==================================================
 - Return ONLY raw HTML starting with <!DOCTYPE html>
+- The <head> MUST include <meta charset="UTF-8"> as the FIRST meta tag
+- Use HTML entities for all emoji (e.g. &#128077; for thumbs-up, &#128078; for thumbs-down, &#128161; for lightbulb) -- never raw Unicode emoji characters
 - NO markdown fences, NO text before or after the HTML
 - ALL content derived from the user's prompt -- zero generic placeholders
 - Use inline styles + Tailwind classes -- fully self-contained, no external CSS
@@ -1278,6 +1773,66 @@ USER REFINEMENT REQUEST (apply these changes to this generation):
 Incorporate ALL of the above changes while keeping everything else from the original specification intact.
 """
 
+    # ── Two-pass DASHBOARD: extract JSON data → inject into working template ──────
+    if detected_type == "DASHBOARD":
+        import json as _json
+        dash_extraction_messages = [
+            {"role": "user", "content": f"{_DASH_DATA_PROMPT}\n\nAPPLICATION DESCRIPTION:\nTitle: {req.app_name}\nSummary: {req.summary}\nFeatures: {', '.join(req.features[:8])}\nDomain: {domain}\nCompany: {company}"}
+        ]
+        try:
+            dash_resp = client.chat.completions.create(
+                model=settings.azure_openai_deployment_gpt4o,
+                messages=dash_extraction_messages,
+                temperature=0.1,
+                max_tokens=3000,
+                response_format={"type": "json_object"},
+            )
+            dash_data = _json.loads(dash_resp.choices[0].message.content or "{}")
+            # Ensure required keys exist with sane defaults
+            if not dash_data.get("app_title"):
+                dash_data["app_title"] = req.app_name
+            if not dash_data.get("company"):
+                dash_data["company"] = company
+            if not dash_data.get("nav_items"):
+                dash_data["nav_items"] = [
+                    {"id":"overview","label":"Overview","icon":"📊"},
+                    {"id":"reports","label":"Reports","icon":"📋"},
+                    {"id":"data","label":"Data","icon":"🗂️"},
+                    {"id":"settings","label":"Settings","icon":"⚙️"},
+                ]
+            if not dash_data.get("kpis"):
+                dash_data["kpis"] = [
+                    {"label":"Total Records","value":"1,248","trend":"+12.4%","up":True,"color":"#4f46e5"},
+                    {"label":"Active Users","value":"342","trend":"+8.1%","up":True,"color":"#10b981"},
+                    {"label":"Completed","value":"89.2%","trend":"+3.5%","up":True,"color":"#f59e0b"},
+                    {"label":"Issues","value":"14","trend":"-22.3%","up":False,"color":"#ef4444"},
+                ]
+            if not dash_data.get("bar_chart"):
+                dash_data["bar_chart"] = {"title":"Monthly Activity","labels":["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug"],"values":[42,68,55,80,73,91,64,88]}
+            if not dash_data.get("line_chart"):
+                dash_data["line_chart"] = {"title":"Performance Trend","labels":["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug"],"values":[30,45,38,60,55,72,65,80]}
+            if not dash_data.get("table_columns"):
+                dash_data["table_columns"] = ["Name","Category","Value","Date","Status"]
+            if not dash_data.get("table_rows"):
+                dash_data["table_rows"] = [
+                    ["Record A","Category 1","$4,200","2024-11-01","Active"],
+                    ["Record B","Category 2","$2,800","2024-11-03","Completed"],
+                    ["Record C","Category 1","$6,100","2024-11-05","Pending"],
+                    ["Record D","Category 3","$3,500","2024-11-07","Active"],
+                    ["Record E","Category 2","$5,000","2024-11-09","Completed"],
+                ]
+            if not dash_data.get("report_types"):
+                dash_data["report_types"] = ["Summary Report","Trend Analysis","Detailed Breakdown","Export Report"]
+            if not dash_data.get("status_colors"):
+                dash_data["status_colors"] = {"Active":"#10b981","Completed":"#4f46e5","Pending":"#f59e0b","Failed":"#ef4444","Draft":"#94a3b8"}
+
+            html = _DASHBOARD_TEMPLATE.replace("%%APP_TITLE%%", _json.dumps(dash_data["app_title"])[1:-1])
+            html = html.replace("%%APP_DATA_JSON%%", _json.dumps(dash_data))
+            return {"html": html, "app_type": "DASHBOARD"}
+        except Exception:
+            # Fall through to generic GPT-4o HTML generation if extraction fails
+            pass
+
     # When KB data was pre-extracted (two-pass mode), build the HTML from a proven template.
     # The template has all features working; we just substitute the extracted KB data in.
     if prefilled_kb_block and detected_type == "CHATBOT":
@@ -1369,7 +1924,158 @@ Incorporate ALL of the above changes while keeping everything else from the orig
                 html = html[first_newline + 1:]
 
     html = html.strip()
+
+    # Guarantee UTF-8 charset so emoji render correctly in all browsers
+    if "<meta charset" not in html and "<head>" in html:
+        html = html.replace("<head>", '<head>\n<meta charset="UTF-8">', 1)
+    elif "<meta charset" not in html and "<head " in html:
+        head_end = html.find(">", html.find("<head"))
+        if head_end != -1:
+            html = html[:head_end + 1] + '\n<meta charset="UTF-8">' + html[head_end + 1:]
+
     return {"html": html}
+
+
+class GenerateProjectRequest(BaseModel):
+    app_name: str
+    summary: str
+    features: List[str]
+    agents: Optional[List[dict]] = None
+    api_endpoints: Optional[List[str]] = None
+    database_schema: Optional[str] = None
+    tech_stack: Optional[dict] = None
+
+
+PROJECT_FRONTEND_PROMPT = """You are a senior React engineer. Generate a complete React 18 + TypeScript + Vite + TailwindCSS frontend for the application described below.
+
+RULES:
+- Return ONLY valid JSON with this exact structure: {"files": {"path": "file content as string"}}
+- Use real component code — NO placeholder comments, NO TODO, NO lorem ipsum
+- Use React Query (@tanstack/react-query) for all API calls to the FastAPI backend at /api
+- Use react-hot-toast for notifications
+- Use lucide-react for icons
+- All API calls go to relative /api paths (Vite proxy will forward to backend)
+- Use Tailwind utility classes for ALL styling — no inline styles
+- Each page must be fully implemented with real data from the plan
+
+Required file structure:
+- frontend/src/main.tsx
+- frontend/src/App.tsx  (with routing using react-router-dom v6)
+- frontend/src/api/client.ts  (axios-based API client with all endpoints)
+- frontend/src/pages/Dashboard.tsx  (with charts using recharts, stats from /api/... endpoints)
+- frontend/src/pages/<PageName>.tsx  (one page per major feature from the plan)
+- frontend/package.json
+- frontend/vite.config.ts
+- frontend/tsconfig.json
+- frontend/tailwind.config.js
+- frontend/postcss.config.js
+- frontend/index.html
+
+APPLICATION:
+{description}
+
+Agents: {agents}
+API Endpoints: {api_endpoints}
+Database: {database_schema}"""
+
+
+PROJECT_BACKEND_PROMPT = """You are a senior Python engineer. Generate a complete FastAPI + SQLAlchemy + PostgreSQL backend for the application described below.
+
+RULES:
+- Return ONLY valid JSON with this exact structure: {"files": {"path": "file content as string"}}
+- Use SQLAlchemy 2.x ORM with PostgreSQL
+- Use Pydantic v2 models for all schemas
+- Every agent must be its own file in backend/app/agents/ with real GPT-4o integration using Azure OpenAI
+- Azure OpenAI client: use openai.AzureOpenAI with settings from config.py
+- All endpoints must be fully implemented with real DB queries — no placeholder functions
+- Include seed.py with realistic sample data for all tables
+- Include alembic migration setup
+
+Required file structure:
+- backend/app/main.py  (FastAPI app with CORS, all routers included)
+- backend/app/config.py  (pydantic-settings with DATABASE_URL, AZURE_OPENAI_* vars)
+- backend/app/database.py  (SQLAlchemy engine + session + Base)
+- backend/app/models.py  (all SQLAlchemy models from the schema)
+- backend/app/schemas.py  (all Pydantic v2 schemas for requests/responses)
+- backend/app/api/<feature>.py  (one file per API feature group)
+- backend/app/agents/<AgentName>.py  (one file per agent with Azure OpenAI GPT-4o call)
+- backend/seed.py  (inserts realistic sample rows into all tables)
+- backend/requirements.txt
+- backend/Dockerfile
+- docker-compose.yml  (postgres:16-alpine + backend + frontend services)
+- .env.example
+
+APPLICATION:
+{description}
+
+Agents: {agents}
+API Endpoints: {api_endpoints}
+Database Schema: {database_schema}"""
+
+
+@router.post("/generate-project")
+async def generate_project(req: GenerateProjectRequest):
+    """
+    Calls GPT-4o twice to dynamically generate a complete React + FastAPI + PostgreSQL project.
+    Returns { files: { "path": "content" } } for all files.
+    """
+    client = AzureOpenAI(
+        azure_endpoint=settings.azure_openai_endpoint,
+        api_key=settings.azure_openai_api_key,
+        api_version=settings.azure_openai_api_version,
+        timeout=180.0,
+    )
+
+    description = f"App: {req.app_name}\nSummary: {req.summary}\nFeatures:\n" + "\n".join(f"- {f}" for f in req.features)
+    agents_text = json.dumps(req.agents or [], indent=2)
+    endpoints_text = "\n".join(req.api_endpoints or [])
+    db_text = req.database_schema or "Design appropriate tables for the application"
+    stack = req.tech_stack or {}
+    app_slug = req.app_name.lower().replace(" ", "-").replace("[^a-z0-9-]", "")
+
+    all_files: dict = {}
+
+    # ── Pass 1: Frontend (React + TypeScript) ────────────────────────────────
+    frontend_prompt = PROJECT_FRONTEND_PROMPT.format(
+        description=description, agents=agents_text,
+        api_endpoints=endpoints_text, database_schema=db_text,
+    )
+    try:
+        fe_response = client.chat.completions.create(
+            model=settings.azure_openai_deployment_gpt4o,
+            messages=[{"role": "user", "content": frontend_prompt}],
+            temperature=0.2,
+            max_tokens=14000,
+            response_format={"type": "json_object"},
+        )
+        fe_data = json.loads(fe_response.choices[0].message.content or "{}")
+        all_files.update(fe_data.get("files", {}))
+    except Exception as e:
+        all_files["frontend/README.md"] = f"# Frontend generation failed\nError: {e}\n\nRe-run or generate manually."
+
+    # ── Pass 2: Backend (FastAPI + PostgreSQL) ───────────────────────────────
+    backend_prompt = PROJECT_BACKEND_PROMPT.format(
+        description=description, agents=agents_text,
+        api_endpoints=endpoints_text, database_schema=db_text,
+    )
+    try:
+        be_response = client.chat.completions.create(
+            model=settings.azure_openai_deployment_gpt4o,
+            messages=[{"role": "user", "content": backend_prompt}],
+            temperature=0.2,
+            max_tokens=14000,
+            response_format={"type": "json_object"},
+        )
+        be_data = json.loads(be_response.choices[0].message.content or "{}")
+        all_files.update(be_data.get("files", {}))
+    except Exception as e:
+        all_files["backend/README.md"] = f"# Backend generation failed\nError: {e}\n\nRe-run or generate manually."
+
+    # ── Static config files always included ──────────────────────────────────
+    if "README.md" not in all_files:
+        all_files["README.md"] = f"# {req.app_name}\n\n> Generated by **AgentForge Architect** · {__import__('datetime').date.today()}\n\n## Stack\n- Frontend: {stack.get('frontend','React + TypeScript + Vite')}\n- Backend: {stack.get('backend','Python FastAPI')}\n- Database: {stack.get('database','PostgreSQL')}\n- AI: {stack.get('ai','Azure OpenAI GPT-4o')}\n\n## Features\n" + "\n".join(f"- {f}" for f in req.features) + "\n\n## Run\n```bash\ndocker-compose up --build\n```"
+
+    return {"files": all_files, "file_count": len(all_files)}
 
 
 @router.post("/chat")

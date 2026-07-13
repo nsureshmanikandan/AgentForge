@@ -1,12 +1,14 @@
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.azure_openai import AzureOpenAIClient
-from app.database import get_db
+from app.database import get_db, AsyncSessionLocal
 from app.models.workflow import Workflow, WorkflowRun
 import uuid
 import time
+import json
 
 router = APIRouter()
 
@@ -451,6 +453,93 @@ async def get_run_detail(run_id: str, db: AsyncSession = Depends(get_db)):
         "total_duration_ms": r.total_duration_ms,
         "triggered_at": r.triggered_at.isoformat() if r.triggered_at else None,
     }
+
+
+@router.post("/workflows/{workflow_id}/trigger-stream")
+async def trigger_workflow_stream(workflow_id: str, body: TriggerRequest, db: AsyncSession = Depends(get_db)):
+    """Stream workflow execution events via SSE. Each node emits 'node_start' then 'node_done'."""
+    wf = _workflows.get(workflow_id)
+    if not wf:
+        result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
+        db_wf = result.scalar_one_or_none()
+        if not db_wf:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        wf = _wf_to_dict(db_wf)
+        _workflows[workflow_id] = wf
+
+    nodes = wf["nodes"]
+    edges = wf["edges"]
+    trigger_input = body.input
+
+    async def event_stream():
+        ordered = _topo_sort(nodes, edges)
+        client = AzureOpenAIClient(model="gpt-4o")
+        logs: list[WorkflowRunLog] = []
+        previous_output: str = trigger_input
+
+        # Emit pipeline_start with all node IDs in execution order
+        yield f"data: {json.dumps({'event': 'pipeline_start', 'node_order': [n.get('id') for n in ordered]})}\n\n"
+
+        for node in ordered:
+            node_id = node.get("id", "unknown")
+            node_label = node.get("data", {}).get("label") or node.get("label", node_id)
+            node_role = node.get("data", {}).get("role") or node.get("role", "agent")
+            node_description = node.get("data", {}).get("description") or node.get("description", "")
+
+            # Emit edges from previous nodes to this one
+            incoming_edges = [e for e in edges if e.get("target") == node_id]
+            if incoming_edges:
+                yield f"data: {json.dumps({'event': 'edge_activate', 'edges': [{'source': e.get('source'), 'target': e.get('target')} for e in incoming_edges]})}\n\n"
+
+            # Emit node_start
+            yield f"data: {json.dumps({'event': 'node_start', 'node_id': node_id, 'node_label': node_label})}\n\n"
+
+            if node.get("type") in ("input",):
+                log = WorkflowRunLog(node_id=node_id, node_label=node_label, status="done",
+                                     output=previous_output or "Pipeline started.", duration_ms=0)
+                logs.append(log)
+                previous_output = log.output
+                yield f"data: {json.dumps({'event': 'node_done', 'node_id': node_id, 'node_label': node_label, 'output': log.output, 'duration_ms': 0})}\n\n"
+                continue
+
+            if node.get("type") in ("output",):
+                log = WorkflowRunLog(node_id=node_id, node_label=node_label, status="done",
+                                     output=f"Pipeline complete. Final output: {previous_output}", duration_ms=0)
+                logs.append(log)
+                previous_output = log.output
+                yield f"data: {json.dumps({'event': 'node_done', 'node_id': node_id, 'node_label': node_label, 'output': log.output, 'duration_ms': 0})}\n\n"
+                continue
+
+            try:
+                messages = [
+                    {"role": "system", "content": f"You are a {node_role} agent. {node_description}. Process the input and return a brief output (2-3 sentences)."},
+                    {"role": "user", "content": previous_output or "Start the pipeline."},
+                ]
+                start = time.time()
+                output = await client.chat(messages, temperature=0.3)
+                duration_ms = int((time.time() - start) * 1000)
+                log = WorkflowRunLog(node_id=node_id, node_label=node_label, status="done", output=output, duration_ms=duration_ms)
+                previous_output = output
+                yield f"data: {json.dumps({'event': 'node_done', 'node_id': node_id, 'node_label': node_label, 'output': output, 'duration_ms': duration_ms})}\n\n"
+            except Exception as exc:
+                log = WorkflowRunLog(node_id=node_id, node_label=node_label, status="error", output=f"Error: {str(exc)}", duration_ms=0)
+                yield f"data: {json.dumps({'event': 'node_error', 'node_id': node_id, 'node_label': node_label, 'error': str(exc)})}\n\n"
+            logs.append(log)
+
+        # Persist run to DB
+        try:
+            async with AsyncSessionLocal() as session:
+                await _persist_run(session, workflow_id, trigger_input, logs, previous_output)
+        except Exception:
+            pass
+
+        yield f"data: {json.dumps({'event': 'pipeline_done', 'final_output': previous_output, 'total_nodes': len(logs)})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Access-Control-Allow-Origin": "*"},
+    )
 
 
 @router.get("/workflows/{workflow_id}/webhook-url")

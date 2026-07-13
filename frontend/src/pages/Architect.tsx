@@ -310,8 +310,105 @@ function PromptEvolutionSection({ history }: { history: PromptVersion[] }) {
   );
 }
 
-function PlanTab({ plan, promptHistory }: { plan?: Plan; promptHistory?: PromptVersion[] }) {
-  if (!plan) return <EmptyState tab="plan" />;
+function PlanProgressState({ messages, loading }: { messages: Message[]; loading: boolean }) {
+  const userMsgs   = messages.filter(m => m.role === "user").length;
+  const hasQs      = messages.some(m => m.response?.type === "questions");
+  const qCount     = messages.filter(m => m.response?.type === "questions").length;
+
+  // Derive current stage: 0=idle, 1=thinking, 2=questions asked, 3=generating plan
+  const stage = loading && userMsgs === 0 ? 1
+    : hasQs && !loading ? 2
+    : loading && userMsgs > 0 ? 3
+    : userMsgs > 0 && !hasQs ? 3
+    : 0;
+
+  const steps = [
+    { id: 1, label: "Understanding your requirements",    done: userMsgs >= 1 || stage >= 2 },
+    { id: 2, label: "Asking clarifying questions",        done: stage >= 2, active: stage === 2 },
+    { id: 3, label: "Analysing tech stack & architecture", done: stage === 3, active: stage === 3 },
+    { id: 4, label: "Generating full architecture plan",   done: false,       active: stage === 3 },
+  ];
+
+  const tips = [
+    "GPT-4o analyses your prompt to pick the ideal React + FastAPI + PostgreSQL stack.",
+    "FAISS vector store and Azure OpenAI embeddings will be wired automatically.",
+    "The plan includes agents, API endpoints, DB schema and a ready-to-deploy sandbox.",
+    "Answer the clarifying questions on the left to get a more precise plan.",
+  ];
+  const [tipIdx, setTipIdx] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTipIdx(i => (i + 1) % tips.length), 3500);
+    return () => clearInterval(t);
+  }, []);
+
+  return (
+    <div className="flex flex-col items-center justify-center h-full px-10 py-8 select-none">
+      {/* Animated icon */}
+      <div className="relative mb-6">
+        <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg">
+          <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
+          </svg>
+        </div>
+        {(loading || stage === 2) && (
+          <span className="absolute -top-1 -right-1 flex h-4 w-4">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-4 w-4 bg-violet-500" />
+          </span>
+        )}
+      </div>
+
+      <h3 className="text-base font-semibold text-gray-800 mb-1">
+        {stage === 0 ? "Ready to architect" : stage === 2 ? "Clarifying your requirements" : stage === 3 ? "Generating your plan…" : "Architect is thinking…"}
+      </h3>
+      <p className="text-xs text-gray-400 mb-6 text-center max-w-xs leading-relaxed">
+        {stage === 0 ? "Describe what you want to build in the chat to get started." : stage === 2 ? "Answer the questions on the left — the more detail you give, the better the plan." : "GPT-4o is designing your full-stack architecture. This takes 10–20 seconds."}
+      </p>
+
+      {/* Progress steps */}
+      <div className="w-full max-w-sm space-y-2 mb-6">
+        {steps.map((s, i) => (
+          <div key={s.id} className="flex items-center gap-3">
+            <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-500 ${
+              s.done ? "bg-violet-600 text-white" : s.active ? "bg-violet-100 border-2 border-violet-500 text-violet-600" : "bg-gray-100 text-gray-400"
+            }`}>
+              {s.done ? (
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+              ) : s.active ? (
+                <span className="animate-pulse">•</span>
+              ) : (
+                <span>{s.id}</span>
+              )}
+            </div>
+            <span className={`text-xs transition-colors duration-300 ${s.done ? "text-violet-700 font-medium" : s.active ? "text-violet-600 font-semibold" : "text-gray-400"}`}>
+              {s.label}
+              {s.active && loading && <span className="ml-1 animate-pulse">…</span>}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Rotating tip */}
+      <div className="w-full max-w-sm bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3">
+        <p className="text-xs text-indigo-600 leading-relaxed text-center transition-all duration-500">
+          💡 {tips[tipIdx]}
+        </p>
+      </div>
+
+      {/* Q count badge */}
+      {qCount > 0 && (
+        <p className="mt-4 text-xs text-gray-400">
+          {qCount} clarifying question{qCount > 1 ? "s" : ""} answered so far
+        </p>
+      )}
+    </div>
+  );
+}
+
+function PlanTab({ plan, promptHistory, messages, loading }: { plan?: Plan; promptHistory?: PromptVersion[]; messages: Message[]; loading: boolean }) {
+  if (!plan) return <PlanProgressState messages={messages} loading={loading} />;
   return (
     <div className="p-6 space-y-6 overflow-y-auto h-full">
       {/* Prompt Evolution — shown only when history exists */}
@@ -421,28 +518,291 @@ function AgentsTab({ plan }: { plan?: Plan }) {
   );
 }
 
-// ─── Source ZIP builder ───────────────────────────────────────────────────────
+// ─── Source ZIP builder — calls GPT-4o via /api/architect/generate-project ───
 
 async function buildSourceZip(html: string, plan: Plan): Promise<Blob> {
   const zip = new JSZip();
   const appName = (plan.summary.split(" ").slice(0, 4).join("-") || "agentforge-app").toLowerCase().replace(/[^a-z0-9-]/g, "-");
 
-  // Extract the babel/JSX script block from the sandbox HTML
-  const scriptMatch = html.match(/<script[^>]*type=["']text\/babel["'][^>]*>([\s\S]*?)<\/script>/i);
-  const rawScript = scriptMatch ? scriptMatch[1].trim() : "// No component found";
+  // ── Step 1: Call GPT-4o to dynamically generate the full project ─────────
+  let aiFiles: Record<string, string> = {};
+  try {
+    const res = await fetch("/api/architect/generate-project", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        app_name: plan.summary.slice(0, 80),
+        summary: plan.summary,
+        features: plan.features ?? [],
+        agents: plan.agents ?? [],
+        api_endpoints: plan.api_endpoints ?? [],
+        database_schema: plan.database_schema ?? "",
+        tech_stack: plan.tech_stack ?? {},
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      aiFiles = data.files ?? {};
+    }
+  } catch {
+    // If backend unreachable fall through to static scaffold below
+  }
 
-  // Attempt to strip the ReactDOM.render / createRoot call at the bottom so we export a clean component
-  const componentCode = rawScript
-    .replace(/ReactDOM\.createRoot\([^)]*\)\.render\([\s\S]*?\);?\s*$/m, "")
-    .replace(/ReactDOM\.render\([\s\S]*?\);?\s*$/m, "")
-    .trim();
+  // ── Step 2: Add GPT-4o generated files to ZIP ─────────────────────────────
+  for (const [filePath, content] of Object.entries(aiFiles)) {
+    zip.file(filePath, content as string);
+  }
 
-  // ── src/App.tsx ─────────────────────────────────────────────────────────────
-  const appTsx = `import React from "react";
+  // ── Step 3: Always include sandbox.html (the working iframe preview) ──────
+  const sandboxHtml = `<!--
+  AgentForge Architect sandbox preview — open directly in a browser (no build needed)
+  Generated: ${new Date().toISOString()}
+-->\n${html}`;
+  zip.file("sandbox.html", sandboxHtml);
 
-${componentCode}
+  // ── Step 4: If GPT-4o failed or backend unavailable, include a scaffold ───
+  if (Object.keys(aiFiles).length === 0) {
 
-export default App;
+  // ── src/App.tsx — Real React frontend that calls the FastAPI backend ─────────
+  // NOTE: This calls POST /api/chat and POST /api/documents/upload.
+  //       Do NOT use the sandbox HTML here — sandbox uses local FAQ; this uses RAG.
+  const appTsx = `import React, { useState, useRef, useEffect } from "react";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+interface ApiDoc { id: string; name: string; indexed: boolean; }
+interface BotMsg {
+  id: string; role: "bot";
+  answer: string; steps?: string[]; source?: string;
+  confidence?: number; related?: string[]; ts: string;
+}
+interface UserMsg { id: string; role: "user"; text: string; ts: string; }
+type Msg = UserMsg | BotMsg;
+
+// ── Session ID (regenerates per page load) ───────────────────────────────────
+const SESSION_ID: string =
+  typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2);
+
+// ── API helpers (calls the FastAPI backend via Vite proxy /api → localhost:8000)
+async function apiChat(message: string): Promise<Omit<BotMsg, "id" | "role" | "ts">> {
+  const r = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, session_id: SESSION_ID }),
+  });
+  if (!r.ok) throw new Error(\`Chat API \${r.status}\`);
+  return r.json();
+}
+
+async function apiUpload(file: File): Promise<void> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const r = await fetch("/api/documents/upload", { method: "POST", body: fd });
+  if (!r.ok) throw new Error(\`Upload \${r.status}\`);
+}
+
+async function apiDocs(): Promise<ApiDoc[]> {
+  const r = await fetch("/api/documents");
+  return r.ok ? r.json() : [];
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+export default function App() {
+  const [messages, setMessages] = useState<Msg[]>([{
+    id: "welcome", role: "bot",
+    answer: "Hello! I am your AI support assistant powered by FAISS RAG and Azure OpenAI GPT-4o. Upload your knowledge base documents and ask me any support question.",
+    ts: new Date().toLocaleTimeString(),
+  }]);
+  const [input, setInput]       = useState("");
+  const [loading, setLoading]   = useState(false);
+  const [docs, setDocs]         = useState<ApiDoc[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [feedback, setFeedback] = useState<Record<string, "up" | "down">>({});
+  const fileRef  = useRef<HTMLInputElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { apiDocs().then(setDocs); }, []);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
+
+  async function send(override?: string) {
+    const text = (override ?? input).trim();
+    if (!text || loading) return;
+    setInput("");
+    const uMsg: UserMsg = { id: Date.now() + "u", role: "user", text, ts: new Date().toLocaleTimeString() };
+    setMessages(p => [...p, uMsg]);
+    setLoading(true);
+    try {
+      const resp = await apiChat(text);
+      const bMsg: BotMsg = { id: Date.now() + "b", role: "bot", ...resp, ts: new Date().toLocaleTimeString() };
+      setMessages(p => [...p, bMsg]);
+    } catch {
+      setMessages(p => [...p, {
+        id: Date.now() + "e", role: "bot",
+        answer: "⚠️ Could not reach the backend. Please ensure the FastAPI server is running on port 8000.",
+        ts: new Date().toLocaleTimeString(),
+      }]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files?.length) return;
+    setUploading(true);
+    try {
+      for (const f of Array.from(files)) await apiUpload(f);
+      setDocs(await apiDocs());
+    } catch (err) {
+      alert("Upload failed: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  return (
+    <div className="flex h-screen bg-slate-50 overflow-hidden" style={{ fontFamily: "'Inter','Segoe UI',sans-serif" }}>
+      {/* ── Left sidebar ── */}
+      <aside className="w-64 bg-slate-800 text-white flex flex-col flex-shrink-0">
+        <div className="p-4 border-b border-slate-700">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-sm">KB</div>
+            <div>
+              <p className="text-sm font-bold leading-tight">${plan.summary.split(" ").slice(0, 4).join(" ")}</p>
+              <p className="text-xs text-slate-400">FAISS RAG · GPT-4o</p>
+            </div>
+          </div>
+        </div>
+        <div className="p-3 border-b border-slate-700">
+          <button onClick={() => fileRef.current?.click()} disabled={uploading}
+            className="w-full text-xs font-semibold py-2 px-3 rounded-lg border border-indigo-500 text-indigo-300 hover:bg-indigo-900/40 transition-colors disabled:opacity-50">
+            {uploading ? "⏳ Indexing…" : "📎 Upload Documents"}
+          </button>
+          <input ref={fileRef} type="file" multiple accept=".pdf,.docx,.txt,.md,.csv" className="hidden" onChange={handleUpload} />
+        </div>
+        <div className="flex-1 overflow-y-auto p-3">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+            Knowledge Base ({docs.length} doc{docs.length !== 1 ? "s" : ""})
+          </p>
+          {docs.length === 0
+            ? <p className="text-xs text-slate-500 italic leading-relaxed">No documents yet. Upload DOCX / PDF files to enable RAG answers.</p>
+            : docs.map(d => (
+              <div key={d.id} className="bg-slate-700/50 rounded-lg p-2.5 mb-2">
+                <p className="text-xs font-medium text-slate-200 truncate" title={d.name}>{d.name}</p>
+                <span className={\`text-[10px] font-semibold mt-1 inline-block \${d.indexed ? "text-emerald-400" : "text-amber-400"}\`}>
+                  {d.indexed ? "✓ Indexed in FAISS" : "⏳ Pending index"}
+                </span>
+              </div>
+            ))
+          }
+        </div>
+      </aside>
+
+      {/* ── Main chat ── */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+          <p className="flex-1 text-base font-bold text-slate-900">AI Support Chat</p>
+          <span className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full">● AI Active</span>
+          <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-3 py-1 rounded-full">● KB Connected</span>
+        </header>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+          {messages.map(msg => (
+            <div key={msg.id} className={\`flex \${msg.role === "user" ? "justify-end" : "justify-start"}\`}>
+              {msg.role === "user" ? (
+                <div>
+                  <div className="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed max-w-md">{msg.text}</div>
+                  <p className="text-[10px] text-slate-400 text-right mt-1">{msg.ts}</p>
+                </div>
+              ) : (
+                <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-2xl w-full">
+                  <p className="text-sm text-slate-800 leading-relaxed font-medium mb-2">{msg.answer}</p>
+                  {msg.steps && msg.steps.length > 0 && (
+                    <div className="mb-3">
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">📋 Step-by-Step Resolution</p>
+                      <ol className="space-y-1.5 pl-1">
+                        {msg.steps.map((step, i) => (
+                          <li key={i} className="flex gap-2.5 text-xs text-slate-700 leading-relaxed">
+                            <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-500 text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i+1}</span>
+                            {step}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+                  {(msg.source || msg.confidence) && (
+                    <div className="flex items-center gap-4 text-[11px] border-t border-slate-100 pt-2 mt-1">
+                      {msg.source && <span className="text-slate-400">📎 {msg.source}</span>}
+                      {msg.confidence != null && msg.confidence > 0 && (
+                        <span className="text-emerald-600 font-semibold">✓ {msg.confidence}% accuracy</span>
+                      )}
+                    </div>
+                  )}
+                  {msg.related && msg.related.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-slate-100">
+                      <span className="text-[11px] text-slate-400">💡 Related:</span>
+                      {msg.related.map((r, i) => (
+                        <button key={i} onClick={() => send(r)}
+                          className="text-[11px] bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-2.5 py-0.5 hover:bg-indigo-100 transition-colors">
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {msg.id !== "welcome" && (
+                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100">
+                      <span className="text-[11px] text-slate-400">Was this helpful?</span>
+                      <button onClick={() => setFeedback(p => ({ ...p, [msg.id]: "up" }))}
+                        style={{ opacity: feedback[msg.id] === "up" ? 1 : 0.4 }} className="text-base">👍</button>
+                      <button onClick={() => setFeedback(p => ({ ...p, [msg.id]: "down" }))}
+                        style={{ opacity: feedback[msg.id] === "down" ? 1 : 0.4 }} className="text-base">👎</button>
+                      {feedback[msg.id] && (
+                        <span className={\`text-[11px] font-semibold \${feedback[msg.id] === "up" ? "text-emerald-600" : "text-red-500"}\`}>
+                          {feedback[msg.id] === "up" ? "Thanks! Glad that helped." : "Noted — we will improve this."}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-slate-400 mt-1">{msg.ts}</p>
+                </div>
+              )}
+            </div>
+          ))}
+          {loading && (
+            <div className="flex justify-start">
+              <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm px-4 py-3.5 shadow-sm">
+                <div className="flex gap-1.5">
+                  {[0,1,2].map(i => (
+                    <span key={i} className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"
+                      style={{ animationDelay: \`\${i * 0.14}s\` }} />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        <footer className="bg-white border-t border-slate-200 p-3.5 flex-shrink-0">
+          <div className="flex gap-2.5 items-end">
+            <textarea value={input} onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+              placeholder="Type your support question and press Enter…"
+              rows={2}
+              className="flex-1 min-w-0 resize-none border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent" />
+            <button onClick={() => send()} disabled={!input.trim() || loading}
+              className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white rounded-xl px-5 py-2.5 text-sm font-semibold h-[44px] whitespace-nowrap transition-colors flex-shrink-0">
+              Send ➤
+            </button>
+          </div>
+          <p className="text-xs text-slate-400 text-center mt-2">Powered by FAISS RAG · Azure OpenAI GPT-4o · PostgreSQL</p>
+        </footer>
+      </div>
+    </div>
+  );
+}
 `;
 
   // ── src/main.tsx ────────────────────────────────────────────────────────────
@@ -491,7 +851,6 @@ body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Ro
       dev: "vite",
       build: "tsc && vite build",
       preview: "vite preview",
-      lint: "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     },
     dependencies: {
       react: "^18.3.1",
@@ -515,6 +874,14 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  server: {
+    proxy: {
+      "/api": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
+    },
+  },
 });
 `;
 
@@ -867,9 +1234,11 @@ def _retrieve(query: str, k: int = 5) -> list[dict]:
     return [_chunks[i] for i in indices[0] if i < len(_chunks)]
 
 
-def answer(query: str, history: list[dict] | None = None) -> str:
-    """Generate a RAG-grounded answer for the query."""
+def answer(query: str, history: list[dict] | None = None) -> dict:
+    """Generate a RAG-grounded answer. Returns structured dict for the API."""
+    import re
     context_chunks = _retrieve(query)
+    out_of_scope = not bool(context_chunks)
     context = "\\n\\n".join(
         f"[{c['source']}]: {c['text']}" for c in context_chunks
     ) or "No relevant documents found."
@@ -879,7 +1248,14 @@ def answer(query: str, history: list[dict] | None = None) -> str:
         messages.append({"role": h["role"], "content": h["content"]})
     messages.append({
         "role": "user",
-        "content": f"Context:\\n{context}\\n\\nQuestion: {query}"
+        "content": (
+            "Answer the question below using ONLY the context provided. "
+            "Format your response as:\\n"
+            "ANSWER: <one-sentence direct answer>\\n"
+            "STEPS:\\n1. <step>\\n2. <step>\\n3. <step>\\n"
+            "(include 3-6 numbered steps whenever the question involves a process or resolution)\\n\\n"
+            f"Context:\\n{context}\\n\\nQuestion: {query}"
+        )
     })
 
     client = _get_client()
@@ -887,9 +1263,33 @@ def answer(query: str, history: list[dict] | None = None) -> str:
         model=settings.azure_openai_deployment,
         messages=messages,
         temperature=0.3,
-        max_tokens=1000,
+        max_tokens=1200,
     )
-    return response.choices[0].message.content or "Sorry, I could not generate an answer."
+    raw = response.choices[0].message.content or ""
+
+    # Parse ANSWER: and STEPS: sections from the response
+    answer_match = re.search(r'ANSWER:\\s*(.+?)(?:\\nSTEPS:|$)', raw, re.DOTALL)
+    steps_match  = re.search(r'STEPS:\\s*(.+)', raw, re.DOTALL)
+    answer_text  = answer_match.group(1).strip() if answer_match else raw.strip()
+    steps_raw    = steps_match.group(1).strip() if steps_match else ""
+    steps        = [s.strip() for s in re.findall(r'\\d+\\.\\s+(.+)', steps_raw)] if steps_raw else []
+
+    source = context_chunks[0].get("source", "") if context_chunks else ""
+    # Related: other unique sources retrieved
+    related_sources = list(dict.fromkeys(
+        c["source"] for c in context_chunks[1:] if c.get("source") and c["source"] != source
+    ))[:2]
+
+    confidence = max(60, min(97, 90 - len(context_chunks) * 2)) if context_chunks else 0
+
+    return {
+        "answer": answer_text,
+        "steps": steps,
+        "source": source,
+        "confidence": confidence,
+        "related": related_sources,
+        "out_of_scope": out_of_scope,
+    }
 `;
 
   // ── backend/app/api/__init__.py ───────────────────────────────────────────────
@@ -923,20 +1323,25 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     session_id: str
-    reply: str
+    answer: str
+    steps: list[str] = []
+    source: str = ""
+    confidence: int = 0
+    related: list[str] = []
+    out_of_scope: bool = False
 
 @router.post("", response_model=ChatResponse)
 async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
     session_id = req.session_id or str(uuid.uuid4())
     try:
-        reply = rag.answer(req.message, req.history)
+        result = rag.answer(req.message, req.history)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
     db.add(ChatMessage(session_id=session_id, role="user", content=req.message))
-    db.add(ChatMessage(session_id=session_id, role="assistant", content=reply))
+    db.add(ChatMessage(session_id=session_id, role="assistant", content=result["answer"]))
     await db.commit()
-    return ChatResponse(session_id=session_id, reply=reply)
+    return ChatResponse(session_id=session_id, **result)
 
 @router.get("/history/{session_id}")
 async def get_history(session_id: str, db: AsyncSession = Depends(get_db)):
@@ -961,7 +1366,12 @@ router = APIRouter()
 
 @router.post("/upload")
 async def upload_document(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
-    content = (await file.read()).decode("utf-8", errors="replace")
+    raw = await file.read()
+    # Try UTF-8; fall back gracefully for binary formats
+    try:
+        content = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        content = raw.decode("latin-1", errors="replace")
     doc = Document(name=file.filename or "unknown", content=content)
     db.add(doc)
     await db.commit()
@@ -974,13 +1384,14 @@ async def upload_document(file: UploadFile = File(...), db: AsyncSession = Depen
 
     doc.embedding_indexed = True
     await db.commit()
-    return {"id": doc.id, "name": doc.name, "indexed": True}
+    await db.refresh(doc)
+    return {"id": doc.id, "name": doc.name, "indexed": doc.embedding_indexed}
 
 @router.get("")
 async def list_documents(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Document).order_by(Document.uploaded_at.desc()))
     docs = result.scalars().all()
-    return [{"id": d.id, "name": d.name, "indexed": d.embedding_indexed, "uploaded_at": d.uploaded_at.isoformat()} for d in docs]
+    return [{"id": d.id, "name": d.name, "indexed": d.embedding_indexed} for d in docs]
 `;
 
   // ── docker-compose.yml ─────────────────────────────────────────────────────────
@@ -1163,7 +1574,6 @@ Open \`sandbox.html\` directly in any browser for a fully working UI demo — no
   zip.file("src/main.tsx", mainTsx);
   zip.file("src/App.tsx", appTsx);
   zip.file("src/index.css", indexCss);
-  zip.file("sandbox.html", sandboxHtml);
 
   // Backend files
   zip.file("backend/main.py", backendMain);
@@ -1179,6 +1589,8 @@ Open \`sandbox.html\` directly in any browser for a fully working UI demo — no
   zip.file("backend/app/api/health.py", healthPy);
   zip.file("backend/app/api/chat.py", chatApiPy);
   zip.file("backend/app/api/documents.py", documentsApiPy);
+
+  } // end fallback scaffold (aiFiles.length === 0)
 
   return zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
 }
@@ -1263,7 +1675,14 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
     const openInBrowser = () => {
       const blob = new Blob([uiHtml], { type: "text/html" });
       const url = URL.createObjectURL(blob);
-      window.open(url, "_blank");
+      // Use anchor click instead of window.open() — bypasses popup blockers
+      const a = document.createElement("a");
+      a.href = url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     };
 
@@ -1342,8 +1761,8 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
         </div>
         {/* Sandboxed iframe — fills remaining height via flex-1 (parent chain: flex flex-col) */}
         <iframe
-          className="flex-1 w-full border-0 bg-white block"
-          srcDoc={uiHtml}
+          className="flex-1 w-full border-0 bg-white block min-h-0"
+          srcDoc={uiHtml?.replace(/<\/head>/, '<style>html,body{overflow-y:auto!important;height:auto!important;}</style></head>') ?? uiHtml}
           sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
           title="App Preview"
         />
@@ -1476,6 +1895,14 @@ export default function Architect() {
   );
   const fileRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(460);
+  const isResizing = useRef(false);
+  const resizeStartX = useRef(0);
+  const resizeStartW = useRef(0);
+  const [sessionsHeight, setSessionsHeight] = useState(112);
+  const isResizingRows = useRef(false);
+  const resizeStartY = useRef(0);
+  const resizeStartH = useRef(0);
 
   const active = sessions.find((s) => s.id === activeSid);
   const messages = active?.messages ?? [];
@@ -1587,6 +2014,50 @@ export default function Architect() {
       setTimeout(() => send(queued), 80);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Resizable sidebar mouse handlers
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) {
+      if (!isResizing.current) return;
+      const delta = e.clientX - resizeStartX.current;
+      const next = Math.min(700, Math.max(280, resizeStartW.current + delta));
+      setSidebarWidth(next);
+    }
+    function onMouseUp() {
+      if (!isResizing.current) return;
+      isResizing.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+
+  // Vertical resize for sessions panel
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) {
+      if (!isResizingRows.current) return;
+      const delta = e.clientY - resizeStartY.current;
+      const next = Math.min(400, Math.max(72, resizeStartH.current + delta));
+      setSessionsHeight(next);
+    }
+    function onMouseUp() {
+      if (!isResizingRows.current) return;
+      isResizingRows.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
   }, []);
 
   // Persist sessions and active session to localStorage whenever they change
@@ -1975,10 +2446,10 @@ export default function Architect() {
   return (
     <div className="flex h-screen bg-[#0f1117] overflow-hidden">
       {/* ── Left panel ──────────────────────────────────────────────────────── */}
-      <div className="w-[460px] flex-shrink-0 flex flex-col border-r border-white/10">
+      <div className="flex-shrink-0 flex flex-col border-r-2 border-white/20 relative" style={{ width: sidebarWidth }}>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+        <div className="flex items-center justify-between px-5 py-4 border-b-2 border-white/20" style={{ background: "rgba(99,102,241,0.08)" }}>
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 bg-indigo-600 rounded-xl flex items-center justify-center">
               <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
@@ -2000,7 +2471,7 @@ export default function Architect() {
         </div>
 
         {/* Mode selector: Build | Suggest | Add Features */}
-        <div className="flex items-center gap-1.5 px-5 py-3 border-b border-white/10">
+        <div className="flex items-center gap-1.5 px-5 py-3 border-b-2 border-white/15" style={{ background: "rgba(255,255,255,0.03)" }}>
           {(["build", "suggest", "features"] as Mode[]).map((m) => (
             <button
               key={m}
@@ -2073,11 +2544,11 @@ export default function Architect() {
 
         {/* Sessions history */}
         {sessions.length > 0 && (
-          <div className="border-b border-white/10 flex flex-col" style={{ maxHeight: "200px" }}>
-            <div className="flex items-center justify-between px-4 py-2 flex-shrink-0">
-              <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Sessions ({sessions.length})</span>
+          <div className="flex flex-col min-h-0 flex-shrink-0 border-t-2 border-b border-white/20" style={{ height: sessionsHeight, background: "rgba(255,255,255,0.02)" }}>
+            <div className="flex items-center justify-between px-4 py-2 flex-shrink-0 border-b border-white/15">
+              <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Sessions ({sessions.length})</span>
             </div>
-            <div className="overflow-y-auto flex-1">
+            <div className="overflow-y-auto flex-1 min-h-0">
               {sessions.map((s) => (
                 <div
                   key={s.id}
@@ -2108,8 +2579,26 @@ export default function Architect() {
           </div>
         )}
 
+        {/* Vertical resize handle — drag to grow/shrink chat area */}
+        {sessions.length > 0 && (
+          <div
+            className="h-3 flex-shrink-0 cursor-row-resize group flex items-center justify-center relative z-10 transition-colors border-b-2 border-white/20"
+            style={{ background: "rgba(99,102,241,0.06)" }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              isResizingRows.current = true;
+              resizeStartY.current = e.clientY;
+              resizeStartH.current = sessionsHeight;
+              document.body.style.cursor = "row-resize";
+              document.body.style.userSelect = "none";
+            }}
+          >
+            <div className="w-10 h-1 rounded-full bg-white/30 group-hover:bg-indigo-400 transition-colors" />
+          </div>
+        )}
+
         {/* Message thread */}
-        <div className="flex-1 overflow-y-auto py-3 min-h-0">
+        <div className="flex-1 overflow-y-auto py-3 min-h-0 border-t border-white/10">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full px-6 text-center">
               <div className="w-14 h-14 bg-indigo-600/20 border border-indigo-500/30 rounded-2xl flex items-center justify-center mb-4">
@@ -2300,7 +2789,7 @@ export default function Architect() {
         )}
 
         {/* Input */}
-        <div className="px-4 pb-4 pt-2 border-t border-white/10">
+        <div className="px-4 pb-4 pt-2 border-t-2 border-white/20" style={{ background: "rgba(255,255,255,0.02)" }}>
           {(files.length > 0 || visualFiles.length > 0) && (
             <div className="flex flex-wrap gap-1.5 mb-2">
               {files.map((f) => (
@@ -2465,6 +2954,22 @@ export default function Architect() {
         </div>
       </div>
 
+      {/* ── Resize handle ──────────────────────────────────────────────────── */}
+      <div
+        className="w-1.5 flex-shrink-0 cursor-col-resize group relative z-10 hover:bg-indigo-500/30 transition-colors"
+        style={{ background: "rgba(255,255,255,0.06)" }}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          isResizing.current = true;
+          resizeStartX.current = e.clientX;
+          resizeStartW.current = sidebarWidth;
+          document.body.style.cursor = "col-resize";
+          document.body.style.userSelect = "none";
+        }}
+      >
+        <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-0.5 group-hover:bg-indigo-400 transition-colors rounded-full" />
+      </div>
+
       {/* ── Right panel ─────────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col bg-white min-w-0 min-h-0">
         {/* Tab bar */}
@@ -2538,7 +3043,7 @@ export default function Architect() {
         </div>
 
         {/* Content — overflow-hidden on non-app tabs; app tab needs full height */}
-        <div className={`flex-1 relative ${tab === "app" ? "flex flex-col overflow-hidden" : "overflow-hidden"}`}>
+        <div className={`flex-1 min-h-0 relative ${tab === "app" ? "flex flex-col overflow-hidden" : "overflow-hidden"}`}>
           {showVersionHistory && (
             <div className="absolute inset-0 z-10 bg-white overflow-y-auto">
               <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
@@ -2581,7 +3086,7 @@ export default function Architect() {
               </div>
             </div>
           )}
-          {tab === "plan" && <PlanTab plan={plan} promptHistory={active?.promptHistory} />}
+          {tab === "plan" && <PlanTab plan={plan} promptHistory={active?.promptHistory} messages={active?.messages ?? []} loading={loading} />}
           {tab === "agents" && <AgentsTab plan={plan} />}
           {tab === "app" && <AppTab plan={plan} uiHtml={uiHtml} onGenerateUI={() => handleGenerateUI()} generatingUI={generatingUI} uiError={uiError} progressStep={progressStep} />}
           {tab === "database" && <DatabaseTab plan={plan} />}
