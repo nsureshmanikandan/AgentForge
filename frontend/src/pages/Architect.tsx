@@ -1607,7 +1607,7 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
 
   if (!plan) return <EmptyState tab="app" />;
 
-  if (generatingUI) {
+  if (generatingUI && !uiHtml) {
     const step = progressStep ?? 0;
     const UI_STEPS = [
       { label: "Reading attached documents",        icon: "📄" },

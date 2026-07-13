@@ -1949,7 +1949,7 @@ class GenerateProjectRequest(BaseModel):
 PROJECT_FRONTEND_PROMPT = """You are a senior React engineer. Generate a complete React 18 + TypeScript + Vite + TailwindCSS frontend for the application described below.
 
 RULES:
-- Return ONLY valid JSON with this exact structure: {"files": {"path": "file content as string"}}
+- Return ONLY valid JSON with this exact structure: {{"files": {{"path": "file content as string"}}}}
 - Use real component code — NO placeholder comments, NO TODO, NO lorem ipsum
 - Use React Query (@tanstack/react-query) for all API calls to the FastAPI backend at /api
 - Use react-hot-toast for notifications
@@ -1982,14 +1982,15 @@ Database: {database_schema}"""
 PROJECT_BACKEND_PROMPT = """You are a senior Python engineer. Generate a complete FastAPI + SQLAlchemy + PostgreSQL backend for the application described below.
 
 RULES:
-- Return ONLY valid JSON with this exact structure: {"files": {"path": "file content as string"}}
-- Use SQLAlchemy 2.x ORM with PostgreSQL
-- Use Pydantic v2 models for all schemas
-- Every agent must be its own file in backend/app/agents/ with real GPT-4o integration using Azure OpenAI
-- Azure OpenAI client: use openai.AzureOpenAI with settings from config.py
+- Return ONLY valid JSON with this exact structure: {{"files": {{"path": "file content as string"}}}}
+- Use SQLAlchemy 2.x async ORM with PostgreSQL and asyncpg
+- Use Pydantic v2 models for all schemas (use model_dump() not .dict())
+- Every agent must be its own file in backend/app/agents/ using openai.AzureOpenAI (NOT the old openai.ChatCompletion API)
+- Agent pattern: client = AzureOpenAI(azure_endpoint=settings.AZURE_OPENAI_ENDPOINT, api_key=settings.AZURE_OPENAI_API_KEY, api_version="2024-02-01"); response = client.chat.completions.create(model=settings.AZURE_OPENAI_DEPLOYMENT_NAME, messages=[...])
+- Always use selectinload() for SQLAlchemy async relationship loading — never rely on lazy loading
 - All endpoints must be fully implemented with real DB queries — no placeholder functions
 - Include seed.py with realistic sample data for all tables
-- Include alembic migration setup
+- Include __init__.py in app/, app/api/, app/agents/ directories
 
 Required file structure:
 - backend/app/main.py  (FastAPI app with CORS, all routers included)
