@@ -1988,30 +1988,367 @@ class GenerateProjectRequest(BaseModel):
     tech_stack: Optional[dict] = None
 
 
+def _fix_python_file(path: str, content: str, app_name: str = "") -> str:
+    """Post-process GPT-4o generated files: fix known recurring anti-patterns."""
+    import re as _re
+    if not path.endswith(".py"):
+        return content
+
+    # Bug 1: await used with sync AzureOpenAI client → remove the await
+    content = _re.sub(
+        r'\bawait\s+(self\.client|client)\.chat\.completions\.create\(',
+        lambda m: f"{m.group(1)}.chat.completions.create(",
+        content,
+    )
+
+    # Bug 2: dict-style response access → attribute access
+    for bad, good in [
+        ('response["choices"][0]["message"]["content"]', "response.choices[0].message.content"),
+        ("response['choices'][0]['message']['content']", "response.choices[0].message.content"),
+        ('response["choices"][0]["message"]', "response.choices[0].message"),
+        ("response['choices'][0]['message']", "response.choices[0].message"),
+    ]:
+        content = content.replace(bad, good)
+
+    # Bug 3: async def on agent methods that call sync AzureOpenAI
+    # If the method body contains self.client.chat.completions.create (sync, no await),
+    # the method itself must NOT be async def — change async def → def for agent methods
+    content = _re.sub(
+        r'async def (answer_question|analyze|run|process|generate|ask|query|answer|respond)\(',
+        lambda m: f"def {m.group(1)}(",
+        content,
+    )
+
+    # Bug 4: sync get_db() yield pattern used with AsyncSession type hint
+    # Replace with proper async_session context manager pattern
+    content = _re.sub(
+        r'def get_db\(\):\s*\n([ \t]+)db = SessionLocal\(\)\s*\n[ \t]+try:\s*\n[ \t]+yield db\s*\n[ \t]+finally:\s*\n[ \t]+db\.close\(\)',
+        lambda m: (
+            f"async def get_db():\n"
+            f"{m.group(1)}async with async_session() as session:\n"
+            f"{m.group(1)}    yield session"
+        ),
+        content,
+    )
+    # Also fix the Depends type annotation to match
+    content = content.replace(
+        "db: Session = Depends(get_db)",
+        "db: AsyncSession = Depends(get_db)",
+    )
+
+    # Bug 5: user_id in Query/record constructor when not in schema
+    # Remove user_id= kwarg from ORM constructor calls (it causes AttributeError)
+    content = _re.sub(r'\buser_id\s*=\s*\w+[\w.]*\s*,\s*', '', content)
+    content = _re.sub(r',\s*user_id\s*=\s*\w+[\w.]*', '', content)
+
+    return content
+
+
+def _enforce_agentic_structure(all_files: dict, app_name: str, summary: str) -> dict:
+    """
+    If GPT-4o generated rag.py without an agents/ folder, replace it with
+    a proper domain-specific agent class so the download is truly agentic.
+    """
+    import re as _re
+
+    has_rag = any("rag.py" in p for p in all_files)
+    has_agent = any("/agents/" in p or p.endswith("Agent.py") for p in all_files)
+
+    if not has_rag or has_agent:
+        return all_files  # already agentic — nothing to do
+
+    # Derive class name: "Policy Analysis Agent" → "PolicyAnalysisAgent"
+    safe_name = _re.sub(r"[^A-Za-z0-9 ]", "", app_name).title().replace(" ", "")
+    if not safe_name:
+        safe_name = "CustomAgent"
+
+    # Find rag.py to steal the SYSTEM_PROMPT / config imports / model call structure
+    rag_path = next(p for p in all_files if "rag.py" in p)
+    rag_src = all_files[rag_path]
+
+    # Extract SYSTEM_PROMPT text if present
+    sp_match = _re.search(r'SYSTEM_PROMPT\s*=\s*"""(.*?)"""', rag_src, _re.DOTALL)
+    system_prompt = sp_match.group(1).strip() if sp_match else f"You are a helpful {app_name} assistant."
+
+    agent_code = f'''\"""
+{safe_name} — domain-specific agent generated for: {app_name}
+\"""
+import numpy as np
+import json
+from typing import Optional
+from openai import AzureOpenAI
+
+try:
+    import faiss
+    FAISS_AVAILABLE = True
+except ImportError:
+    FAISS_AVAILABLE = False
+
+from app.config import settings
+
+SYSTEM_PROMPT = """{system_prompt}"""
+
+
+class {safe_name}:
+    def __init__(self):
+        self._client: Optional[AzureOpenAI] = None
+        self._index = None
+        self._chunks: list[dict] = []
+
+    def _get_client(self) -> AzureOpenAI:
+        if self._client is None:
+            self._client = AzureOpenAI(
+                azure_endpoint=settings.azure_openai_endpoint,
+                api_key=settings.azure_openai_api_key,
+                api_version=settings.azure_openai_api_version,
+            )
+        return self._client
+
+    def _embed(self, texts: list[str]) -> np.ndarray:
+        client = self._get_client()
+        response = client.embeddings.create(
+            model=settings.azure_openai_embedding_deployment,
+            input=texts,
+        )
+        return np.array([d.embedding for d in response.data], dtype="float32")
+
+    def index_documents(self, documents: list[dict]) -> None:
+        self._chunks = []
+        for doc in documents:
+            text = doc.get("content", "")
+            source = doc.get("name", "unknown")
+            for i in range(0, len(text), 500):
+                self._chunks.append({{"text": text[i:i+500], "source": source}})
+        if not self._chunks:
+            return
+        try:
+            embeddings = self._embed([c["text"] for c in self._chunks])
+            dim = embeddings.shape[1]
+            self._index = faiss.IndexFlatL2(dim)
+            self._index.add(embeddings)
+        except Exception:
+            self._index = None
+
+    def _retrieve(self, query: str, k: int = 5) -> list[dict]:
+        if not self._chunks:
+            return []
+        if self._index is not None:
+            try:
+                q_emb = self._embed([query])
+                _, indices = self._index.search(q_emb, k)
+                return [self._chunks[i] for i in indices[0] if i < len(self._chunks)]
+            except Exception:
+                pass
+        q_words = set(query.lower().split())
+        scored = [(len(q_words & set(c["text"].lower().split())), c) for c in self._chunks]
+        scored = [(s, c) for s, c in scored if s > 0]
+        scored.sort(key=lambda x: -x[0])
+        return [c for _, c in scored[:k]]
+
+    def answer_question(self, query: str, history: list[dict] | None = None) -> dict:
+        import re
+        context_chunks = self._retrieve(query)
+        context = "\\n\\n".join(
+            f"[{{c['source']}}]: {{c['text']}}" for c in context_chunks
+        ) or "No relevant documents found."
+        messages = [{{"role": "system", "content": SYSTEM_PROMPT}}]
+        for h in (history or [])[-6:]:
+            messages.append({{"role": h["role"], "content": h["content"]}})
+        messages.append({{
+            "role": "user",
+            "content": (
+                "Answer using ONLY the context provided.\\n"
+                "Format: ANSWER: <answer>\\nSTEPS:\\n1. <step>\\n\\n"
+                f"Context:\\n{{context}}\\n\\nQuestion: {{query}}"
+            )
+        }})
+        client = self._get_client()
+        response = client.chat.completions.create(
+            model=settings.azure_openai_deployment,
+            messages=messages,
+            temperature=0.3,
+            max_tokens=1200,
+        )
+        raw = response.choices[0].message.content or ""
+        answer_match = re.search(r\'ANSWER:\\s*(.+?)(?:\\nSTEPS:|$)\', raw, re.DOTALL)
+        steps_match  = re.search(r\'STEPS:\\s*(.+)\', raw, re.DOTALL)
+        answer_text  = answer_match.group(1).strip() if answer_match else raw.strip()
+        steps_raw    = steps_match.group(1).strip() if steps_match else ""
+        steps = [s.strip() for s in re.findall(r\'\\d+\\.\\s+(.+)\', steps_raw)]
+        source = context_chunks[0].get("source", "") if context_chunks else ""
+        related = list(dict.fromkeys(
+            c["source"] for c in context_chunks[1:]
+            if c.get("source") and c["source"] != source
+        ))[:2]
+        return {{
+            "answer": answer_text,
+            "steps": steps,
+            "source": source,
+            "confidence": max(60, min(97, 90 - len(context_chunks) * 2)) if context_chunks else 0,
+            "related": related,
+            "out_of_scope": not bool(context_chunks),
+        }}
+
+    def analyze(self, text: str) -> dict:
+        """Domain-specific analysis method."""
+        client = self._get_client()
+        response = client.chat.completions.create(
+            model=settings.azure_openai_deployment,
+            messages=[
+                {{"role": "system", "content": SYSTEM_PROMPT}},
+                {{"role": "user", "content": f"Analyze the following and return key insights as JSON:\\n\\n{{text}}"}}
+            ],
+            temperature=0.2,
+            max_tokens=800,
+        )
+        raw = response.choices[0].message.content or "{{}}"
+        try:
+            start = raw.find("{{")
+            end = raw.rfind("}}") + 1
+            return json.loads(raw[start:end]) if start >= 0 else {{"summary": raw}}
+        except Exception:
+            return {{"summary": raw}}
+
+
+# Module-level singleton
+_agent: Optional[{safe_name}] = None
+
+def get_agent() -> {safe_name}:
+    global _agent
+    if _agent is None:
+        _agent = {safe_name}()
+    return _agent
+'''
+
+    # Determine base directory from rag_path (e.g. "backend/app/rag.py" → "backend/app")
+    base_dir = "/".join(rag_path.split("/")[:-1]) if "/" in rag_path else "backend/app"
+    agent_path = f"{base_dir}/agents/{safe_name}.py"
+
+    # Build updated file set: remove rag.py, add agent file
+    new_files = {p: c for p, c in all_files.items() if "rag.py" not in p}
+    new_files[agent_path] = agent_code
+
+    # Patch any api/ files that import from rag → import from agents
+    for path in list(new_files.keys()):
+        if "/api/" in path and path.endswith(".py"):
+            src = new_files[path]
+            src = src.replace("from app.rag import", f"from app.agents.{safe_name} import")
+            src = src.replace("from app.rag import build_index, answer",
+                              f"from app.agents.{safe_name} import get_agent")
+            src = src.replace("from app.rag import build_index",
+                              f"from app.agents.{safe_name} import get_agent")
+            src = src.replace("from app.rag import answer",
+                              f"from app.agents.{safe_name} import get_agent")
+            # Replace rag function calls with agent method calls
+            src = _re.sub(r'\banswr?\s*=\s*answer\s*\(', f"agent = get_agent(); answ = agent.answer_question(", src)
+            src = _re.sub(r'\bbuild_index\s*\(', "get_agent().index_documents(", src)
+            new_files[path] = src
+
+    return new_files
+
+
 PROJECT_FRONTEND_PROMPT = """You are a senior React engineer. Generate a complete React 18 + TypeScript + Vite + TailwindCSS frontend for the application described below.
+
+CRITICAL UI REQUIREMENT — EXACT 3-PANEL CHAT INTERFACE:
+The main page MUST be a full-screen 3-panel chat application. Copy this layout EXACTLY — do not invent your own styles:
+
+LEFT SIDEBAR — className="w-64 bg-gray-900 text-white flex flex-col flex-shrink-0"
+  - Top header (p-4 border-b border-gray-700): AI logo badge (w-9 h-9 rounded-xl bg-indigo-600 font-bold text-sm showing "AI") + app name (text-sm font-bold) + subtitle (text-xs text-slate-400 showing domain/model info)
+  - Upload button (p-3 border-b border-gray-700): className="w-full text-xs font-semibold py-2 px-3 rounded-lg border border-indigo-500 text-indigo-300 hover:bg-indigo-900/40 transition-colors disabled:opacity-50" — shows "📎 Upload Document" or "⏳ Uploading…" when loading
+  - Documents list (flex-1 overflow-y-auto p-3): label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2", each doc as bg-slate-700/50 rounded-lg p-2.5 with "✓ Uploaded" in text-emerald-400
+  - Suggested questions (p-3 border-t border-gray-700): label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2", each question as a <button> that calls send(question) with className="text-left text-xs text-slate-300 hover:text-white hover:bg-gray-800 rounded px-2 py-1.5 transition-colors"
+  - CRITICAL: Generate 4-5 DOMAIN-SPECIFIC suggested questions (NOT generic ones) based on the app description
+
+MAIN CHAT — className="flex-1 flex flex-col min-w-0 overflow-hidden"
+  - Header (bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm):
+    * App title: className="flex-1 text-base font-bold text-slate-900"
+    * AI Active badge: className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full" text="● AI Active"
+    * KB Connected badge: className="text-xs font-semibold bg-blue-100 text-blue-700 px-3 py-1 rounded-full" text="● KB Connected"
+  - Messages (flex-1 overflow-y-auto p-5 space-y-3):
+    * User bubble: justify-end, bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm max-w-md, timestamp text-[10px] text-slate-400 text-right mt-1
+    * Bot bubble: justify-start, bg-white border border-slate-200 rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-2xl w-full, timestamp text-[10px] text-slate-400 mt-1
+    * Loading indicator: 3 animated dots (w-2 h-2 bg-slate-400 rounded-full animate-bounce with staggered animationDelay)
+  - Footer (bg-white border-t border-slate-200 p-3.5): textarea (resize-none border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-indigo-400) + Send button (bg-indigo-600 disabled:bg-slate-300 text-white rounded-xl px-5 py-2.5 text-sm font-semibold h-[44px])
+  - Welcome message: "Welcome to [App Name]. Ask questions about [domain] and get detailed answers."
+
+RIGHT PANEL — className="w-56 border-l bg-white p-4 flex flex-col gap-5 flex-shrink-0 overflow-y-auto"
+  - "KNOWLEDGE BASE" section: label className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2", card className="bg-slate-50 rounded-xl p-3" with big number (text-2xl font-bold text-indigo-600) showing uploadedDocs.length + label "Documents indexed"
+  - "SESSION" section: same card style, big number (text-2xl font-bold text-emerald-600) showing COUNT OF USER MESSAGES ONLY (messages.filter(m => m.role==='user').length) — NOT last query text, NOT total messages
+  - "FILTER BY TOPIC" section: label className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2", topic chips as <button> with: inactive=className="text-[11px] px-2.5 py-1 rounded-full border bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100", active=className="text-[11px] px-2.5 py-1 rounded-full border bg-indigo-600 text-white border-indigo-600 font-semibold". Clicking active topic deselects it. Clicking topic calls send("Tell me about " + topic)
+  - Generate 4-5 DOMAIN-SPECIFIC topic names (e.g. for policy app: "Obligations", "Rights", "Benefits", "Compliance")
+
+STATE MANAGEMENT (no React Query needed for chat — use useState + fetch):
+- messages: array of {{id, role: 'user'|'bot', content, ts}}
+- uploadedDocs: string[] (filenames)
+- activeTopic: string | null
+- loading: boolean (AI thinking state)
+- question: string (input value)
+- const msgCount = messages.filter(m => m.role === 'user').length
+
+SEND FUNCTION:
+```
+const send = (override?: string) => {{
+  const text = (override ?? question).trim();
+  if (!text || loading) return;
+  setMessages(prev => [...prev, {{id: Date.now()+'u', role:'user', content:text, ts: new Date().toLocaleTimeString()}}]);
+  if (!override) setQuestion('');
+  setLoading(true);
+  askMutation.mutate(text);
+}};
+```
 
 RULES:
 - Return ONLY valid JSON with this exact structure: {{"files": {{"path": "file content as string"}}}}
 - Use real component code — NO placeholder comments, NO TODO, NO lorem ipsum
-- Use React Query (@tanstack/react-query) for all API calls to the FastAPI backend at /api
-- Use react-hot-toast for notifications
-- Use lucide-react for icons
-- All API calls go to relative /api paths (Vite proxy will forward to backend)
-- Use Tailwind utility classes for ALL styling — no inline styles
-- Each page must be fully implemented with real data from the plan
+- Use React Query (@tanstack/react-query) v4 ONLY for upload and ask mutations — useMutation(fn, {{onSuccess, onError}})
+- src/main.tsx MUST wrap App in QueryClientProvider:
+  import {{ QueryClient, QueryClientProvider }} from "@tanstack/react-query";
+  const queryClient = new QueryClient();
+  root.render(<StrictMode><QueryClientProvider client={{queryClient}}><App /></QueryClientProvider></StrictMode>)
+- Use react-hot-toast for upload notifications only (NOT for ask errors — show error in chat bubble)
+- ALWAYS include <Toaster position="top-right" /> in App.tsx return
+- All API calls go to relative /api paths (Vite proxy forwards to backend)
+- Use Tailwind utility classes for ALL styling — no inline styles, no CSS modules
+- Use axios for API: import axios from 'axios'; const api = axios.create({{ baseURL: '/api' }});
+- React Query v4 syntax ONLY: useMutation(mutationFn, {{ onSuccess, onError }}) — NEVER v5 syntax
+- vite.config.ts MUST include proxy: {{ '/api': {{ target: 'http://localhost:8002', changeOrigin: true }} }}
+- tailwind.config.js MUST include content: ['./index.html', './src/**/*.{{ts,tsx}}']
+- package.json dependencies MUST include ALL of these EXACTLY (never omit any):
+  {{"react": "^18.3.1", "react-dom": "^18.3.1", "@tanstack/react-query": "^4.36.1", "axios": "^1.7.2", "react-hot-toast": "^2.4.1", "lucide-react": "^0.400.0"}}
+- package.json devDependencies MUST include: typescript@^5, vite@^5, @vitejs/plugin-react@^4, tailwindcss@^3, autoprefixer, postcss, @types/react@^18, @types/react-dom@^18
+- CRITICAL: @tanstack/react-query MUST be in dependencies — main.tsx imports QueryClientProvider from it and the app will show a blank white screen if it is missing
+- src/App.tsx is a SINGLE PAGE (no React Router) — the entire app is the 3-panel chat UI
+- FORBIDDEN: solid colored badges like bg-green-500 text-white — use the exact pill style above
+- FORBIDDEN: showing "Last Query: ..." in the session panel — only show message COUNT
+- FORBIDDEN: suggested questions as plain <li> or <span> — they MUST be <button> elements calling send()
+- FORBIDDEN: rendering bot responses as raw text with {msg.content} — MUST use renderMarkdown() function
+- REQUIRED: include this renderMarkdown function in App.tsx before interfaces:
+  function renderMarkdown(text: string): React.ReactNode {
+    return text.split('\n').map((line, i) => {
+      if (!line.trim()) return <div key={i} className="h-1" />;
+      const parts: React.ReactNode[] = [];
+      const segments = line.split(/\*\*(.*?)\*\*/g);
+      segments.forEach((seg, j) => {
+        if (j % 2 === 1) parts.push(<strong key={j}>{seg}</strong>);
+        else if (seg) parts.push(seg);
+      });
+      const isListItem = /^(\d+\.|-)\s/.test(line);
+      return <p key={i} className={`text-sm text-slate-800 leading-relaxed${isListItem ? ' pl-3' : ''}`}>{parts}</p>;
+    });
+  }
+- Bot bubble MUST render: <div className="space-y-0.5">{renderMarkdown(msg.content)}</div>
 
-Required file structure:
-- frontend/src/main.tsx
-- frontend/src/App.tsx  (with routing using react-router-dom v6)
-- frontend/src/api/client.ts  (axios-based API client with all endpoints)
-- frontend/src/pages/Dashboard.tsx  (with charts using recharts, stats from /api/... endpoints)
-- frontend/src/pages/<PageName>.tsx  (one page per major feature from the plan)
-- frontend/package.json
-- frontend/vite.config.ts
-- frontend/tsconfig.json
-- frontend/tailwind.config.js
-- frontend/postcss.config.js
-- frontend/index.html
+Required file structure (use these exact paths — no "frontend/" prefix):
+- src/main.tsx  (with QueryClientProvider wrapping App)
+- src/App.tsx   (single-page 3-panel chat UI — no Router, import Toaster here)
+- src/index.css (tailwind directives only)
+- src/api/client.ts  (axios instance + uploadDocument(FormData)→Promise, askQuestion(question:string)→Promise)
+- package.json
+- vite.config.ts  (with /api proxy)
+- tsconfig.json
+- tailwind.config.js
+- postcss.config.js
+- index.html
 
 APPLICATION:
 {description}
@@ -2026,27 +2363,103 @@ PROJECT_BACKEND_PROMPT = """You are a senior Python engineer. Generate a complet
 RULES:
 - Return ONLY valid JSON with this exact structure: {{"files": {{"path": "file content as string"}}}}
 - Use SQLAlchemy 2.x async ORM with PostgreSQL and asyncpg
-- Use Pydantic v2 models for all schemas (use model_dump() not .dict())
-- Every agent must be its own file in backend/app/agents/ using openai.AzureOpenAI (NOT the old openai.ChatCompletion API)
-- Agent pattern: client = AzureOpenAI(azure_endpoint=settings.AZURE_OPENAI_ENDPOINT, api_key=settings.AZURE_OPENAI_API_KEY, api_version="2024-02-01"); response = client.chat.completions.create(model=settings.AZURE_OPENAI_DEPLOYMENT_NAME, messages=[...])
-- Always use selectinload() for SQLAlchemy async relationship loading — never rely on lazy loading
+- Use Pydantic v2 models: model_config = {{"from_attributes": True}} (NOT class Config), use model_validate(obj) to convert ORM objects to schemas (NEVER model_dump(obj))
+- AZURE OPENAI AGENT RULES (CRITICAL — violating these will crash the app):
+  * ALWAYS use SYNC client: from openai import AzureOpenAI — NEVER AsyncAzureOpenAI
+  * Agent methods MUST be plain `def` (NOT `async def`) — AzureOpenAI is blocking/sync
+  * NEVER write `await self.client.chat.completions.create(...)` — this CRASHES because AzureOpenAI is sync
+  * CORRECT call (no await): response = self.client.chat.completions.create(model=..., messages=[...])
+  * CORRECT response access: response.choices[0].message.content
+  * FORBIDDEN response access: response["choices"][0]["message"]["content"]  ← dict syntax is WRONG, use attribute access
+  * FastAPI routes that call agents: use `async def` for the route, call agent method normally (no await)
+  * EXACT agent pattern to follow — copy this exactly:
+    from openai import AzureOpenAI
+    from app.config import settings
+    class MyAgent:
+        def __init__(self):
+            self.client = AzureOpenAI(azure_endpoint=settings.AZURE_OPENAI_ENDPOINT, api_key=settings.AZURE_OPENAI_API_KEY, api_version="2024-02-01")
+        def run(self, input: str) -> str:
+            response = self.client.chat.completions.create(model=settings.AZURE_OPENAI_DEPLOYMENT_NAME, messages=[{{"role":"system","content":"You are a helpful assistant."}},{{"role":"user","content":input}}], max_tokens=1000, temperature=0.3)
+            return response.choices[0].message.content
+  * Route calling agent (async route, sync agent call — this is correct):
+    @router.post("/ask")
+    async def ask(req: AskRequest, db: AsyncSession = Depends(get_db)):
+        agent = MyAgent()
+        result = agent.run(req.question)   # NO await — agent.run is sync def
+        return {{"answer": result}}
+- main.py MUST call load_dotenv() BEFORE any other imports that read env vars:
+    from dotenv import load_dotenv
+    load_dotenv()
+    from fastapi import FastAPI
+    ...
+- main.py MUST use lifespan to create tables on startup:
+    from contextlib import asynccontextmanager
+    @asynccontextmanager
+    async def lifespan(app):
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        yield
+    app = FastAPI(lifespan=lifespan)
+- AGENTIC ARCHITECTURE — CRITICAL: This is a Custom Code download, NOT a generic RAG scaffold.
+  * MUST generate app-specific agent class(es) in backend/app/agents/<AgentName>.py
+  * Each agent class has DOMAIN-SPECIFIC methods named after app features (e.g. analyze_policy, check_compliance, summarize_clause — NOT just a generic answer() or run())
+  * The agent uses SYSTEM_PROMPT specific to its domain (e.g. "You are a policy analysis expert...")
+  * DO NOT generate a generic rag.py file — the agent IS the intelligence layer
+  * DO NOT copy the RAG scaffold pattern — build a real, app-specific agent
+  * Agent methods call AzureOpenAI directly with domain-tailored prompts per method
+  * Example for a Policy Analysis app:
+    class PolicyAnalysisAgent:
+        def __init__(self): self.client = AzureOpenAI(...)
+        def analyze_policy(self, text: str) -> dict:
+            response = self.client.chat.completions.create(model=..., messages=[
+                {{"role":"system","content":"You are a policy compliance expert. Analyze the policy text and identify obligations, rights, and risks."}},
+                {{"role":"user","content":text}}
+            ], max_tokens=1200, temperature=0.2)
+            return {{"analysis": response.choices[0].message.content}}
+        def answer_question(self, question: str, context: str) -> str:
+            response = self.client.chat.completions.create(model=..., messages=[
+                {{"role":"system","content":"You are a policy analysis assistant. Answer only based on the provided policy context."}},
+                {{"role":"user","content":f"Context:\\n{{context}}\\n\\nQuestion: {{question}}"}}
+            ], max_tokens=800, temperature=0.3)
+            return response.choices[0].message.content
+- config.py MUST use pydantic-settings with extra='ignore' so unknown .env vars don't crash:
+    from pydantic_settings import BaseSettings, SettingsConfigDict
+    class Settings(BaseSettings):
+        model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+        DATABASE_URL: str = "sqlite+aiosqlite:///./app.db"
+        AZURE_OPENAI_ENDPOINT: str = ""
+        ...
+- config.py MUST define: DATABASE_URL, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT_NAME, AZURE_OPENAI_EMBEDDING_DEPLOYMENT (default: "text-embedding-3-small")
+- database.py pattern: engine = create_async_engine(settings.DATABASE_URL); async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+- Always use selectinload() for SQLAlchemy async relationship loading
 - All endpoints must be fully implemented with real DB queries — no placeholder functions
-- Include seed.py with realistic sample data for all tables
-- Include __init__.py in app/, app/api/, app/agents/ directories
+- Include __init__.py in backend/app/, backend/app/api/, backend/app/agents/
+- requirements.txt MUST include: fastapi, uvicorn[standard], pydantic-settings, sqlalchemy[asyncio], aiosqlite, asyncpg, openai, python-multipart, PyMuPDF, python-dotenv
+- RESERVED COLUMN NAMES — NEVER use these as SQLAlchemy column names (they shadow SQLAlchemy internals and crash on startup): metadata, registry, __mapper_cls__. Use alternatives: doc_metadata, extra_data, meta_info
+- Schemas: optional fields must have default=None, no required timestamp in response schemas unless populated by DB
+- Request schemas for create endpoints must NOT include user_id unless auth is implemented — just use question/content/text fields
+- DB session dependency MUST use async_session context manager pattern:
+    async def get_db():
+        async with async_session() as session:
+            yield session
+  NEVER use the sync SessionLocal() pattern with a try/finally yield in async code
+- Route Depends parameter type MUST match: `db: AsyncSession = Depends(get_db)` — use AsyncSession not Session
 
-Required file structure:
-- backend/app/main.py  (FastAPI app with CORS, all routers included)
-- backend/app/config.py  (pydantic-settings with DATABASE_URL, AZURE_OPENAI_* vars)
-- backend/app/database.py  (SQLAlchemy engine + session + Base)
-- backend/app/models.py  (all SQLAlchemy models from the schema)
-- backend/app/schemas.py  (all Pydantic v2 schemas for requests/responses)
-- backend/app/api/<feature>.py  (one file per API feature group)
-- backend/app/agents/<AgentName>.py  (one file per agent with Azure OpenAI GPT-4o call)
-- backend/seed.py  (inserts realistic sample rows into all tables)
+Required file structure (use these exact paths with backend/ prefix):
+- backend/app/main.py       (FastAPI with lifespan table creation, CORS, all routers at prefix="/api")
+- backend/app/config.py     (pydantic-settings BaseSettings)
+- backend/app/database.py   (async engine + async_session + Base)
+- backend/app/models.py     (SQLAlchemy ORM models)
+- backend/app/schemas.py    (Pydantic v2 schemas)
+- backend/app/api/<feature>.py   (one file per feature, calls the agent)
+- backend/app/agents/<AppName>Agent.py  (app-specific sync AzureOpenAI agent with domain methods)
+- backend/app/__init__.py
+- backend/app/api/__init__.py
+- backend/app/agents/__init__.py
 - backend/requirements.txt
 - backend/Dockerfile
-- docker-compose.yml  (postgres:16-alpine + backend + frontend services)
-- .env.example
+- docker-compose.yml  (postgres:16-alpine + backend services)
+- .env.example  (DATABASE_URL, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT_NAME)
 
 APPLICATION:
 {description}
@@ -2113,6 +2526,10 @@ async def generate_project(req: GenerateProjectRequest):
         all_files.update(be_data.get("files", {}))
     except Exception as e:
         all_files["backend/README.md"] = f"# Backend generation failed\nError: {e}\n\nRe-run or generate manually."
+
+    # ── Post-process: fix anti-patterns + enforce agentic structure ──────────
+    all_files = {path: _fix_python_file(path, content) for path, content in all_files.items()}
+    all_files = _enforce_agentic_structure(all_files, req.app_name, req.summary)
 
     # ── Static config files always included ──────────────────────────────────
     if "README.md" not in all_files:

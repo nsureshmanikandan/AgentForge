@@ -518,17 +518,711 @@ function AgentsTab({ plan }: { plan?: Plan }) {
   );
 }
 
+// ─── Extract a clean short app name from verbose plan.summary ─────────────────
+// e.g. "This system is a policy analysis agent that ingests..." → "Policy Analysis Agent"
+function extractAppTitle(summary: string): string {
+  const STOPWORDS = new Set(["that","which","for","to","and","with","by","on","in","of","the","a","an","who","where","when","how"]);
+  const cleaned = summary
+    .replace(/^(this system is an? |build an? |a |an )/i, "")
+    .replace(/[,;.!?].*$/, "");
+  const words = cleaned.split(/\s+/);
+  const kept: string[] = [];
+  for (const w of words) {
+    if (STOPWORDS.has(w.toLowerCase())) break;
+    kept.push(w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+    if (kept.length >= 5) break;
+  }
+  return kept.join(" ") || summary.slice(0, 40);
+}
+
+// ─── RAG Scaffold ZIP — proven RAGChatbot pattern, app name injected ──────────
+
+async function buildRagScaffoldZip(html: string, plan: Plan): Promise<Blob> {
+  const zip = new JSZip();
+  const appTitle = extractAppTitle(plan.summary);
+  const appName = appTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "agentforge-app";
+
+  // ── sandbox.html — rich 3-panel chat UI, calls http://localhost:8000 ────────
+  zip.file("sandbox.html", `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>${appTitle}</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Inter','Segoe UI',sans-serif; }
+  .dot-bounce { display:inline-block; width:8px; height:8px; border-radius:50%; background:#94a3b8; animation: bounce 1.2s infinite ease-in-out; }
+  .dot-bounce:nth-child(2) { animation-delay:.14s; }
+  .dot-bounce:nth-child(3) { animation-delay:.28s; }
+  @keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
+  .chip { cursor:pointer; background:#eff6ff; color:#4f46e5; border:1px solid #c7d2fe; border-radius:9999px; padding:2px 10px; font-size:11px; white-space:nowrap; }
+  .chip:hover { background:#e0e7ff; }
+  #chat-messages { display:flex; flex-direction:column; gap:12px; }
+</style>
+</head>
+<body class="flex h-screen overflow-hidden bg-slate-50">
+
+<!-- LEFT SIDEBAR -->
+<aside id="sidebar" class="w-64 bg-gray-900 text-white flex flex-col flex-shrink-0">
+  <div class="p-4 border-b border-gray-700">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-sm">AI</div>
+      <div>
+        <p class="text-sm font-bold leading-tight">${appTitle.split(" ").slice(0, 4).join(" ")}</p>
+        <p class="text-xs text-slate-400">FAISS RAG · GPT-4o</p>
+      </div>
+    </div>
+  </div>
+  <div class="p-3 border-b border-gray-700">
+    <button id="upload-btn" class="w-full text-xs font-semibold py-2 px-3 rounded-lg border border-indigo-500 text-indigo-300 hover:bg-indigo-900/40 transition-colors">
+      📎 Upload Documents
+    </button>
+    <input id="file-input" type="file" multiple accept=".pdf,.docx,.txt,.md,.csv" class="hidden"/>
+  </div>
+  <div class="flex-1 overflow-y-auto p-3">
+    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Documents</p>
+    <div id="doc-list"><p class="text-xs text-slate-500 italic">No documents yet.</p></div>
+  </div>
+  <div class="p-3 border-t border-gray-700">
+    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Suggested</p>
+    <div id="suggestions" class="flex flex-col gap-1.5">
+      <button class="suggestion-btn text-left text-xs text-slate-300 hover:text-white hover:bg-gray-800 rounded px-2 py-1.5 transition-colors">What can you help me with?</button>
+      <button class="suggestion-btn text-left text-xs text-slate-300 hover:text-white hover:bg-gray-800 rounded px-2 py-1.5 transition-colors">Summarise the uploaded documents</button>
+      <button class="suggestion-btn text-left text-xs text-slate-300 hover:text-white hover:bg-gray-800 rounded px-2 py-1.5 transition-colors">What are the key topics covered?</button>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN CHAT -->
+<div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+  <header class="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+    <p class="flex-1 text-base font-bold text-slate-900">${appTitle}</p>
+    <span class="text-xs font-semibold bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full">● AI Active</span>
+    <span class="text-xs font-semibold bg-blue-100 text-blue-700 px-3 py-1 rounded-full">● KB Connected</span>
+  </header>
+  <div id="chat-scroll" class="flex-1 overflow-y-auto p-5">
+    <div id="chat-messages">
+      <div class="flex justify-start">
+        <div class="bg-white border border-slate-200 rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-xl">
+          <p class="text-sm text-slate-800 leading-relaxed">Hello! I am your AI assistant for <strong>${appTitle}</strong>. Upload documents and ask me anything.</p>
+          <p class="text-[10px] text-slate-400 mt-1">System</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="typing-indicator" class="hidden px-5 pb-2">
+    <div class="bg-white border border-slate-200 rounded-2xl px-4 py-3 inline-flex gap-1.5 shadow-sm">
+      <span class="dot-bounce"></span><span class="dot-bounce"></span><span class="dot-bounce"></span>
+    </div>
+  </div>
+  <footer class="bg-white border-t border-slate-200 p-3.5 flex-shrink-0">
+    <div class="flex gap-2.5 items-end">
+      <textarea id="msg-input" rows="2" placeholder="Ask a question…"
+        class="flex-1 resize-none border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400"></textarea>
+      <button id="send-btn" class="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white rounded-xl px-5 py-2.5 text-sm font-semibold h-[44px] whitespace-nowrap transition-colors">Send ➤</button>
+    </div>
+    <p class="text-xs text-slate-400 text-center mt-2">Powered by FAISS RAG · Azure OpenAI GPT-4o</p>
+  </footer>
+</div>
+
+<!-- RIGHT PANEL -->
+<aside class="w-56 border-l bg-white p-4 flex flex-col gap-5 flex-shrink-0 overflow-y-auto">
+  <div>
+    <p class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Knowledge Base</p>
+    <div class="bg-slate-50 rounded-xl p-3">
+      <p class="text-2xl font-bold text-indigo-600" id="kb-doc-count">0</p>
+      <p class="text-xs text-slate-500 mt-0.5">Documents indexed</p>
+    </div>
+  </div>
+  <div>
+    <p class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Session</p>
+    <div class="bg-slate-50 rounded-xl p-3">
+      <p class="text-2xl font-bold text-emerald-600" id="msg-count">0</p>
+      <p class="text-xs text-slate-500 mt-0.5">Messages sent</p>
+    </div>
+  </div>
+  <div>
+    <p class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Filter by Topic</p>
+    <div class="flex flex-wrap gap-1.5" id="topic-chips">
+      <span class="chip" data-topic="policy">Policy</span>
+      <span class="chip" data-topic="product">Product</span>
+      <span class="chip" data-topic="support">Support</span>
+      <span class="chip" data-topic="billing">Billing</span>
+      <span class="chip" data-topic="technical">Technical</span>
+    </div>
+  </div>
+</aside>
+
+<script>
+(function(){
+  const API = "http://localhost:8000";
+  const SESSION_ID = Math.random().toString(36).slice(2);
+  let msgCount = 0;
+  let activeTopic = null;
+
+  const chatMessages = document.getElementById("chat-messages");
+  const chatScroll   = document.getElementById("chat-scroll");
+  const msgInput     = document.getElementById("msg-input");
+  const sendBtn      = document.getElementById("send-btn");
+  const typingInd    = document.getElementById("typing-indicator");
+  const docList      = document.getElementById("doc-list");
+  const kbCount      = document.getElementById("kb-doc-count");
+  const msgCountEl   = document.getElementById("msg-count");
+
+  function scrollBottom(){ chatScroll.scrollTop = chatScroll.scrollHeight; }
+
+  function addMessage(role, text, ts){
+    const wrap = document.createElement("div");
+    wrap.className = "flex " + (role==="user" ? "justify-end" : "justify-start");
+    const time = ts || new Date().toLocaleTimeString();
+    if(role==="user"){
+      wrap.innerHTML = \`<div><div class="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm max-w-md leading-relaxed">\${escHtml(text)}</div><p class="text-[10px] text-slate-400 text-right mt-1">\${time}</p></div>\`;
+    } else {
+      wrap.innerHTML = \`<div class="bg-white border border-slate-200 rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-xl"><p class="text-sm text-slate-800 leading-relaxed">\${escHtml(text)}</p><p class="text-[10px] text-slate-400 mt-1">\${time}</p></div>\`;
+    }
+    chatMessages.appendChild(wrap);
+    scrollBottom();
+  }
+
+  function escHtml(s){ const d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
+
+  async function loadDocs(){
+    try {
+      const r = await fetch(API+"/api/documents");
+      if(!r.ok) return;
+      const docs = await r.json();
+      kbCount.textContent = docs.length;
+      if(docs.length===0){ docList.innerHTML='<p class="text-xs text-slate-500 italic">No documents yet.</p>'; return; }
+      docList.innerHTML = docs.map(d=>\`<div class="bg-slate-700/50 rounded-lg p-2.5 mb-2"><p class="text-xs font-medium text-slate-200 truncate">\${escHtml(d.name||"File")}</p><span class="text-[10px] font-semibold mt-1 inline-block \${d.indexed?"text-emerald-400":"text-amber-400"}">\${d.indexed?"✓ Indexed":"⏳ Pending"}</span></div>\`).join("");
+    } catch(e){ /* backend not running yet */ }
+  }
+
+  async function sendMessage(text){
+    if(!text.trim()) return;
+    addMessage("user", text);
+    msgCount++; msgCountEl.textContent = msgCount;
+    typingInd.classList.remove("hidden");
+    scrollBottom();
+    try {
+      const r = await fetch(API+"/api/chat", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({message:text, session_id:SESSION_ID}) });
+      typingInd.classList.add("hidden");
+      if(!r.ok) throw new Error("HTTP "+r.status);
+      const data = await r.json();
+      addMessage("bot", data.answer || JSON.stringify(data));
+    } catch(e){
+      typingInd.classList.add("hidden");
+      addMessage("bot", "⚠️ Backend not reachable. Start FastAPI on port 8000 to get real answers.");
+    }
+  }
+
+  sendBtn.addEventListener("click", ()=>{ const t=msgInput.value.trim(); if(t){ msgInput.value=""; sendMessage(t); } });
+  msgInput.addEventListener("keydown", e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendBtn.click(); } });
+
+  document.querySelectorAll(".suggestion-btn").forEach(btn=>{
+    btn.addEventListener("click", ()=>{ sendMessage(btn.textContent.trim()); });
+  });
+
+  document.querySelectorAll(".chip").forEach(chip=>{
+    chip.addEventListener("click", ()=>{
+      const topic = chip.dataset.topic;
+      if(activeTopic===topic){ activeTopic=null; chip.style.background=""; chip.style.fontWeight=""; }
+      else { activeTopic=topic; document.querySelectorAll(".chip").forEach(c=>{ c.style.background=""; c.style.fontWeight=""; }); chip.style.background="#c7d2fe"; chip.style.fontWeight="700"; sendMessage("Tell me about "+topic); }
+    });
+  });
+
+  // Upload
+  const uploadBtn = document.getElementById("upload-btn");
+  const fileInput = document.getElementById("file-input");
+  uploadBtn.addEventListener("click", ()=> fileInput.click());
+  fileInput.addEventListener("change", async ()=>{
+    const files = fileInput.files;
+    if(!files||!files.length) return;
+    uploadBtn.textContent = "⏳ Indexing…";
+    uploadBtn.disabled = true;
+    for(const f of Array.from(files)){
+      const fd = new FormData(); fd.append("file", f);
+      try { await fetch(API+"/api/documents/upload", {method:"POST",body:fd}); } catch(e){}
+    }
+    fileInput.value="";
+    uploadBtn.textContent = "📎 Upload Documents";
+    uploadBtn.disabled = false;
+    loadDocs();
+  });
+
+  loadDocs();
+  setInterval(loadDocs, 15000);
+})();
+</script>
+</body>
+</html>`);
+
+  // ── frontend/src/App.tsx — 3-panel chat UI (matches sandbox.html) ─────────
+  zip.file("frontend/src/App.tsx", `import React, { useState, useRef, useEffect } from "react";
+
+function renderMarkdown(text: string): React.ReactNode {
+  return text.split("\\n").map((line, i) => {
+    if (!line.trim()) return <div key={i} className="h-1" />;
+    const parts: React.ReactNode[] = [];
+    const segments = line.split(/\\*\\*(.*?)\\*\\*/g);
+    segments.forEach((seg, j) => {
+      if (j % 2 === 1) parts.push(<strong key={j}>{seg}</strong>);
+      else if (seg) parts.push(seg);
+    });
+    const isListItem = /^(\\d+\\.|-)\\ /.test(line);
+    return <p key={i} className={\`text-sm text-slate-800 leading-relaxed\${isListItem ? " pl-3" : ""}\`}>{parts}</p>;
+  });
+}
+
+interface ApiDoc { id: string; name: string; indexed: boolean; }
+interface BotMsg { id: string; role: "bot"; answer: string; related?: string[]; ts: string; }
+interface UserMsg { id: string; role: "user"; text: string; ts: string; }
+type Msg = UserMsg | BotMsg;
+
+const SESSION_ID: string =
+  typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2);
+
+const SUGGESTIONS = [
+  "What can you help me with?",
+  "Summarise the uploaded documents",
+  "What are the key topics covered?",
+];
+
+async function apiChat(message: string): Promise<Omit<BotMsg, "id" | "role" | "ts">> {
+  const r = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, session_id: SESSION_ID }),
+  });
+  if (!r.ok) throw new Error(\`Chat API \${r.status}\`);
+  return r.json();
+}
+async function apiUpload(file: File): Promise<any> {
+  const fd = new FormData(); fd.append("file", file);
+  const r = await fetch("/api/documents/upload", { method: "POST", body: fd });
+  if (!r.ok) throw new Error(\`Upload \${r.status}\`);
+  return r.json().catch(() => ({}));
+}
+async function apiDocs(): Promise<ApiDoc[]> {
+  const r = await fetch("/api/documents");
+  return r.ok ? r.json() : [];
+}
+// RAG Scaffold — backend on port 8001 — routes: /api/chat, /api/documents/upload, /api/documents
+
+export default function App() {
+  const [messages, setMessages] = useState<Msg[]>([{
+    id: "welcome", role: "bot",
+    answer: "Hello! I am your AI assistant for ${appTitle}. Upload documents and ask me anything.",
+    ts: new Date().toLocaleTimeString(),
+  }]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [docs, setDocs] = useState<ApiDoc[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [activeTopic, setActiveTopic] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  const msgCount = messages.filter(m => m.role === "user").length;
+
+  useEffect(() => { apiDocs().then(setDocs); }, []);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
+
+  async function send(override?: string) {
+    const text = (override ?? input).trim();
+    if (!text || loading) return;
+    setInput("");
+    setMessages(p => [...p, { id: Date.now() + "u", role: "user", text, ts: new Date().toLocaleTimeString() }]);
+    setLoading(true);
+    try {
+      const resp = await apiChat(text);
+      setMessages(p => [...p, { id: Date.now() + "b", role: "bot", ...resp, ts: new Date().toLocaleTimeString() }]);
+    } catch {
+      setMessages(p => [...p, { id: Date.now() + "e", role: "bot", answer: "⚠️ Backend not reachable. Ensure FastAPI is running.", ts: new Date().toLocaleTimeString() }]);
+    } finally { setLoading(false); }
+  }
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files?.length) return;
+    setUploading(true);
+    try {
+      const results = await Promise.all(Array.from(files).map(f => apiUpload(f)));
+      const fresh = await apiDocs();
+      if (fresh.length > 0) {
+        setDocs(fresh);
+      } else {
+        setDocs(p => [...p, ...results.map((r: any, i: number) => ({ id: String(Date.now()+i), name: r.title || r.filename || files[i]?.name || "Document", indexed: true }))]);
+      }
+    } catch (err) {
+      alert("Upload failed: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  function toggleTopic(topic: string) {
+    if (activeTopic === topic) { setActiveTopic(null); }
+    else { setActiveTopic(topic); send("Tell me about " + topic); }
+  }
+
+  return (
+    <div className="flex h-screen bg-slate-50 overflow-hidden" style={{ fontFamily: "'Inter','Segoe UI',sans-serif" }}>
+
+      {/* ── LEFT SIDEBAR ── */}
+      <aside className="w-64 bg-gray-900 text-white flex flex-col flex-shrink-0">
+        <div className="p-4 border-b border-gray-700">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-sm">AI</div>
+            <div>
+              <p className="text-sm font-bold leading-tight">${appTitle.split(" ").slice(0, 4).join(" ")}</p>
+              <p className="text-xs text-slate-400">FAISS RAG · GPT-4o</p>
+            </div>
+          </div>
+        </div>
+        <div className="p-3 border-b border-gray-700">
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            className="w-full text-xs font-semibold py-2 px-3 rounded-lg border border-indigo-500 text-indigo-300 hover:bg-indigo-900/40 transition-colors disabled:opacity-50"
+          >
+            {uploading ? "⏳ Indexing…" : "📎 Upload Documents"}
+          </button>
+          <input ref={fileRef} type="file" multiple accept=".pdf,.docx,.txt,.md,.csv" className="hidden" onChange={handleUpload} />
+        </div>
+        <div className="flex-1 overflow-y-auto p-3">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Documents</p>
+          {docs.length === 0
+            ? <p className="text-xs text-slate-500 italic">No documents yet.</p>
+            : docs.map(d => (
+              <div key={d.id} className="bg-slate-700/50 rounded-lg p-2.5 mb-2">
+                <p className="text-xs font-medium text-slate-200 truncate">{d.name}</p>
+                <span className={\`text-[10px] font-semibold mt-1 inline-block \${d.indexed ? "text-emerald-400" : "text-amber-400"}\`}>
+                  {d.indexed ? "✓ Indexed" : "⏳ Pending"}
+                </span>
+              </div>
+            ))}
+        </div>
+        <div className="p-3 border-t border-gray-700">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Suggested</p>
+          <div className="flex flex-col gap-1.5">
+            {SUGGESTIONS.map(s => (
+              <button key={s} onClick={() => send(s)}
+                className="text-left text-xs text-slate-300 hover:text-white hover:bg-gray-800 rounded px-2 py-1.5 transition-colors">
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+      </aside>
+
+      {/* ── MAIN CHAT ── */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+          <p className="flex-1 text-base font-bold text-slate-900">${appTitle}</p>
+          <span className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full">● AI Active</span>
+          <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-3 py-1 rounded-full">● KB Connected</span>
+        </header>
+        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+          {messages.map(msg => (
+            <div key={msg.id} className={\`flex \${msg.role === "user" ? "justify-end" : "justify-start"}\`}>
+              {msg.role === "user"
+                ? <div><div className="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm max-w-md leading-relaxed">{msg.text}</div><p className="text-[10px] text-slate-400 text-right mt-1">{msg.ts}</p></div>
+                : <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-2xl w-full">
+                    <div className="space-y-0.5">{renderMarkdown(msg.answer)}</div>
+                    {msg.related && msg.related.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-slate-100">
+                        {msg.related.map((r, i) => (
+                          <button key={i} onClick={() => send(r)}
+                            className="text-[11px] bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-2.5 py-0.5 hover:bg-indigo-100">{r}</button>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-[10px] text-slate-400 mt-1">{msg.ts}</p>
+                  </div>}
+            </div>
+          ))}
+          {loading && (
+            <div className="flex justify-start">
+              <div className="bg-white border border-slate-200 rounded-2xl px-4 py-3.5 shadow-sm">
+                <div className="flex gap-1.5">
+                  {[0, 1, 2].map(i => <span key={i} className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: \`\${i * 0.14}s\` }} />)}
+                </div>
+              </div>
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </div>
+        <footer className="bg-white border-t border-slate-200 p-3.5 flex-shrink-0">
+          <div className="flex gap-2.5 items-end">
+            <textarea
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+              placeholder="Ask a question…"
+              rows={2}
+              className="flex-1 resize-none border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+            <button
+              onClick={() => send()}
+              disabled={!input.trim() || loading}
+              className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white rounded-xl px-5 py-2.5 text-sm font-semibold h-[44px] whitespace-nowrap transition-colors"
+            >Send ➤</button>
+          </div>
+          <p className="text-xs text-slate-400 text-center mt-2">Powered by FAISS RAG · Azure OpenAI GPT-4o</p>
+        </footer>
+      </div>
+
+      {/* ── RIGHT PANEL ── */}
+      <aside className="w-56 border-l bg-white p-4 flex flex-col gap-5 flex-shrink-0 overflow-y-auto">
+        <div>
+          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Knowledge Base</p>
+          <div className="bg-slate-50 rounded-xl p-3">
+            <p className="text-2xl font-bold text-indigo-600">{docs.length}</p>
+            <p className="text-xs text-slate-500 mt-0.5">Documents indexed</p>
+          </div>
+        </div>
+        <div>
+          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Session</p>
+          <div className="bg-slate-50 rounded-xl p-3">
+            <p className="text-2xl font-bold text-emerald-600">{msgCount}</p>
+            <p className="text-xs text-slate-500 mt-0.5">Messages sent</p>
+          </div>
+        </div>
+        <div>
+          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Filter by Topic</p>
+          <div className="flex flex-wrap gap-1.5">
+            {["General", "Summary", "Details", "Policy", "Technical"].map(topic => (
+              <button
+                key={topic}
+                onClick={() => toggleTopic(topic)}
+                className={\`text-[11px] px-2.5 py-1 rounded-full border transition-colors \${
+                  activeTopic === topic
+                    ? "bg-indigo-600 text-white border-indigo-600 font-semibold"
+                    : "bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100"
+                }\`}
+              >{topic}</button>
+            ))}
+          </div>
+        </div>
+      </aside>
+
+    </div>
+  );
+}
+`);
+
+  // ── frontend/src/main.tsx ─────────────────────────────────────────────────
+  zip.file("frontend/src/main.tsx", `import React from "react";
+import ReactDOM from "react-dom/client";
+import "./index.css";
+import App from "./App";
+ReactDOM.createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);
+`);
+
+  // ── frontend/src/index.css ────────────────────────────────────────────────
+  zip.file("frontend/src/index.css", `@tailwind base;\n@tailwind components;\n@tailwind utilities;\n* { box-sizing: border-box; }\nbody { margin: 0; }\n`);
+
+  // ── frontend/index.html ───────────────────────────────────────────────────
+  zip.file("frontend/index.html", `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>${appTitle}</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>`);
+
+  // ── frontend/package.json ─────────────────────────────────────────────────
+  zip.file("frontend/package.json", JSON.stringify({
+    name: appName + "-frontend", version: "0.1.0", private: true,
+    scripts: { dev: "vite", build: "tsc && vite build", preview: "vite preview" },
+    dependencies: { react: "^18.3.1", "react-dom": "^18.3.1" },
+    devDependencies: { "@types/react": "^18.3.3", "@types/react-dom": "^18.3.0", "@vitejs/plugin-react": "^4.3.1", autoprefixer: "^10.4.19", postcss: "^8.4.38", tailwindcss: "^3.4.4", typescript: "^5.2.2", vite: "^5.4.0" },
+  }, null, 2));
+
+  // ── frontend/vite.config.ts ───────────────────────────────────────────────
+  zip.file("frontend/vite.config.ts", `import { defineConfig } from "vite";\nimport react from "@vitejs/plugin-react";\nexport default defineConfig({ plugins: [react()], server: { proxy: { "/api": { target: "http://localhost:8001", changeOrigin: true } } } });\n`);
+
+  // ── frontend/tsconfig.json ────────────────────────────────────────────────
+  zip.file("frontend/tsconfig.json", JSON.stringify({ compilerOptions: { target: "ES2020", useDefineForClassFields: true, lib: ["ES2020","DOM","DOM.Iterable"], module: "ESNext", skipLibCheck: true, moduleResolution: "bundler", allowImportingTsExtensions: true, resolveJsonModule: true, isolatedModules: true, noEmit: true, jsx: "react-jsx", strict: true, noUnusedLocals: true, noUnusedParameters: true, noFallthroughCasesInSwitch: true }, include: ["src"], references: [{ path: "./tsconfig.node.json" }] }, null, 2));
+  zip.file("frontend/tsconfig.node.json", JSON.stringify({ compilerOptions: { composite: true, skipLibCheck: true, module: "ESNext", moduleResolution: "bundler", allowSyntheticDefaultImports: true }, include: ["vite.config.ts"] }, null, 2));
+  zip.file("frontend/tailwind.config.js", `/** @type {import('tailwindcss').Config} */\nexport default { content: ["./index.html","./src/**/*.{js,ts,jsx,tsx}"], theme: { extend: {} }, plugins: [] };\n`);
+  zip.file("frontend/postcss.config.js", `export default { plugins: { tailwindcss: {}, autoprefixer: {} } };\n`);
+
+  // ── backend/app/rag.py — proven RAGChatbot pattern ────────────────────────
+  zip.file("backend/app/rag.py", `import os, faiss, pickle, numpy as np
+from pathlib import Path
+from openai import AzureOpenAI
+
+AZURE_ENDPOINT   = os.environ.get("AZURE_OPENAI_ENDPOINT", "https://your-resource.openai.azure.com/")
+AZURE_API_KEY    = os.environ.get("AZURE_OPENAI_API_KEY", "")
+EMBED_DEPLOYMENT = os.environ.get("AZURE_EMBED_DEPLOYMENT", "text-embedding-3-small")
+CHAT_DEPLOYMENT  = os.environ.get("AZURE_CHAT_DEPLOYMENT", "gpt-4o")
+
+SYSTEM_PROMPT = """You are a helpful ${appTitle} assistant. \\
+Answer questions based on the provided context. \\
+If you cannot find the answer in the context, say so clearly."""
+
+INDEX_PATH   = Path("faiss_index.pkl")
+client       = AzureOpenAI(azure_endpoint=AZURE_ENDPOINT, api_key=AZURE_API_KEY, api_version="2024-02-01")
+_index: faiss.IndexFlatL2 | None = None
+_chunks: list[str] = []
+
+def _embed(texts: list[str]) -> np.ndarray:
+    resp = client.embeddings.create(input=texts, model=EMBED_DEPLOYMENT)
+    return np.array([e.embedding for e in resp.data], dtype="float32")
+
+def add_document(text: str) -> None:
+    global _index, _chunks
+    sentences = [s.strip() for s in text.replace("\\n", " ").split(". ") if s.strip()]
+    if not sentences:
+        return
+    vecs = _embed(sentences)
+    if _index is None:
+        _index = faiss.IndexFlatL2(vecs.shape[1])
+    _index.add(vecs)
+    _chunks.extend(sentences)
+    with open(INDEX_PATH, "wb") as f:
+        pickle.dump({"index": faiss.serialize_index(_index), "chunks": _chunks}, f)
+
+def _load_index() -> None:
+    global _index, _chunks
+    if INDEX_PATH.exists() and _index is None:
+        with open(INDEX_PATH, "rb") as f:
+            data = pickle.load(f)
+        _index = faiss.deserialize_index(data["index"])
+        _chunks = data["chunks"]
+
+def answer(question: str, top_k: int = 5) -> dict:
+    _load_index()
+    context = ""
+    if _index is not None and _chunks:
+        q_vec = _embed([question])
+        _, idxs = _index.search(q_vec, min(top_k, len(_chunks)))
+        context = "\\n".join(_chunks[i] for i in idxs[0] if i < len(_chunks))
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"Context:\\n{context}\\n\\nQuestion: {question}"},
+    ]
+    response = client.chat.completions.create(model=CHAT_DEPLOYMENT, messages=messages, temperature=0.3, max_tokens=800)
+    return {"answer": response.choices[0].message.content, "source": "FAISS RAG", "confidence": 85}
+`);
+
+  // ── backend/app/api/chat.py ───────────────────────────────────────────────
+  zip.file("backend/app/api/chat.py", `from fastapi import APIRouter
+from pydantic import BaseModel
+from app import rag
+
+router = APIRouter()
+
+class ChatRequest(BaseModel):
+    message: str
+    session_id: str = ""
+
+@router.post("/chat")
+async def chat(req: ChatRequest):
+    result = rag.answer(req.message)
+    return result
+`);
+
+  // ── backend/app/api/documents.py ─────────────────────────────────────────
+  zip.file("backend/app/api/documents.py", `from fastapi import APIRouter, UploadFile
+from app import rag
+
+router = APIRouter()
+_docs: list[dict] = []
+
+@router.post("/documents/upload")
+async def upload(file: UploadFile):
+    content = (await file.read()).decode("utf-8", errors="replace")
+    rag.add_document(content)
+    doc = {"id": str(len(_docs) + 1), "name": file.filename or "Untitled", "indexed": True}
+    _docs.append(doc)
+    return doc
+
+@router.get("/documents")
+async def list_docs():
+    return _docs
+`);
+
+  // ── backend/main.py ───────────────────────────────────────────────────────
+  zip.file("backend/main.py", `from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.api.chat import router as chat_router
+from app.api.documents import router as docs_router
+
+app = FastAPI(title="${appTitle}")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.include_router(chat_router, prefix="/api")
+app.include_router(docs_router, prefix="/api")
+
+@app.get("/api/health")
+async def health():
+    return {"status": "ok", "app": "${appTitle}"}
+`);
+
+  // ── backend/requirements.txt ──────────────────────────────────────────────
+  zip.file("backend/requirements.txt", `fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+openai>=1.30.0
+faiss-cpu>=1.8.0
+numpy>=1.26.0
+python-multipart>=0.0.9
+`);
+
+  // ── backend/.env.example ─────────────────────────────────────────────────
+  zip.file("backend/.env.example", `AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_API_KEY=your-key-here
+AZURE_CHAT_DEPLOYMENT=gpt-4o
+AZURE_EMBED_DEPLOYMENT=text-embedding-ada-002
+`);
+
+  // ── README.md ─────────────────────────────────────────────────────────────
+  zip.file("README.md", `# ${appTitle}
+
+> RAG Scaffold generated by AgentForge · ${new Date().toLocaleDateString()}
+
+## Stack
+- **Frontend**: React 18 + Vite + TypeScript + Tailwind CSS
+- **Backend**: FastAPI + FAISS + Azure OpenAI GPT-4o (sync client)
+- **RAG**: FAISS vector store, text-embedding-ada-002, document ingestion
+
+## Quick Start
+
+### Backend
+\`\`\`bash
+cd backend
+pip install -r requirements.txt
+cp .env.example .env   # fill in your Azure keys
+uvicorn main:app --reload --port 8000
+\`\`\`
+
+### Frontend
+\`\`\`bash
+cd frontend
+npm install
+npm run dev            # opens http://localhost:5173
+\`\`\`
+
+## Features
+- Upload documents (PDF/DOCX/TXT) → indexed into FAISS
+- Ask questions → RAG retrieval + GPT-4o answer
+- Open \`sandbox.html\` in browser for a self-contained preview
+`);
+
+  return zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
+}
+
 // ─── Source ZIP builder — calls GPT-4o via /api/architect/generate-project ───
 
 async function buildSourceZip(html: string, plan: Plan): Promise<Blob> {
   const zip = new JSZip();
+  const appTitle = extractAppTitle(plan.summary);
   const appName = (plan.summary.split(" ").slice(0, 4).join("-") || "agentforge-app").toLowerCase().replace(/[^a-z0-9-]/g, "-");
 
   // ── Step 1: Call GPT-4o to dynamically generate the full project ─────────
   let aiFiles: Record<string, string> = {};
   try {
     const res = await architectApi.generateProject({
-      app_name: plan.summary.slice(0, 80),
+      app_name: extractAppTitle(plan.summary),
       summary: plan.summary,
       features: plan.features ?? [],
       agents: plan.agents ?? [],
@@ -556,67 +1250,90 @@ async function buildSourceZip(html: string, plan: Plan): Promise<Blob> {
 -->\n${html}`;
   zip.file("sandbox.html", sandboxHtml);
 
-  // ── Step 4: If GPT-4o failed or backend unavailable, include a scaffold ───
-  if (Object.keys(aiFiles).length === 0) {
+  // ── Step 4: If GPT-4o returned no frontend files, inject the static 3-panel template ──
+  // The frontend pass can silently return {} (e.g. GPT-4o response too large / missing "files" key)
+  // while the backend pass succeeds. Detect by checking for any src/ or index.html files.
+  const hasFrontendFiles = Object.keys(aiFiles).some(
+    p => p.startsWith("src/") || p === "index.html" || p.endsWith("/App.tsx") || p.endsWith("/main.tsx")
+  );
+  if (!hasFrontendFiles) {
 
   // ── src/App.tsx — Real React frontend that calls the FastAPI backend ─────────
   // NOTE: This calls POST /api/chat and POST /api/documents/upload.
   //       Do NOT use the sandbox HTML here — sandbox uses local FAQ; this uses RAG.
+  // ── src/App.tsx — 3-panel chat UI matching sandbox layout ────────────────────
   const appTsx = `import React, { useState, useRef, useEffect } from "react";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-interface ApiDoc { id: string; name: string; indexed: boolean; }
-interface BotMsg {
-  id: string; role: "bot";
-  answer: string; steps?: string[]; source?: string;
-  confidence?: number; related?: string[]; ts: string;
+function renderMarkdown(text: string): React.ReactNode {
+  return text.split("\\n").map((line, i) => {
+    if (!line.trim()) return <div key={i} className="h-1" />;
+    const parts: React.ReactNode[] = [];
+    const segments = line.split(/\\*\\*(.*?)\\*\\*/g);
+    segments.forEach((seg, j) => {
+      if (j % 2 === 1) parts.push(<strong key={j}>{seg}</strong>);
+      else if (seg) parts.push(seg);
+    });
+    const isListItem = /^(\\d+\\.|-)\\ /.test(line);
+    return <p key={i} className={\`text-sm text-slate-800 leading-relaxed\${isListItem ? " pl-3" : ""}\`}>{parts}</p>;
+  });
 }
+
+interface ApiDoc { id: string; name: string; indexed: boolean; }
+interface BotMsg { id: string; role: "bot"; answer: string; related?: string[]; ts: string; }
 interface UserMsg { id: string; role: "user"; text: string; ts: string; }
 type Msg = UserMsg | BotMsg;
 
-// ── Session ID (regenerates per page load) ───────────────────────────────────
 const SESSION_ID: string =
   typeof crypto !== "undefined" && crypto.randomUUID
     ? crypto.randomUUID()
     : Math.random().toString(36).slice(2);
 
-// ── API helpers (calls the FastAPI backend via Vite proxy /api → localhost:8000)
-async function apiChat(message: string): Promise<Omit<BotMsg, "id" | "role" | "ts">> {
-  const r = await fetch("/api/chat", {
+const SUGGESTIONS = [
+  "What can you help me with?",
+  "Summarise the uploaded documents",
+  "What are the key topics covered?",
+];
+
+async function apiChat(question: string): Promise<Omit<BotMsg, "id" | "role" | "ts">> {
+  const r = await fetch("/api/ask-question", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, session_id: SESSION_ID }),
+    body: JSON.stringify({ question }),
   });
   if (!r.ok) throw new Error(\`Chat API \${r.status}\`);
+  const data = await r.json();
+  return { answer: data.answer || data.response || "No response received." };
+}
+
+async function apiUpload(file: File): Promise<{ title?: string; filename?: string }> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const r = await fetch("/api/upload-document", { method: "POST", body: fd });
+  if (!r.ok) throw new Error(\`Upload \${r.status}\`);
   return r.json();
 }
 
-async function apiUpload(file: File): Promise<void> {
-  const fd = new FormData();
-  fd.append("file", file);
-  const r = await fetch("/api/documents/upload", { method: "POST", body: fd });
-  if (!r.ok) throw new Error(\`Upload \${r.status}\`);
-}
-
 async function apiDocs(): Promise<ApiDoc[]> {
-  const r = await fetch("/api/documents");
-  return r.ok ? r.json() : [];
+  const r = await fetch("/api/documents").catch(() => null);
+  return r && r.ok ? r.json() : [];
 }
+// Custom Code — backend on port 8002 — routes: /api/ask-question, /api/upload-document
+// handleUpload tracks docs locally since /api/documents may not exist
 
-// ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const [messages, setMessages] = useState<Msg[]>([{
     id: "welcome", role: "bot",
-    answer: "Hello! I am your AI support assistant powered by FAISS RAG and Azure OpenAI GPT-4o. Upload your knowledge base documents and ask me any support question.",
+    answer: "Hello! I am your AI assistant for ${appTitle}. Upload documents and ask me anything.",
     ts: new Date().toLocaleTimeString(),
   }]);
-  const [input, setInput]       = useState("");
-  const [loading, setLoading]   = useState(false);
-  const [docs, setDocs]         = useState<ApiDoc[]>([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [docs, setDocs] = useState<ApiDoc[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [feedback, setFeedback] = useState<Record<string, "up" | "down">>({});
-  const fileRef  = useRef<HTMLInputElement>(null);
+  const [activeTopic, setActiveTopic] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const msgCount = messages.filter(m => m.role === "user").length;
 
   useEffect(() => { apiDocs().then(setDocs); }, []);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
@@ -625,22 +1342,14 @@ export default function App() {
     const text = (override ?? input).trim();
     if (!text || loading) return;
     setInput("");
-    const uMsg: UserMsg = { id: Date.now() + "u", role: "user", text, ts: new Date().toLocaleTimeString() };
-    setMessages(p => [...p, uMsg]);
+    setMessages(p => [...p, { id: Date.now() + "u", role: "user", text, ts: new Date().toLocaleTimeString() }]);
     setLoading(true);
     try {
       const resp = await apiChat(text);
-      const bMsg: BotMsg = { id: Date.now() + "b", role: "bot", ...resp, ts: new Date().toLocaleTimeString() };
-      setMessages(p => [...p, bMsg]);
+      setMessages(p => [...p, { id: Date.now() + "b", role: "bot", ...resp, ts: new Date().toLocaleTimeString() }]);
     } catch {
-      setMessages(p => [...p, {
-        id: Date.now() + "e", role: "bot",
-        answer: "⚠️ Could not reach the backend. Please ensure the FastAPI server is running on port 8000.",
-        ts: new Date().toLocaleTimeString(),
-      }]);
-    } finally {
-      setLoading(false);
-    }
+      setMessages(p => [...p, { id: Date.now() + "e", role: "bot", answer: "⚠️ Backend not reachable. Ensure FastAPI is running.", ts: new Date().toLocaleTimeString() }]);
+    } finally { setLoading(false); }
   }
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -648,8 +1357,13 @@ export default function App() {
     if (!files?.length) return;
     setUploading(true);
     try {
-      for (const f of Array.from(files)) await apiUpload(f);
-      setDocs(await apiDocs());
+      const results = await Promise.all(Array.from(files).map(f => apiUpload(f)));
+      const fresh = await apiDocs();
+      if (fresh.length > 0) {
+        setDocs(fresh);
+      } else {
+        setDocs(p => [...p, ...results.map((r: any, i: number) => ({ id: String(Date.now()+i), name: r.title || r.filename || files[i]?.name || "Document", indexed: true }))]);
+      }
     } catch (err) {
       alert("Upload failed: " + (err instanceof Error ? err.message : String(err)));
     } finally {
@@ -658,20 +1372,26 @@ export default function App() {
     }
   }
 
+  function toggleTopic(topic: string) {
+    if (activeTopic === topic) { setActiveTopic(null); }
+    else { setActiveTopic(topic); send("Tell me about " + topic); }
+  }
+
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden" style={{ fontFamily: "'Inter','Segoe UI',sans-serif" }}>
-      {/* ── Left sidebar ── */}
-      <aside className="w-64 bg-slate-800 text-white flex flex-col flex-shrink-0">
-        <div className="p-4 border-b border-slate-700">
+
+      {/* ── LEFT SIDEBAR ── */}
+      <aside className="w-64 bg-gray-900 text-white flex flex-col flex-shrink-0">
+        <div className="p-4 border-b border-gray-700">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-sm">KB</div>
+            <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-sm">AI</div>
             <div>
-              <p className="text-sm font-bold leading-tight">${plan.summary.split(" ").slice(0, 4).join(" ")}</p>
+              <p className="text-sm font-bold leading-tight">${appTitle.split(" ").slice(0, 4).join(" ")}</p>
               <p className="text-xs text-slate-400">FAISS RAG · GPT-4o</p>
             </div>
           </div>
         </div>
-        <div className="p-3 border-b border-slate-700">
+        <div className="p-3 border-b border-gray-700">
           <button onClick={() => fileRef.current?.click()} disabled={uploading}
             className="w-full text-xs font-semibold py-2 px-3 rounded-lg border border-indigo-500 text-indigo-300 hover:bg-indigo-900/40 transition-colors disabled:opacity-50">
             {uploading ? "⏳ Indexing…" : "📎 Upload Documents"}
@@ -679,123 +1399,116 @@ export default function App() {
           <input ref={fileRef} type="file" multiple accept=".pdf,.docx,.txt,.md,.csv" className="hidden" onChange={handleUpload} />
         </div>
         <div className="flex-1 overflow-y-auto p-3">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-            Knowledge Base ({docs.length} doc{docs.length !== 1 ? "s" : ""})
-          </p>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Documents</p>
           {docs.length === 0
-            ? <p className="text-xs text-slate-500 italic leading-relaxed">No documents yet. Upload DOCX / PDF files to enable RAG answers.</p>
+            ? <p className="text-xs text-slate-500 italic">No documents yet.</p>
             : docs.map(d => (
               <div key={d.id} className="bg-slate-700/50 rounded-lg p-2.5 mb-2">
-                <p className="text-xs font-medium text-slate-200 truncate" title={d.name}>{d.name}</p>
+                <p className="text-xs font-medium text-slate-200 truncate">{d.name}</p>
                 <span className={\`text-[10px] font-semibold mt-1 inline-block \${d.indexed ? "text-emerald-400" : "text-amber-400"}\`}>
-                  {d.indexed ? "✓ Indexed in FAISS" : "⏳ Pending index"}
+                  {d.indexed ? "✓ Indexed" : "⏳ Pending"}
                 </span>
               </div>
-            ))
-          }
+            ))}
+        </div>
+        <div className="p-3 border-t border-gray-700">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Suggested</p>
+          <div className="flex flex-col gap-1.5">
+            {SUGGESTIONS.map(s => (
+              <button key={s} onClick={() => send(s)}
+                className="text-left text-xs text-slate-300 hover:text-white hover:bg-gray-800 rounded px-2 py-1.5 transition-colors">
+                {s}
+              </button>
+            ))}
+          </div>
         </div>
       </aside>
 
-      {/* ── Main chat ── */}
+      {/* ── MAIN CHAT ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-          <p className="flex-1 text-base font-bold text-slate-900">AI Support Chat</p>
+          <p className="flex-1 text-base font-bold text-slate-900">${appTitle}</p>
           <span className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full">● AI Active</span>
           <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-3 py-1 rounded-full">● KB Connected</span>
         </header>
-
         <div className="flex-1 overflow-y-auto p-5 space-y-3">
           {messages.map(msg => (
             <div key={msg.id} className={\`flex \${msg.role === "user" ? "justify-end" : "justify-start"}\`}>
-              {msg.role === "user" ? (
-                <div>
-                  <div className="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed max-w-md">{msg.text}</div>
-                  <p className="text-[10px] text-slate-400 text-right mt-1">{msg.ts}</p>
-                </div>
-              ) : (
-                <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-2xl w-full">
-                  <p className="text-sm text-slate-800 leading-relaxed font-medium mb-2">{msg.answer}</p>
-                  {msg.steps && msg.steps.length > 0 && (
-                    <div className="mb-3">
-                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">📋 Step-by-Step Resolution</p>
-                      <ol className="space-y-1.5 pl-1">
-                        {msg.steps.map((step, i) => (
-                          <li key={i} className="flex gap-2.5 text-xs text-slate-700 leading-relaxed">
-                            <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-500 text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i+1}</span>
-                            {step}
-                          </li>
+              {msg.role === "user"
+                ? <div><div className="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm max-w-md leading-relaxed">{msg.text}</div><p className="text-[10px] text-slate-400 text-right mt-1">{msg.ts}</p></div>
+                : <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-2xl w-full">
+                    <div className="space-y-0.5">{renderMarkdown(msg.answer)}</div>
+                    {msg.related && msg.related.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-slate-100">
+                        {msg.related.map((r, i) => (
+                          <button key={i} onClick={() => send(r)}
+                            className="text-[11px] bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-2.5 py-0.5 hover:bg-indigo-100">{r}</button>
                         ))}
-                      </ol>
-                    </div>
-                  )}
-                  {(msg.source || msg.confidence) && (
-                    <div className="flex items-center gap-4 text-[11px] border-t border-slate-100 pt-2 mt-1">
-                      {msg.source && <span className="text-slate-400">📎 {msg.source}</span>}
-                      {msg.confidence != null && msg.confidence > 0 && (
-                        <span className="text-emerald-600 font-semibold">✓ {msg.confidence}% accuracy</span>
-                      )}
-                    </div>
-                  )}
-                  {msg.related && msg.related.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-slate-100">
-                      <span className="text-[11px] text-slate-400">💡 Related:</span>
-                      {msg.related.map((r, i) => (
-                        <button key={i} onClick={() => send(r)}
-                          className="text-[11px] bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-2.5 py-0.5 hover:bg-indigo-100 transition-colors">
-                          {r}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {msg.id !== "welcome" && (
-                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100">
-                      <span className="text-[11px] text-slate-400">Was this helpful?</span>
-                      <button onClick={() => setFeedback(p => ({ ...p, [msg.id]: "up" }))}
-                        style={{ opacity: feedback[msg.id] === "up" ? 1 : 0.4 }} className="text-base">👍</button>
-                      <button onClick={() => setFeedback(p => ({ ...p, [msg.id]: "down" }))}
-                        style={{ opacity: feedback[msg.id] === "down" ? 1 : 0.4 }} className="text-base">👎</button>
-                      {feedback[msg.id] && (
-                        <span className={\`text-[11px] font-semibold \${feedback[msg.id] === "up" ? "text-emerald-600" : "text-red-500"}\`}>
-                          {feedback[msg.id] === "up" ? "Thanks! Glad that helped." : "Noted — we will improve this."}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  <p className="text-[10px] text-slate-400 mt-1">{msg.ts}</p>
-                </div>
-              )}
+                      </div>
+                    )}
+                    <p className="text-[10px] text-slate-400 mt-1">{msg.ts}</p>
+                  </div>}
             </div>
           ))}
           {loading && (
             <div className="flex justify-start">
-              <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm px-4 py-3.5 shadow-sm">
+              <div className="bg-white border border-slate-200 rounded-2xl px-4 py-3.5 shadow-sm">
                 <div className="flex gap-1.5">
-                  {[0,1,2].map(i => (
-                    <span key={i} className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"
-                      style={{ animationDelay: \`\${i * 0.14}s\` }} />
-                  ))}
+                  {[0, 1, 2].map(i => <span key={i} className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: \`\${i * 0.14}s\` }} />)}
                 </div>
               </div>
             </div>
           )}
           <div ref={bottomRef} />
         </div>
-
         <footer className="bg-white border-t border-slate-200 p-3.5 flex-shrink-0">
           <div className="flex gap-2.5 items-end">
             <textarea value={input} onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-              placeholder="Type your support question and press Enter…"
-              rows={2}
-              className="flex-1 min-w-0 resize-none border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent" />
+              placeholder="Ask a question…" rows={2}
+              className="flex-1 resize-none border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
             <button onClick={() => send()} disabled={!input.trim() || loading}
-              className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white rounded-xl px-5 py-2.5 text-sm font-semibold h-[44px] whitespace-nowrap transition-colors flex-shrink-0">
+              className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white rounded-xl px-5 py-2.5 text-sm font-semibold h-[44px] whitespace-nowrap transition-colors">
               Send ➤
             </button>
           </div>
-          <p className="text-xs text-slate-400 text-center mt-2">Powered by FAISS RAG · Azure OpenAI GPT-4o · PostgreSQL</p>
+          <p className="text-xs text-slate-400 text-center mt-2">Powered by FAISS RAG · Azure OpenAI GPT-4o</p>
         </footer>
       </div>
+
+      {/* ── RIGHT PANEL ── */}
+      <aside className="w-56 border-l bg-white p-4 flex flex-col gap-5 flex-shrink-0 overflow-y-auto">
+        <div>
+          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Knowledge Base</p>
+          <div className="bg-slate-50 rounded-xl p-3">
+            <p className="text-2xl font-bold text-indigo-600">{docs.length}</p>
+            <p className="text-xs text-slate-500 mt-0.5">Documents indexed</p>
+          </div>
+        </div>
+        <div>
+          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Session</p>
+          <div className="bg-slate-50 rounded-xl p-3">
+            <p className="text-2xl font-bold text-emerald-600">{msgCount}</p>
+            <p className="text-xs text-slate-500 mt-0.5">Messages sent</p>
+          </div>
+        </div>
+        <div>
+          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Filter by Topic</p>
+          <div className="flex flex-wrap gap-1.5">
+            {["General", "Summary", "Details", "Policy", "Technical"].map(topic => (
+              <button key={topic} onClick={() => toggleTopic(topic)}
+                className={\`text-[11px] px-2.5 py-1 rounded-full border transition-colors \${
+                  activeTopic === topic
+                    ? "bg-indigo-600 text-white border-indigo-600 font-semibold"
+                    : "bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100"
+                }\`}>
+                {topic}
+              </button>
+            ))}
+          </div>
+        </div>
+      </aside>
+
     </div>
   );
 }
@@ -804,12 +1517,17 @@ export default function App() {
   // ── src/main.tsx ────────────────────────────────────────────────────────────
   const mainTsx = `import React from "react";
 import ReactDOM from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "./index.css";
 import App from "./App";
 
+const queryClient = new QueryClient();
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <QueryClientProvider client={queryClient}>
+      <App />
+    </QueryClientProvider>
   </React.StrictMode>
 );
 `;
@@ -851,6 +1569,7 @@ body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Ro
     dependencies: {
       react: "^18.3.1",
       "react-dom": "^18.3.1",
+      "@tanstack/react-query": "^4.36.1",
     },
     devDependencies: {
       "@types/react": "^18.3.3",
@@ -873,7 +1592,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": {
-        target: "http://localhost:8000",
+        target: "http://localhost:8002",
         changeOrigin: true,
       },
     },
@@ -1177,7 +1896,7 @@ _client: Optional[AzureOpenAI] = None
 _index: Optional[object] = None
 _chunks: list[dict] = []   # [{text, source, topic}]
 
-SYSTEM_PROMPT = """You are a helpful support assistant for ${plan.summary.split(" ").slice(0, 3).join(" ")}.
+SYSTEM_PROMPT = """You are a helpful support assistant for ${extractAppTitle(plan.summary)}.
 Answer questions using ONLY the provided context. Be concise and give step-by-step resolutions where possible.
 If the answer is not in the context, say: "I don't have information on that. Please contact support directly."
 """
@@ -1571,22 +2290,26 @@ Open \`sandbox.html\` directly in any browser for a fully working UI demo — no
   zip.file("src/App.tsx", appTsx);
   zip.file("src/index.css", indexCss);
 
-  // Backend files
-  zip.file("backend/main.py", backendMain);
-  zip.file("backend/requirements.txt", requirementsTxt);
-  zip.file("backend/.env.example", envExample);
-  zip.file("backend/Dockerfile", backendDockerfile);
-  zip.file("backend/app/__init__.py", initPy);
-  zip.file("backend/app/config.py", configPy);
-  zip.file("backend/app/database.py", databasePy);
-  zip.file("backend/app/models.py", modelsPy);
-  zip.file("backend/app/rag.py", ragPy);
-  zip.file("backend/app/api/__init__.py", apiInitPy);
-  zip.file("backend/app/api/health.py", healthPy);
-  zip.file("backend/app/api/chat.py", chatApiPy);
-  zip.file("backend/app/api/documents.py", documentsApiPy);
+  // Only add static backend when GPT-4o produced NO files at all (complete failure)
+  // If aiFiles has backend files, don't overwrite them with the FAISS scaffold
+  const hasBackendFiles = Object.keys(aiFiles).some(p => p.startsWith("backend/"));
+  if (!hasBackendFiles) {
+    zip.file("backend/main.py", backendMain);
+    zip.file("backend/requirements.txt", requirementsTxt);
+    zip.file("backend/.env.example", envExample);
+    zip.file("backend/Dockerfile", backendDockerfile);
+    zip.file("backend/app/__init__.py", initPy);
+    zip.file("backend/app/config.py", configPy);
+    zip.file("backend/app/database.py", databasePy);
+    zip.file("backend/app/models.py", modelsPy);
+    zip.file("backend/app/rag.py", ragPy);
+    zip.file("backend/app/api/__init__.py", apiInitPy);
+    zip.file("backend/app/api/health.py", healthPy);
+    zip.file("backend/app/api/chat.py", chatApiPy);
+    zip.file("backend/app/api/documents.py", documentsApiPy);
+  }
 
-  } // end fallback scaffold (aiFiles.length === 0)
+  } // end frontend fallback (!hasFrontendFiles)
 
   return zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
 }
@@ -1599,7 +2322,8 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
   progressStep?: number;
   uiError?: string;
 }) {
-  const [downloading, setDownloading] = useState(false);
+  const [downloadingRag, setDownloadingRag] = useState(false);
+  const [downloadingCustom, setDownloadingCustom] = useState(false);
 
   if (!plan) return <EmptyState tab="app" />;
 
@@ -1682,21 +2406,38 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     };
 
-    const downloadZip = async () => {
-      if (downloading) return;
-      setDownloading(true);
+    const appSlug = (plan.summary.split(" ").slice(0, 4).join("-") || "agentforge-app")
+      .toLowerCase().replace(/[^a-z0-9-]/g, "-");
+
+    const downloadRagScaffold = async () => {
+      if (downloadingRag) return;
+      setDownloadingRag(true);
       try {
-        const blob = await buildSourceZip(uiHtml, plan);
-        const appSlug = (plan.summary.split(" ").slice(0, 4).join("-") || "agentforge-app")
-          .toLowerCase().replace(/[^a-z0-9-]/g, "-");
+        const blob = await buildRagScaffoldZip(uiHtml, plan);
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `${appSlug}-source.zip`;
+        a.download = `${appSlug}-rag-scaffold.zip`;
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 60000);
       } finally {
-        setDownloading(false);
+        setDownloadingRag(false);
+      }
+    };
+
+    const downloadZip = async () => {
+      if (downloadingCustom) return;
+      setDownloadingCustom(true);
+      try {
+        const blob = await buildSourceZip(uiHtml, plan);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${appSlug}-custom-code.zip`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      } finally {
+        setDownloadingCustom(false);
       }
     };
 
@@ -1716,14 +2457,14 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             Live
           </span>
-          {/* Download source ZIP */}
+          {/* RAG Scaffold download — instant, proven pattern */}
           <button
-            onClick={downloadZip}
-            disabled={downloading}
-            title="Download source code as ZIP"
+            onClick={downloadRagScaffold}
+            disabled={downloadingRag || downloadingCustom}
+            title="Instant download — proven RAGChatbot scaffold with app name injected"
             className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs text-emerald-700 font-medium transition-colors flex-shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {downloading ? (
+            {downloadingRag ? (
               <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
@@ -1733,7 +2474,24 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
               </svg>
             )}
-            {downloading ? "Packaging…" : "Download"}
+            {downloadingRag ? "Packaging…" : "⬇ RAG Scaffold"}
+          </button>
+          {/* Custom Code download — GPT-4o generated, ~40s */}
+          <button
+            onClick={downloadZip}
+            disabled={downloadingCustom || downloadingRag}
+            title="GPT-4o generates app-specific agents and React pages (~40s)"
+            className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-xs text-indigo-700 font-medium transition-colors flex-shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {downloadingCustom ? (
+              <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+              </svg>
+            ) : (
+              <span className="text-sm">🤖</span>
+            )}
+            {downloadingCustom ? "Generating… (~40s)" : "Custom Code"}
           </button>
           <button
             onClick={openInBrowser}
@@ -1961,9 +2719,7 @@ export default function Architect() {
         if (docTypes.length === 0) docTypes.push("DOCX", "PDF");
       }
 
-      const appName = userPrompt.length > 10
-        ? userPrompt.split(" ").slice(0, 8).join(" ")
-        : p.summary.split(" ").slice(0, 6).join(" ");
+      const appName = extractAppTitle(userPrompt.length > 10 ? userPrompt : p.summary);
 
       const res = await architectApi.generateUI({
         app_name: appName,
