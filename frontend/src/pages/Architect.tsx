@@ -527,30 +527,26 @@ async function buildSourceZip(html: string, plan: Plan): Promise<Blob> {
   // ── Step 1: Call GPT-4o to dynamically generate the full project ─────────
   let aiFiles: Record<string, string> = {};
   try {
-    const res = await fetch("/api/architect/generate-project", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        app_name: plan.summary.slice(0, 80),
-        summary: plan.summary,
-        features: plan.features ?? [],
-        agents: plan.agents ?? [],
-        api_endpoints: plan.api_endpoints ?? [],
-        database_schema: plan.database_schema ?? "",
-        tech_stack: plan.tech_stack ?? {},
-      }),
+    const res = await architectApi.generateProject({
+      app_name: plan.summary.slice(0, 80),
+      summary: plan.summary,
+      features: plan.features ?? [],
+      agents: plan.agents ?? [],
+      api_endpoints: plan.api_endpoints ?? [],
+      database_schema: plan.database_schema ?? "",
+      tech_stack: plan.tech_stack ?? {},
     });
-    if (res.ok) {
-      const data = await res.json();
-      aiFiles = data.files ?? {};
-    }
-  } catch {
-    // If backend unreachable fall through to static scaffold below
+    aiFiles = res.data.files ?? {};
+  } catch (err) {
+    console.error("[buildSourceZip] generate-project failed:", err);
+    // Fall through to static scaffold below
   }
 
   // ── Step 2: Add GPT-4o generated files to ZIP ─────────────────────────────
+  // Strip leading "frontend/" prefix so paths match the project root layout
   for (const [filePath, content] of Object.entries(aiFiles)) {
-    zip.file(filePath, content as string);
+    const normalizedPath = filePath.startsWith("frontend/") ? filePath.slice("frontend/".length) : filePath;
+    zip.file(normalizedPath, content as string);
   }
 
   // ── Step 3: Always include sandbox.html (the working iframe preview) ──────

@@ -1436,6 +1436,48 @@ Build a self-service portal:
 - Notification badge in header
 
 ==================================================
+MANDATORY NAVIGATION RULE (applies to ALL app types with a sidebar/nav)
+==================================================
+ANY sidebar or left-nav menu MUST be interactive. Use this exact pattern:
+
+  const [activeNav, setActiveNav] = React.useState('first_item_id');
+  const navItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: '📊' },
+    { id: 'templates', label: 'Templates', icon: '📄' },
+    // ... more items
+  ];
+
+  // Render each nav item as a BUTTON with onClick:
+  {navItems.map(item => (
+    <button
+      key={item.id}
+      onClick={() => setActiveNav(item.id)}
+      style={{
+        display:'flex', alignItems:'center', gap:10, width:'100%',
+        padding:'10px 14px', marginBottom:4, borderRadius:8,
+        border:'none', cursor:'pointer', textAlign:'left',
+        background: activeNav === item.id ? '#4f46e5' : 'transparent',
+        color: activeNav === item.id ? '#ffffff' : '#94a3b8',
+        fontWeight: activeNav === item.id ? 600 : 400,
+        transition:'all 0.15s ease'
+      }}
+    >
+      <span>{item.icon}</span>
+      <span>{item.label}</span>
+    </button>
+  ))}
+
+  // Show different content per active nav item:
+  function renderContent() {
+    if (activeNav === 'dashboard') return <DashboardView />;
+    if (activeNav === 'templates') return <TemplatesView />;
+    // ... etc
+  }
+
+!! ABSOLUTE BAN: NEVER use plain <li> or <a> tags for navigation. ALWAYS use <button onClick={() => setActiveNav(item.id)}> !!
+!! Each nav section MUST render different content in the main area when clicked !!
+
+==================================================
 PHASE 4 -- ENTERPRISE QUALITY STANDARDS
 ==================================================
 ALL generated apps must have:

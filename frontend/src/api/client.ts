@@ -56,6 +56,15 @@ export const controlPlaneApi = {
 export const architectApi = {
   chat: (messages: { role: string; content: string }[]) =>
     api.post("/architect/chat", { messages }),
+  generateProject: (payload: {
+    app_name: string;
+    summary: string;
+    features: string[];
+    agents?: object[];
+    api_endpoints?: string[];
+    database_schema?: string;
+    tech_stack?: object;
+  }) => api.post<{ files: Record<string, string>; file_count: number }>("/architect/generate-project", payload),
   extractDocText: (file: File) => {
     const form = new FormData();
     form.append("file", file);
