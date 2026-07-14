@@ -2889,6 +2889,7 @@ export default function Architect() {
   const [qAnswers, setQAnswers] = useState<Record<string, string>>({});
   const [qLocked, setQLocked] = useState(false);
   const [files, setFiles] = useState<{ name: string; text: string }[]>([]);
+  const [pendingFileNames, setPendingFileNames] = useState<string[]>([]); // files staged but still extracting
   const [visualFiles, setVisualFiles] = useState<{ name: string; asSource: boolean }[]>([]); // image refs
   const [generatingUI, setGeneratingUI] = useState(false);
   const [uiError, setUiError] = useState<string | undefined>();
@@ -3083,6 +3084,7 @@ export default function Architect() {
     setQAnswers({});
     setQLocked(false);
     setFiles([]);
+    setPendingFileNames([]);
     setVisualFiles([]);
     setInput("");
   }
@@ -3163,6 +3165,7 @@ export default function Architect() {
     );
     setInput("");
     setFiles([]);
+    setPendingFileNames([]);
     setVisualFiles([]);
     setQLocked(true);
     setLoading(true);
@@ -3751,8 +3754,19 @@ export default function Architect() {
 
         {/* Input */}
         <div className="px-4 pb-4 pt-2 border-t-2 border-white/20" style={{ background: "rgba(255,255,255,0.02)" }}>
-          {(files.length > 0 || visualFiles.length > 0) && (
+          {(files.length > 0 || pendingFileNames.length > 0 || visualFiles.length > 0) && (
             <div className="flex flex-wrap gap-1.5 mb-2">
+              {pendingFileNames.filter((n) => !files.some((f) => f.name === n)).map((name) => (
+                <span
+                  key={name}
+                  className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-slate-400 border border-slate-500/30 animate-pulse"
+                  style={{ background: "rgba(100,116,139,0.10)" }}
+                  title="Extracting document…"
+                >
+                  ⏳ {name}
+                  <span className="text-[10px] text-slate-500 font-medium ml-1">Indexing…</span>
+                </span>
+              ))}
               {files.map((f) => (
                 <span
                   key={f.name}
@@ -3837,9 +3851,11 @@ export default function Architect() {
                   });
                 }
 
-                // Route document files to RAG pipeline
+                // Route document files to RAG pipeline — stage immediately for instant chip display
                 const docFiles = picked.filter((f) => RAG_EXTS.has(getExt(f.name)));
                 if (docFiles.length > 0) {
+                  const newNames = docFiles.map((f) => f.name);
+                  setPendingFileNames((p) => [...p, ...newNames.filter((n) => !p.includes(n))]);
                   const results = await Promise.all(
                     docFiles.map(async (f) => {
                       try {
@@ -3852,9 +3868,10 @@ export default function Architect() {
                   const valid = results.filter(
                     (r): r is { name: string; text: string } => r !== null && r.text.trim().length > 0
                   );
-                  setFiles((p) => {
-                    const existing = new Set(p.map((x) => x.name));
-                    return [...p, ...valid.filter((r) => !existing.has(r.name))];
+                  setPendingFileNames((p) => p.filter((n) => !newNames.includes(n)));
+                  setFiles((prev) => {
+                    const existing = new Set(prev.map((x) => x.name));
+                    return [...prev, ...valid.filter((r) => !existing.has(r.name))];
                   });
                 }
               }}
