@@ -2593,6 +2593,92 @@ async def generate_project(req: GenerateProjectRequest):
         return {"files": all_files, "file_count": len(all_files)}
 
 
+class SandboxToAppTsxRequest(BaseModel):
+    sandbox_html: str
+    scaffold_type: str = "rag"   # "rag" or "cc"
+    app_title: str = "AI Assistant"
+
+
+@router.post("/sandbox-to-apptsx")
+async def sandbox_to_apptsx(req: SandboxToAppTsxRequest):
+    """
+    Convert a self-contained sandbox HTML preview into a React + TypeScript App.tsx
+    that keeps the exact same visual layout but fetches data from the real FastAPI backend.
+    """
+    client = AzureOpenAI(
+        azure_endpoint=settings.azure_openai_endpoint,
+        api_key=settings.azure_openai_api_key,
+        api_version=settings.azure_openai_api_version,
+        timeout=180.0,
+    )
+
+    if req.scaffold_type == "rag":
+        api_info = """Backend API endpoints (proxy via Vite to http://localhost:8001):
+- GET  /api/health          → { status, app }   (app = chatbot title)
+- GET  /api/documents       → Array<{ id, name?, filename?, indexed }>
+- POST /api/documents/upload  FormData { file }  → { id, name, indexed }
+- POST /api/chat            JSON { question, workspace_id:1 } → { answer, steps?, source?, confidence?, related?, out_of_scope? }"""
+    else:
+        api_info = """Backend API endpoints (proxy via Vite to http://localhost:8002):
+- GET  /api/health          → { status, app }   (app = chatbot title)
+- GET  /api/documents       → Array<{ id, name?, filename?, indexed }>
+- POST /api/documents/upload  FormData { file }  → { id, name, indexed }
+- POST /api/chat            JSON { question, workspace_id:1 } → { answer, steps?, source?, confidence?, related?, out_of_scope? }"""
+
+    prompt = f"""You are a senior React + TypeScript developer.
+
+Below is a fully working self-contained sandbox HTML that uses Tailwind CSS via CDN.
+It has a 3-panel chat UI with a dark left sidebar, a center chat area, and a white right panel.
+
+YOUR TASK:
+Convert this HTML into a single React + TypeScript file (App.tsx) that:
+1. Reproduces the EXACT same visual layout, colors, fonts, spacing, and component structure
+2. Instead of using embedded/hardcoded data, fetches real data from the backend APIs listed below
+3. Uses React hooks (useState, useEffect, useRef, useCallback) — NO class components
+4. Uses Tailwind CSS classes (same classes as in the HTML)
+5. Has ZERO external imports except React — no axios, no react-query, no lucide-react, no toast
+6. Exports a single default function: export default function App()
+7. Keeps ALL visual features from the sandbox: left sidebar sections, topic filter chips, suggested questions, right panel doc cards, session stats, 👍👎 feedback buttons, confidence badges, suggested follow-ups, step-by-step resolution, typing indicator
+
+CRITICAL RULES:
+- Match the sandbox HTML pixel-for-pixel in layout, widths (left sidebar w-72, right panel w-64), colors, and typography
+- Left sidebar: same dark header with avatar + title + subtitle, topic filter section, questions list, doc count footer — all dynamic from API
+- Right panel: same doc cards with DOCX badge + confidence %, same Session Stats section
+- Use the /api/health endpoint to get the real app title (fallback: "{req.app_title}")
+- Load documents from /api/documents on mount and poll every 15 seconds
+- Filter by Topic chips = derived from document names (strip extension)
+- Suggested questions = dynamic based on uploaded docs
+- Bot messages must show: answer text, step-by-step resolution (if steps array), source doc + confidence badge, 👍👎 helpful buttons, suggested follow-up chips
+- Use the SAME Tailwind class names as the sandbox HTML — do NOT change colors or spacing
+
+{api_info}
+
+OUTPUT FORMAT:
+Return ONLY valid TypeScript/TSX code for App.tsx. No markdown, no code fences, no explanation.
+Start directly with: import React, {{ useState, useRef, useEffect, useCallback }} from "react";
+
+SANDBOX HTML:
+{req.sandbox_html[:18000]}
+"""
+
+    response = client.chat.completions.create(
+        model=settings.azure_openai_deployment_gpt4o,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.1,
+        max_completion_tokens=14000,
+    )
+
+    raw = response.choices[0].message.content or ""
+    # Strip any accidental markdown code fences
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+    if raw.endswith("```"):
+        raw = raw.rsplit("```", 1)[0]
+    raw = raw.strip()
+
+    return {"app_tsx": raw}
+
+
 @router.post("/chat")
 async def architect_chat(req: ArchitectChatRequest):
     client = AzureOpenAI(

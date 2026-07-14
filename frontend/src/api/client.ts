@@ -70,6 +70,11 @@ export const architectApi = {
     form.append("file", file);
     return api.post<{ filename: string; text: string }>("/architect/extract-doc-text", form);
   },
+  sandboxToAppTsx: (payload: {
+    sandbox_html: string;
+    scaffold_type: "rag" | "cc";
+    app_title: string;
+  }) => api.post<{ app_tsx: string }>("/architect/sandbox-to-apptsx", payload),
   generateUI: (payload: {
     app_name: string;
     summary: string;
