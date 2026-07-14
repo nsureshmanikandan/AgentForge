@@ -1,4 +1,4 @@
-import io
+﻿import io
 import json
 import zipfile
 import xml.etree.ElementTree as ET
@@ -7,6 +7,14 @@ from pydantic import BaseModel
 from typing import List, Optional
 from openai import AzureOpenAI
 from app.config import settings
+from opentelemetry.trace import Status as _OtelStatus, StatusCode as _OtelStatusCode
+from app.core.telemetry import get_tracer
+
+_tracer = get_tracer()
+
+def trace_status(level: str, desc: str = ""):
+    code = _OtelStatusCode.ERROR if level == "ERROR" else _OtelStatusCode.OK
+    return _OtelStatus(status_code=code, description=desc)
 
 router = APIRouter()
 
@@ -206,7 +214,7 @@ function App() {
         <div className="bg-white shadow-sm border-b border-gray-200 px-6 py-3 flex items-center gap-3 flex-shrink-0">
           <div>
             <div className="text-base font-bold text-gray-900">{APP_CONFIG.appName}</div>
-            <div className="text-xs text-gray-400">Powered by Azure OpenAI GPT-4o &middot; FAISS RAG &middot; BM25 Hybrid Search</div>
+            <div className="text-xs text-gray-400">Powered by {APP_CONFIG.model} &middot; FAISS RAG &middot; BM25 Hybrid Search</div>
           </div>
           <div className="ml-auto flex items-center gap-2">
             <span className="bg-emerald-100 text-emerald-700 text-xs font-semibold px-2.5 py-1 rounded-full flex items-center gap-1">
@@ -338,7 +346,7 @@ function App() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>
             </button>
           </div>
-          <p className="text-[11px] text-gray-400 text-center mt-2">Powered by Loblaw Knowledge Base &middot; FAISS RAG &middot; Azure OpenAI GPT-4o &middot; Hybrid BM25 + Semantic Search</p>
+          <p className="text-[11px] text-gray-400 text-center mt-2">Powered by {APP_CONFIG.appName} Knowledge Base &middot; FAISS RAG &middot; {APP_CONFIG.model} &middot; Hybrid BM25 + Semantic Search</p>
         </div>
       </div>
 
@@ -420,11 +428,11 @@ IMMEDIATELY after the user responds to your clarifying questions (or if their in
       "frontend": "React + TypeScript + Vite (default unless user specified otherwise)",
       "backend": "Python FastAPI (default unless user specified otherwise)",
       "database": "PostgreSQL with SQLAlchemy",
-      "ai": "Azure OpenAI GPT-4o",
+      "ai": f"Azure OpenAI {settings.azure_openai_deployment_gpt4o}",
       "other": []
     },
     "agents": [
-      { "name": "AgentName", "role": "What this agent does", "tools": ["tool1", "tool2"], "model": "gpt-4o" }
+      { "name": "AgentName", "role": "What this agent does", "tools": ["tool1", "tool2"], "model": "{settings.azure_openai_deployment_gpt4o}" }
     ],
     "features": ["Feature 1 description", "Feature 2 description"],
     "api_endpoints": ["POST /api/endpoint -- description", "GET /api/endpoint -- description"],
@@ -451,6 +459,8 @@ If the user asks follow-up questions or requests changes, respond with:
 - **MOST IMPORTANT**: You may ONLY ask questions ONCE per conversation. The moment the user has answered your questions (i.e., you see a user message after your "questions" response), you MUST generate the full plan immediately. NEVER ask another round of questions. NEVER say "a couple more questions". Generate the plan.
 - If the conversation already has a {"type":"questions"} response from you, treat the next user message as final answers and output {"type":"plan",...} immediately.
 """
+# Inject deployment model from settings — single source of truth
+SYSTEM_PROMPT = SYSTEM_PROMPT.replace("{settings.azure_openai_deployment_gpt4o}", settings.azure_openai_deployment_gpt4o)
 
 
 # ── Dashboard data extraction prompt ─────────────────────────────────────────
@@ -1003,6 +1013,7 @@ DATA STRUCTURES (ALL content derived 100% from user prompt and uploaded document
 const APP_CONFIG = {
   company: "",        // extracted company name from prompt
   appName: "",        // e.g. "Loblaw IT Support Centre" -- reflect actual domain
+  model: "{settings.azure_openai_deployment_gpt4o}",  // filled from env at runtime
   primaryColor: "#4f46e5",
   welcomeMessage: "", // 2-3 sentence greeting specific to this company and domain
   agentName: "Support Agent",
@@ -1689,7 +1700,7 @@ async def generate_ui(req: GenerateUIRequest):
                 model=settings.azure_openai_deployment_gpt4o,
                 messages=[{"role": "user", "content": kb_extraction_prompt}],
                 temperature=0.1,
-                max_tokens=12000,
+                max_completion_tokens=12000,
                 response_format={"type": "json_object"},
             )
             import json as _json
@@ -1826,7 +1837,7 @@ Incorporate ALL of the above changes while keeping everything else from the orig
                 model=settings.azure_openai_deployment_gpt4o,
                 messages=dash_extraction_messages,
                 temperature=0.1,
-                max_tokens=3000,
+                max_completion_tokens=3000,
                 response_format={"type": "json_object"},
             )
             dash_data = _json.loads(dash_resp.choices[0].message.content or "{}")
@@ -1947,7 +1958,7 @@ Incorporate ALL of the above changes while keeping everything else from the orig
         model=settings.azure_openai_deployment_gpt4o,
         messages=messages_payload,
         temperature=0.2,
-        max_tokens=16000,
+        max_completion_tokens=16000,
     )
 
     html = response.choices[0].message.content or ""
@@ -2167,7 +2178,7 @@ class {safe_name}:
             model=settings.azure_openai_deployment,
             messages=messages,
             temperature=0.3,
-            max_tokens=1200,
+            max_completion_tokens=1200,
         )
         raw = response.choices[0].message.content or ""
         answer_match = re.search(r\'ANSWER:\\s*(.+?)(?:\\nSTEPS:|$)\', raw, re.DOTALL)
@@ -2199,7 +2210,7 @@ class {safe_name}:
                 {{"role": "user", "content": f"Analyze the following and return key insights as JSON:\\n\\n{{text}}"}}
             ],
             temperature=0.2,
-            max_tokens=800,
+            max_completion_tokens=800,
         )
         raw = response.choices[0].message.content or "{{}}"
         try:
@@ -2261,13 +2272,22 @@ LEFT SIDEBAR — className="w-64 bg-gray-900 text-white flex flex-col flex-shrin
 
 MAIN CHAT — className="flex-1 flex flex-col min-w-0 overflow-hidden"
   - Header (bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm):
-    * App title: className="flex-1 text-base font-bold text-slate-900"
+    * App title: className="flex-1 min-w-0 text-sm font-bold text-slate-900 truncate" — MUST include truncate so long names don't wrap and push badges off screen
+    * ALL THREE badge spans MUST have flex-shrink-0 and whitespace-nowrap so they never wrap onto a second row
     * AI Active badge: className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full" text="● AI Active"
     * KB Connected badge: className="text-xs font-semibold bg-blue-100 text-blue-700 px-3 py-1 rounded-full" text="● KB Connected"
+    * Accuracy badge: className="text-xs font-semibold bg-purple-100 text-purple-700 px-3 py-1 rounded-full" text="85–97% Accuracy"
   - Messages (flex-1 overflow-y-auto p-5 space-y-3):
     * User bubble: justify-end, bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm max-w-md, timestamp text-[10px] text-slate-400 text-right mt-1
-    * Bot bubble: justify-start, bg-white border border-slate-200 rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-2xl w-full, timestamp text-[10px] text-slate-400 mt-1
+    * Bot bubble: justify-start, bg-white border border-slate-200 (border-amber-200 if out_of_scope) rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-2xl w-full, timestamp text-[10px] text-slate-400 mt-1
     * Loading indicator: 3 animated dots (w-2 h-2 bg-slate-400 rounded-full animate-bounce with staggered animationDelay)
+  - CRITICAL — the backend's /api/ask response returns {{answer, steps, source, confidence, related, out_of_scope}}. The bot bubble MUST render ALL of these, in this exact structure:
+    1. If out_of_scope: amber banner above the answer — className="flex items-center gap-2 mb-3 text-amber-700 bg-amber-50 rounded-lg px-3 py-2 text-xs font-medium" text="⚠ Out of scope"
+    2. The answer text via renderMarkdown()
+    3. If steps.length > 0: className="mt-3 pt-3 border-t border-gray-100" with label "Step-by-Step Resolution" (text-xs font-semibold text-gray-500 mb-2) then <ol className="space-y-1.5"> of steps, each <li className="flex items-start gap-2.5 text-sm text-gray-700"> with a numbered circle badge (w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5)
+    4. If source && source !== "N/A": className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2" showing source name (text-xs text-gray-500 font-medium) and a confidence badge — confidence >= 90: "text-emerald-700 bg-emerald-50 border-emerald-200", >= 80: "text-amber-700 bg-amber-50 border-amber-200", else "text-red-700 bg-red-50 border-red-200", all with className="inline-flex items-center gap-1 text-xs font-bold border rounded-full px-2 py-0.5" showing "{{confidence}}% accuracy"
+    5. If related.length > 0: className="mt-3 pt-3 border-t border-gray-100" with label "Suggested follow-ups" (text-[10px] font-semibold text-gray-400 mb-1.5) then each related question as a <button onClick={{() => send(r)}}> className="text-xs px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full hover:bg-indigo-100 transition-colors border border-indigo-100"
+  - FORBIDDEN: dropping steps/source/confidence/related/out_of_scope on the floor — every field the backend returns MUST be visibly rendered
   - Footer (bg-white border-t border-slate-200 p-3.5): textarea (resize-none border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-indigo-400) + Send button (bg-indigo-600 disabled:bg-slate-300 text-white rounded-xl px-5 py-2.5 text-sm font-semibold h-[44px])
   - Welcome message: "Welcome to [App Name]. Ask questions about [domain] and get detailed answers."
 
@@ -2278,8 +2298,8 @@ RIGHT PANEL — className="w-56 border-l bg-white p-4 flex flex-col gap-5 flex-s
   - Generate 4-5 DOMAIN-SPECIFIC topic names (e.g. for policy app: "Obligations", "Rights", "Benefits", "Compliance")
 
 STATE MANAGEMENT (no React Query needed for chat — use useState + fetch):
-- messages: array of {{id, role: 'user'|'bot', content, ts}}
-- uploadedDocs: string[] (filenames)
+- messages: array of {{id, role: 'user'|'bot', content, ts, steps?, source?, confidence?, related?, out_of_scope?}} — bot messages MUST spread the full ask response (steps, source, confidence, related, out_of_scope) onto the message object, not just content
+- uploadedDocs: string[] (filenames) — MUST start as [] (never hardcode filenames); populate from API on mount AND after each upload
 - activeTopic: string | null
 - loading: boolean (AI thinking state)
 - question: string (input value)
@@ -2296,6 +2316,9 @@ const send = (override?: string) => {{
   askMutation.mutate(text);
 }};
 ```
+The askMutation's onSuccess handler MUST append the bot message as:
+  {{id: Date.now()+'b', role:'bot', content: data.answer, steps: data.steps, source: data.source, confidence: data.confidence, related: data.related, out_of_scope: data.out_of_scope, ts: new Date().toLocaleTimeString()}}
+NEVER discard data.steps/data.source/data.confidence/data.related/data.out_of_scope — they MUST reach the message object so the bubble can render them (see bot bubble rules above).
 
 RULES:
 - Return ONLY valid JSON with this exact structure: {{"files": {{"path": "file content as string"}}}}
@@ -2320,6 +2343,9 @@ RULES:
 - src/App.tsx is a SINGLE PAGE (no React Router) — the entire app is the 3-panel chat UI
 - FORBIDDEN: solid colored badges like bg-green-500 text-white — use the exact pill style above
 - FORBIDDEN: showing "Last Query: ..." in the session panel — only show message COUNT
+- FORBIDDEN: hardcoding any filenames in uploadedDocs initial state — it MUST be useState<string[]>([])
+- REQUIRED: useEffect on mount that calls GET /api/documents and sets uploadedDocs from the returned list
+- REQUIRED: uploadMutation onSuccess MUST push the newly uploaded filename into uploadedDocs (use setUploadedDocs)
 - FORBIDDEN: suggested questions as plain <li> or <span> — they MUST be <button> elements calling send()
 - FORBIDDEN: rendering bot responses as raw text with {msg.content} — MUST use renderMarkdown() function
 - REQUIRED: include this renderMarkdown function in App.tsx before interfaces:
@@ -2372,14 +2398,16 @@ RULES:
   * CORRECT response access: response.choices[0].message.content
   * FORBIDDEN response access: response["choices"][0]["message"]["content"]  ← dict syntax is WRONG, use attribute access
   * FastAPI routes that call agents: use `async def` for the route, call agent method normally (no await)
+  * FORBIDDEN: hardcoding an api_version string literal anywhere (e.g. api_version="2024-10-21") — it MUST always be settings.AZURE_OPENAI_API_VERSION
+  * REQUIRED: backend/app/config.py Settings MUST declare `AZURE_OPENAI_API_VERSION: str = "2024-12-01-preview"` alongside the other AZURE_OPENAI_* fields
   * EXACT agent pattern to follow — copy this exactly:
     from openai import AzureOpenAI
     from app.config import settings
     class MyAgent:
         def __init__(self):
-            self.client = AzureOpenAI(azure_endpoint=settings.AZURE_OPENAI_ENDPOINT, api_key=settings.AZURE_OPENAI_API_KEY, api_version="2024-02-01")
+            self.client = AzureOpenAI(azure_endpoint=settings.AZURE_OPENAI_ENDPOINT, api_key=settings.AZURE_OPENAI_API_KEY, api_version=settings.AZURE_OPENAI_API_VERSION)
         def run(self, input: str) -> str:
-            response = self.client.chat.completions.create(model=settings.AZURE_OPENAI_DEPLOYMENT_NAME, messages=[{{"role":"system","content":"You are a helpful assistant."}},{{"role":"user","content":input}}], max_tokens=1000, temperature=0.3)
+            response = self.client.chat.completions.create(model=settings.AZURE_OPENAI_DEPLOYMENT_NAME, messages=[{{"role":"system","content":"You are a helpful assistant."}},{{"role":"user","content":input}}], max_completion_tokens=1000, temperature=0.3)
             return response.choices[0].message.content
   * Route calling agent (async route, sync agent call — this is correct):
     @router.post("/ask")
@@ -2414,14 +2442,18 @@ RULES:
             response = self.client.chat.completions.create(model=..., messages=[
                 {{"role":"system","content":"You are a policy compliance expert. Analyze the policy text and identify obligations, rights, and risks."}},
                 {{"role":"user","content":text}}
-            ], max_tokens=1200, temperature=0.2)
+            ], max_completion_tokens=1200, temperature=0.2)
             return {{"analysis": response.choices[0].message.content}}
-        def answer_question(self, question: str, context: str) -> str:
+        def answer_question(self, question: str, context: str) -> dict:
             response = self.client.chat.completions.create(model=..., messages=[
-                {{"role":"system","content":"You are a policy analysis assistant. Answer only based on the provided policy context."}},
+                {{"role":"system","content":"You are a policy analysis assistant. Answer only based on the provided policy context. Return JSON: {{\\"answer\\": str, \\"steps\\": [str, ...], \\"source\\": str, \\"confidence\\": int, \\"related\\": [str, ...], \\"out_of_scope\\": bool}}"}},
                 {{"role":"user","content":f"Context:\\n{{context}}\\n\\nQuestion: {{question}}"}}
-            ], max_tokens=800, temperature=0.3)
-            return response.choices[0].message.content
+            ], max_completion_tokens=800, temperature=0.3, response_format={{"type":"json_object"}})
+            return json.loads(response.choices[0].message.content or "{{}}")
+  * CRITICAL — any agent method that answers an end-user question (matches route "/ask", "/chat", or similar) MUST return this exact rich schema, NOT a bare string:
+    {{"answer": "1-2 sentence summary", "steps": ["Step 1: ...", "Step 2: ...", "Step 3: ..."], "source": "<document/data source or N/A>", "confidence": <0-100 int>, "related": ["follow-up question", "another follow-up"], "out_of_scope": <true|false>}}
+    Use response_format={{"type": "json_object"}} on the chat.completions.create call and json.loads() the result — this is what the frontend's bot bubble renders (Step-by-Step Resolution list, confidence badge, source, suggested follow-ups). A bare string answer will render as plain text with no formatting, which is FORBIDDEN.
+    The FastAPI route returning this dict MUST NOT wrap it further — return the dict as-is so the frontend receives {{answer, steps, source, confidence, related, out_of_scope}} directly.
 - config.py MUST use pydantic-settings with extra='ignore' so unknown .env vars don't crash:
     from pydantic_settings import BaseSettings, SettingsConfigDict
     class Settings(BaseSettings):
@@ -2434,10 +2466,16 @@ RULES:
 - Always use selectinload() for SQLAlchemy async relationship loading
 - All endpoints must be fully implemented with real DB queries — no placeholder functions
 - Include __init__.py in backend/app/, backend/app/api/, backend/app/agents/
-- requirements.txt MUST include: fastapi, uvicorn[standard], pydantic-settings, sqlalchemy[asyncio], aiosqlite, asyncpg, openai, python-multipart, PyMuPDF, python-dotenv
+- requirements.txt MUST include: fastapi, uvicorn[standard], pydantic-settings, sqlalchemy[asyncio], aiosqlite, asyncpg, openai, python-multipart, PyMuPDF, python-dotenv, python-docx>=1.1.0, PyPDF2>=3.0.0
+- Document extraction agent MUST handle .docx (python-docx), .pdf (PyMuPDF/fitz OR PyPDF2), and plain text — never skip .docx
+- .env.example DATABASE_URL MUST be sqlite+aiosqlite:///./app.db (not postgres) — postgres is for docker-compose only
 - RESERVED COLUMN NAMES — NEVER use these as SQLAlchemy column names (they shadow SQLAlchemy internals and crash on startup): metadata, registry, __mapper_cls__. Use alternatives: doc_metadata, extra_data, meta_info
 - Schemas: optional fields must have default=None, no required timestamp in response schemas unless populated by DB
 - Request schemas for create endpoints must NOT include user_id unless auth is implemented — just use question/content/text fields
+- POST /api/chat ChatRequest schema MUST have `workspace_id: int = 1` as a field with default 1 so the frontend can always send workspace_id=1 without a separate workspace setup step
+- Frontend apiChat() MUST send `{ question, workspace_id: 1 }` — never `{ message }` — so it matches the backend ChatRequest schema exactly
+- In the chat endpoint, ALWAYS normalize the agent response before returning: coerce `confidence` from string ('low'/'medium'/'high') to int (30/65/90), coerce `source` from list to comma-joined string. This prevents Pydantic validation 500 errors when the LLM agent returns wrong types.
+- Document upload endpoint MUST use `file: UploadFile = File(...)` as the FIRST parameter with NO mandatory form fields before it. Any extra form fields (e.g. title) MUST be Optional with a default: `title: str = None`. This prevents FastAPI 422 errors when the frontend only sends the file.
 - DB session dependency MUST use async_session context manager pattern:
     async def get_db():
         async with async_session() as session:
@@ -2459,7 +2497,7 @@ Required file structure (use these exact paths with backend/ prefix):
 - backend/requirements.txt
 - backend/Dockerfile
 - docker-compose.yml  (postgres:16-alpine + backend services)
-- .env.example  (DATABASE_URL, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT_NAME)
+- .env.example  (DATABASE_URL, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT_NAME, AZURE_OPENAI_API_VERSION — MUST include AZURE_OPENAI_API_VERSION=2024-12-01-preview since config.py reads it via settings.AZURE_OPENAI_API_VERSION, never hardcode it in agent code)
 
 APPLICATION:
 {description}
@@ -2472,70 +2510,87 @@ Database Schema: {database_schema}"""
 @router.post("/generate-project")
 async def generate_project(req: GenerateProjectRequest):
     """
-    Calls GPT-4o twice to dynamically generate a complete React + FastAPI + PostgreSQL project.
+    Calls Azure OpenAI twice to dynamically generate a complete React + FastAPI project.
     Returns { files: { "path": "content" } } for all files.
     """
-    client = AzureOpenAI(
-        azure_endpoint=settings.azure_openai_endpoint,
-        api_key=settings.azure_openai_api_key,
-        api_version=settings.azure_openai_api_version,
-        timeout=180.0,
-    )
+    with _tracer.start_as_current_span("architect.generate_project") as span:
+        span.set_attribute("app.name", req.app_name)
+        span.set_attribute("app.feature_count", len(req.features or []))
 
-    description = f"App: {req.app_name}\nSummary: {req.summary}\nFeatures:\n" + "\n".join(f"- {f}" for f in req.features)
-    agents_text = json.dumps(req.agents or [], indent=2)
-    endpoints_text = "\n".join(req.api_endpoints or [])
-    db_text = req.database_schema or "Design appropriate tables for the application"
-    stack = req.tech_stack or {}
-    app_slug = req.app_name.lower().replace(" ", "-").replace("[^a-z0-9-]", "")
-
-    all_files: dict = {}
-
-    # ── Pass 1: Frontend (React + TypeScript) ────────────────────────────────
-    frontend_prompt = PROJECT_FRONTEND_PROMPT.format(
-        description=description, agents=agents_text,
-        api_endpoints=endpoints_text, database_schema=db_text,
-    )
-    try:
-        fe_response = client.chat.completions.create(
-            model=settings.azure_openai_deployment_gpt4o,
-            messages=[{"role": "user", "content": frontend_prompt}],
-            temperature=0.2,
-            max_tokens=14000,
-            response_format={"type": "json_object"},
+        client = AzureOpenAI(
+            azure_endpoint=settings.azure_openai_endpoint,
+            api_key=settings.azure_openai_api_key,
+            api_version=settings.azure_openai_api_version,
+            timeout=180.0,
         )
-        fe_data = json.loads(fe_response.choices[0].message.content or "{}")
-        all_files.update(fe_data.get("files", {}))
-    except Exception as e:
-        all_files["frontend/README.md"] = f"# Frontend generation failed\nError: {e}\n\nRe-run or generate manually."
 
-    # ── Pass 2: Backend (FastAPI + PostgreSQL) ───────────────────────────────
-    backend_prompt = PROJECT_BACKEND_PROMPT.format(
-        description=description, agents=agents_text,
-        api_endpoints=endpoints_text, database_schema=db_text,
-    )
-    try:
-        be_response = client.chat.completions.create(
-            model=settings.azure_openai_deployment_gpt4o,
-            messages=[{"role": "user", "content": backend_prompt}],
-            temperature=0.2,
-            max_tokens=14000,
-            response_format={"type": "json_object"},
-        )
-        be_data = json.loads(be_response.choices[0].message.content or "{}")
-        all_files.update(be_data.get("files", {}))
-    except Exception as e:
-        all_files["backend/README.md"] = f"# Backend generation failed\nError: {e}\n\nRe-run or generate manually."
+        description = f"App: {req.app_name}\nSummary: {req.summary}\nFeatures:\n" + "\n".join(f"- {f}" for f in req.features)
+        agents_text = json.dumps(req.agents or [], indent=2)
+        endpoints_text = "\n".join(req.api_endpoints or [])
+        db_text = req.database_schema or "Design appropriate tables for the application"
+        stack = req.tech_stack or {}
 
-    # ── Post-process: fix anti-patterns + enforce agentic structure ──────────
-    all_files = {path: _fix_python_file(path, content) for path, content in all_files.items()}
-    all_files = _enforce_agentic_structure(all_files, req.app_name, req.summary)
+        all_files: dict = {}
 
-    # ── Static config files always included ──────────────────────────────────
-    if "README.md" not in all_files:
-        all_files["README.md"] = f"# {req.app_name}\n\n> Generated by **AgentForge Architect** · {__import__('datetime').date.today()}\n\n## Stack\n- Frontend: {stack.get('frontend','React + TypeScript + Vite')}\n- Backend: {stack.get('backend','Python FastAPI')}\n- Database: {stack.get('database','PostgreSQL')}\n- AI: {stack.get('ai','Azure OpenAI GPT-4o')}\n\n## Features\n" + "\n".join(f"- {f}" for f in req.features) + "\n\n## Run\n```bash\ndocker-compose up --build\n```"
+        # ── Pass 1: Frontend ────────────────────────────────────────────────
+        with _tracer.start_as_current_span("architect.generate_frontend") as fe_span:
+            frontend_prompt = (
+                PROJECT_FRONTEND_PROMPT
+                .replace("{description}", description)
+                .replace("{agents}", agents_text)
+                .replace("{api_endpoints}", endpoints_text)
+                .replace("{database_schema}", db_text)
+            )
+            try:
+                fe_response = client.chat.completions.create(
+                    model=settings.azure_openai_deployment_gpt4o,
+                    messages=[{"role": "user", "content": frontend_prompt}],
+                    temperature=0.2,
+                    max_completion_tokens=14000,
+                    response_format={"type": "json_object"},
+                )
+                fe_data = json.loads(fe_response.choices[0].message.content or "{}")
+                all_files.update(fe_data.get("files", {}))
+                fe_span.set_attribute("frontend.file_count", len(fe_data.get("files", {})))
+            except Exception as e:
+                fe_span.record_exception(e)
+                fe_span.set_status(trace_status("ERROR", str(e)))
+                all_files["frontend/README.md"] = f"# Frontend generation failed\nError: {e}\n\nRe-run or generate manually."
 
-    return {"files": all_files, "file_count": len(all_files)}
+        # ── Pass 2: Backend ─────────────────────────────────────────────────
+        with _tracer.start_as_current_span("architect.generate_backend") as be_span:
+            backend_prompt = (
+                PROJECT_BACKEND_PROMPT
+                .replace("{description}", description)
+                .replace("{agents}", agents_text)
+                .replace("{api_endpoints}", endpoints_text)
+                .replace("{database_schema}", db_text)
+            )
+            try:
+                be_response = client.chat.completions.create(
+                    model=settings.azure_openai_deployment_gpt4o,
+                    messages=[{"role": "user", "content": backend_prompt}],
+                    temperature=0.2,
+                    max_completion_tokens=14000,
+                    response_format={"type": "json_object"},
+                )
+                be_data = json.loads(be_response.choices[0].message.content or "{}")
+                all_files.update(be_data.get("files", {}))
+                be_span.set_attribute("backend.file_count", len(be_data.get("files", {})))
+            except Exception as e:
+                be_span.record_exception(e)
+                be_span.set_status(trace_status("ERROR", str(e)))
+                all_files["backend/README.md"] = f"# Backend generation failed\nError: {e}\n\nRe-run or generate manually."
+
+        # ── Post-process ────────────────────────────────────────────────────
+        all_files = {path: _fix_python_file(path, content) for path, content in all_files.items()}
+        all_files = _enforce_agentic_structure(all_files, req.app_name, req.summary)
+
+        if "README.md" not in all_files:
+            all_files["README.md"] = f"# {req.app_name}\n\n> Generated by **AgentForge Architect** · {__import__('datetime').date.today()}\n\n## Stack\n- Frontend: {stack.get('frontend','React + TypeScript + Vite')}\n- Backend: {stack.get('backend','Python FastAPI')}\n- Database: {stack.get('database','PostgreSQL')}\n- AI: {stack.get('ai', settings.azure_openai_deployment_gpt4o)}\n\n## Features\n" + "\n".join(f"- {f}" for f in req.features) + "\n\n## Run\n```bash\ndocker-compose up --build\n```"
+
+        span.set_attribute("total.file_count", len(all_files))
+        return {"files": all_files, "file_count": len(all_files)}
 
 
 @router.post("/chat")
@@ -2554,7 +2609,7 @@ async def architect_chat(req: ArchitectChatRequest):
         model=settings.azure_openai_deployment_gpt4o,
         messages=conversation,
         temperature=0.7,
-        max_tokens=3000,
+        max_completion_tokens=3000,
         response_format={"type": "json_object"},
     )
 

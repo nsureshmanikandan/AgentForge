@@ -785,17 +785,28 @@ const SESSION_ID: string =
     ? crypto.randomUUID()
     : Math.random().toString(36).slice(2);
 
-const SUGGESTIONS = [
-  "What can you help me with?",
-  "Summarise the uploaded documents",
-  "What are the key topics covered?",
-];
-
+async function apiHealth(): Promise<string> {
+  const r = await fetch("/api/health");
+  if (!r.ok) return "AI Assistant";
+  const d = await r.json();
+  return d.app || "AI Assistant";
+}
+function buildSuggestions(docs: ApiDoc[]): string[] {
+  if (docs.length === 0) return ["What can you help me with?", "Summarise the uploaded documents", "What are the key topics covered?"];
+  const qs: string[] = [];
+  docs.forEach(d => {
+    const name = d.name.replace(/\.[^.]+$/, "");
+    qs.push(\`What does \${name} cover?\`);
+    qs.push(\`Summarise the key points in \${name}\`);
+    qs.push(\`What are the common issues mentioned in \${name}?\`);
+  });
+  return qs.slice(0, 10);
+}
 async function apiChat(message: string): Promise<Omit<BotMsg, "id" | "role" | "ts">> {
   const r = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, session_id: SESSION_ID }),
+    body: JSON.stringify({ question: message, workspace_id: 1 }),
   });
   if (!r.ok) throw new Error(\`Chat API \${r.status}\`);
   return r.json();
@@ -813,9 +824,10 @@ async function apiDocs(): Promise<ApiDoc[]> {
 // RAG Scaffold — backend on port 8001 — routes: /api/chat, /api/documents/upload, /api/documents
 
 export default function App() {
+  const [appTitle, setAppTitle] = useState("AI Assistant");
   const [messages, setMessages] = useState<Msg[]>([{
     id: "welcome", role: "bot",
-    answer: "Hello! I am your AI assistant for ${appTitle}. Upload documents and ask me anything.",
+    answer: "Hello! I am your AI assistant. Upload documents and ask me anything.",
     ts: new Date().toLocaleTimeString(),
   }]);
   const [input, setInput] = useState("");
@@ -827,8 +839,15 @@ export default function App() {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const msgCount = messages.filter(m => m.role === "user").length;
+  const suggestions = buildSuggestions(docs);
 
-  useEffect(() => { apiDocs().then(setDocs); }, []);
+  useEffect(() => {
+    apiHealth().then(title => {
+      setAppTitle(title);
+      setMessages([{ id: "welcome", role: "bot", answer: \`Hello! I am your AI assistant for \${title}. Upload documents and ask me anything.\`, ts: new Date().toLocaleTimeString() }]);
+    });
+    apiDocs().then(setDocs);
+  }, []);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
 
   async function send(override?: string) {
@@ -867,7 +886,7 @@ export default function App() {
 
   function toggleTopic(topic: string) {
     if (activeTopic === topic) { setActiveTopic(null); }
-    else { setActiveTopic(topic); send("Tell me about " + topic); }
+    else { setActiveTopic(topic); send(\`What are the key topics covered in \${topic}?\`); }
   }
 
   return (
@@ -878,8 +897,8 @@ export default function App() {
         <div className="p-4 border-b border-gray-700">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-sm">AI</div>
-            <div>
-              <p className="text-sm font-bold leading-tight">${appTitle.split(" ").slice(0, 4).join(" ")}</p>
+            <div className="min-w-0">
+              <p className="text-sm font-bold leading-tight truncate">{appTitle}</p>
               <p className="text-xs text-slate-400">FAISS RAG · GPT-4o</p>
             </div>
           </div>
@@ -899,18 +918,19 @@ export default function App() {
           {docs.length === 0
             ? <p className="text-xs text-slate-500 italic">No documents yet.</p>
             : docs.map(d => (
-              <div key={d.id} className="bg-slate-700/50 rounded-lg p-2.5 mb-2">
+              <button key={d.id} onClick={() => send(\`Summarise \${d.name}\`)}
+                className="w-full text-left bg-slate-700/50 hover:bg-slate-600/60 rounded-lg p-2.5 mb-2 transition-colors">
                 <p className="text-xs font-medium text-slate-200 truncate">{d.name}</p>
                 <span className={\`text-[10px] font-semibold mt-1 inline-block \${d.indexed ? "text-emerald-400" : "text-amber-400"}\`}>
-                  {d.indexed ? "✓ Indexed" : "⏳ Pending"}
+                  {d.indexed ? "✓ Indexed — click to explore" : "⏳ Pending"}
                 </span>
-              </div>
+              </button>
             ))}
         </div>
-        <div className="p-3 border-t border-gray-700">
+        <div className="p-3 border-t border-gray-700 max-h-56 overflow-y-auto">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Suggested</p>
           <div className="flex flex-col gap-1.5">
-            {SUGGESTIONS.map(s => (
+            {suggestions.map(s => (
               <button key={s} onClick={() => send(s)}
                 className="text-left text-xs text-slate-300 hover:text-white hover:bg-gray-800 rounded px-2 py-1.5 transition-colors">
                 {s}
@@ -922,24 +942,55 @@ export default function App() {
 
       {/* ── MAIN CHAT ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-          <p className="flex-1 text-base font-bold text-slate-900">${appTitle}</p>
-          <span className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full">● AI Active</span>
-          <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-3 py-1 rounded-full">● KB Connected</span>
+        <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-2 shadow-sm flex-shrink-0 min-w-0">
+          <p className="flex-1 min-w-0 text-sm font-bold text-slate-900 truncate">{appTitle}</p>
+          <span className="flex-shrink-0 text-xs font-semibold bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full whitespace-nowrap">● AI Active</span>
+          <span className="flex-shrink-0 text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full whitespace-nowrap">● KB Connected</span>
+          <span className="flex-shrink-0 text-xs font-semibold bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full whitespace-nowrap">85–97% Accuracy</span>
         </header>
         <div className="flex-1 overflow-y-auto p-5 space-y-3">
           {messages.map(msg => (
             <div key={msg.id} className={\`flex \${msg.role === "user" ? "justify-end" : "justify-start"}\`}>
               {msg.role === "user"
                 ? <div><div className="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm max-w-md leading-relaxed">{msg.text}</div><p className="text-[10px] text-slate-400 text-right mt-1">{msg.ts}</p></div>
-                : <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-2xl w-full">
+                : <div className={\`bg-white border \${msg.out_of_scope ? "border-amber-200" : "border-slate-200"} rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-2xl w-full\`}>
+                    {msg.out_of_scope && <div className="flex items-center gap-2 mb-3 text-amber-700 bg-amber-50 rounded-lg px-3 py-2 text-xs font-medium">⚠ Out of scope</div>}
                     <div className="space-y-0.5">{renderMarkdown(msg.answer)}</div>
+                    {msg.steps && msg.steps.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-slate-100">
+                        <p className="text-xs font-semibold text-slate-500 mb-2">Step-by-Step Resolution</p>
+                        <ol className="space-y-1.5">
+                          {msg.steps.map((s, i) => (
+                            <li key={i} className="flex items-start gap-2.5 text-sm text-slate-700">
+                              <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
+                              {s}
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+                    {msg.source && msg.source !== "N/A" && (
+                      <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-slate-500 font-medium">📄 {msg.source}</span>
+                        <ConfBadge value={msg.confidence} />
+                      </div>
+                    )}
                     {msg.related && msg.related.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-slate-100">
-                        {msg.related.map((r, i) => (
-                          <button key={i} onClick={() => send(r)}
-                            className="text-[11px] bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-2.5 py-0.5 hover:bg-indigo-100">{r}</button>
-                        ))}
+                      <div className="mt-2 pt-2 border-t border-slate-100">
+                        <p className="text-[10px] font-semibold text-slate-400 mb-1.5">💡 Related:</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {msg.related.map((r, i) => (
+                            <button key={i} onClick={() => send(r)}
+                              className="text-[11px] bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-2.5 py-0.5 hover:bg-indigo-100">{r}</button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {msg.id !== "welcome" && (
+                      <div className="mt-2 pt-2 border-t border-slate-100 flex items-center gap-2">
+                        <span className="text-[10px] text-slate-400">Was this helpful?</span>
+                        <button className="text-base hover:scale-110 transition-transform" title="Helpful">👍</button>
+                        <button className="text-base hover:scale-110 transition-transform" title="Not helpful">👎</button>
                       </div>
                     )}
                     <p className="text-[10px] text-slate-400 mt-1">{msg.ts}</p>
@@ -978,7 +1029,7 @@ export default function App() {
       </div>
 
       {/* ── RIGHT PANEL ── */}
-      <aside className="w-56 border-l bg-white p-4 flex flex-col gap-5 flex-shrink-0 overflow-y-auto">
+      <aside className="w-64 border-l bg-white p-4 flex flex-col gap-5 flex-shrink-0 overflow-y-auto">
         <div>
           <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Knowledge Base</p>
           <div className="bg-slate-50 rounded-xl p-3">
@@ -996,17 +1047,19 @@ export default function App() {
         <div>
           <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Filter by Topic</p>
           <div className="flex flex-wrap gap-1.5">
-            {["General", "Summary", "Details", "Policy", "Technical"].map(topic => (
-              <button
-                key={topic}
-                onClick={() => toggleTopic(topic)}
-                className={\`text-[11px] px-2.5 py-1 rounded-full border transition-colors \${
-                  activeTopic === topic
-                    ? "bg-indigo-600 text-white border-indigo-600 font-semibold"
-                    : "bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100"
-                }\`}
-              >{topic}</button>
-            ))}
+            {docs.length === 0
+              ? <p className="text-xs text-slate-400 italic">Upload documents to filter by topic</p>
+              : docs.map(d => d.name.replace(/\\.[^.]+$/, "")).map((topic: string) => (
+                <button key={topic} onClick={() => toggleTopic(topic)}
+                  className={\`text-[11px] px-2.5 py-1 rounded-full border transition-colors truncate max-w-full \${
+                    activeTopic === topic
+                      ? "bg-indigo-600 text-white border-indigo-600 font-semibold"
+                      : "bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100"
+                  }\`}>
+                  {topic}
+                </button>
+              ))
+            }
           </div>
         </div>
       </aside>
@@ -1035,7 +1088,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(<React.StrictMode><
     name: appName + "-frontend", version: "0.1.0", private: true,
     scripts: { dev: "vite", build: "tsc && vite build", preview: "vite preview" },
     dependencies: { react: "^18.3.1", "react-dom": "^18.3.1" },
-    devDependencies: { "@types/react": "^18.3.3", "@types/react-dom": "^18.3.0", "@vitejs/plugin-react": "^4.3.1", autoprefixer: "^10.4.19", postcss: "^8.4.38", tailwindcss: "^3.4.4", typescript: "^5.2.2", vite: "^5.4.0" },
+    devDependencies: { "@types/react": "^18.3.3", "@types/react-dom": "^18.3.0", "@vitejs/plugin-react": "^4.3.1",
+    "axios": "^1.7.2", autoprefixer: "^10.4.19", postcss: "^8.4.38", tailwindcss: "^3.4.4", typescript: "^5.2.2", vite: "^5.4.0" },
   }, null, 2));
 
   // ── frontend/vite.config.ts ───────────────────────────────────────────────
@@ -1288,17 +1342,29 @@ const SESSION_ID: string =
     ? crypto.randomUUID()
     : Math.random().toString(36).slice(2);
 
-const SUGGESTIONS = [
-  "What can you help me with?",
-  "Summarise the uploaded documents",
-  "What are the key topics covered?",
-];
+async function apiHealth(): Promise<string> {
+  const r = await fetch("/api/health");
+  if (!r.ok) return "AI Assistant";
+  const d = await r.json();
+  return d.app || "AI Assistant";
+}
+function buildSuggestions(docs: ApiDoc[]): string[] {
+  if (docs.length === 0) return ["What can you help me with?", "Summarise the uploaded documents", "What are the key topics covered?"];
+  const qs: string[] = [];
+  docs.forEach(d => {
+    const name = d.name.replace(/\.[^.]+$/, "");
+    qs.push(\`What does \${name} cover?\`);
+    qs.push(\`Summarise the key points in \${name}\`);
+    qs.push(\`What are the common issues mentioned in \${name}?\`);
+  });
+  return qs.slice(0, 10);
+}
 
 async function apiChat(question: string): Promise<Omit<BotMsg, "id" | "role" | "ts">> {
-  const r = await fetch("/api/ask-question", {
+  const r = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ question, workspace_id: 1 }),
   });
   if (!r.ok) throw new Error(\`Chat API \${r.status}\`);
   const data = await r.json();
@@ -1321,9 +1387,10 @@ async function apiDocs(): Promise<ApiDoc[]> {
 // handleUpload tracks docs locally since /api/documents may not exist
 
 export default function App() {
+  const [appTitle, setAppTitle] = useState("AI Assistant");
   const [messages, setMessages] = useState<Msg[]>([{
     id: "welcome", role: "bot",
-    answer: "Hello! I am your AI assistant for ${appTitle}. Upload documents and ask me anything.",
+    answer: "Hello! I am your AI assistant. Upload documents and ask me anything.",
     ts: new Date().toLocaleTimeString(),
   }]);
   const [input, setInput] = useState("");
@@ -1334,8 +1401,15 @@ export default function App() {
   const fileRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const msgCount = messages.filter(m => m.role === "user").length;
+  const suggestions = buildSuggestions(docs);
 
-  useEffect(() => { apiDocs().then(setDocs); }, []);
+  useEffect(() => {
+    apiHealth().then(title => {
+      setAppTitle(title);
+      setMessages([{ id: "welcome", role: "bot", answer: \`Hello! I am your AI assistant for \${title}. Upload documents and ask me anything.\`, ts: new Date().toLocaleTimeString() }]);
+    });
+    apiDocs().then(setDocs);
+  }, []);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
 
   async function send(override?: string) {
@@ -1374,7 +1448,7 @@ export default function App() {
 
   function toggleTopic(topic: string) {
     if (activeTopic === topic) { setActiveTopic(null); }
-    else { setActiveTopic(topic); send("Tell me about " + topic); }
+    else { setActiveTopic(topic); send(\`What are the key topics covered in \${topic}?\`); }
   }
 
   return (
@@ -1385,8 +1459,8 @@ export default function App() {
         <div className="p-4 border-b border-gray-700">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-sm">AI</div>
-            <div>
-              <p className="text-sm font-bold leading-tight">${appTitle.split(" ").slice(0, 4).join(" ")}</p>
+            <div className="min-w-0">
+              <p className="text-sm font-bold leading-tight truncate">{appTitle}</p>
               <p className="text-xs text-slate-400">FAISS RAG · GPT-4o</p>
             </div>
           </div>
@@ -1403,18 +1477,19 @@ export default function App() {
           {docs.length === 0
             ? <p className="text-xs text-slate-500 italic">No documents yet.</p>
             : docs.map(d => (
-              <div key={d.id} className="bg-slate-700/50 rounded-lg p-2.5 mb-2">
+              <button key={d.id} onClick={() => send(\`Summarise \${d.name}\`)}
+                className="w-full text-left bg-slate-700/50 hover:bg-slate-600/60 rounded-lg p-2.5 mb-2 transition-colors">
                 <p className="text-xs font-medium text-slate-200 truncate">{d.name}</p>
                 <span className={\`text-[10px] font-semibold mt-1 inline-block \${d.indexed ? "text-emerald-400" : "text-amber-400"}\`}>
-                  {d.indexed ? "✓ Indexed" : "⏳ Pending"}
+                  {d.indexed ? "✓ Indexed — click to explore" : "⏳ Pending"}
                 </span>
-              </div>
+              </button>
             ))}
         </div>
-        <div className="p-3 border-t border-gray-700">
+        <div className="p-3 border-t border-gray-700 max-h-56 overflow-y-auto">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Suggested</p>
           <div className="flex flex-col gap-1.5">
-            {SUGGESTIONS.map(s => (
+            {suggestions.map(s => (
               <button key={s} onClick={() => send(s)}
                 className="text-left text-xs text-slate-300 hover:text-white hover:bg-gray-800 rounded px-2 py-1.5 transition-colors">
                 {s}
@@ -1426,24 +1501,55 @@ export default function App() {
 
       {/* ── MAIN CHAT ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-          <p className="flex-1 text-base font-bold text-slate-900">${appTitle}</p>
-          <span className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full">● AI Active</span>
-          <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-3 py-1 rounded-full">● KB Connected</span>
+        <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-2 shadow-sm flex-shrink-0 min-w-0">
+          <p className="flex-1 min-w-0 text-sm font-bold text-slate-900 truncate">{appTitle}</p>
+          <span className="flex-shrink-0 text-xs font-semibold bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full whitespace-nowrap">● AI Active</span>
+          <span className="flex-shrink-0 text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full whitespace-nowrap">● KB Connected</span>
+          <span className="flex-shrink-0 text-xs font-semibold bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full whitespace-nowrap">85–97% Accuracy</span>
         </header>
         <div className="flex-1 overflow-y-auto p-5 space-y-3">
           {messages.map(msg => (
             <div key={msg.id} className={\`flex \${msg.role === "user" ? "justify-end" : "justify-start"}\`}>
               {msg.role === "user"
                 ? <div><div className="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm max-w-md leading-relaxed">{msg.text}</div><p className="text-[10px] text-slate-400 text-right mt-1">{msg.ts}</p></div>
-                : <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-2xl w-full">
+                : <div className={\`bg-white border \${msg.out_of_scope ? "border-amber-200" : "border-slate-200"} rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-2xl w-full\`}>
+                    {msg.out_of_scope && <div className="flex items-center gap-2 mb-3 text-amber-700 bg-amber-50 rounded-lg px-3 py-2 text-xs font-medium">⚠ Out of scope</div>}
                     <div className="space-y-0.5">{renderMarkdown(msg.answer)}</div>
+                    {msg.steps && msg.steps.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-slate-100">
+                        <p className="text-xs font-semibold text-slate-500 mb-2">Step-by-Step Resolution</p>
+                        <ol className="space-y-1.5">
+                          {msg.steps.map((s, i) => (
+                            <li key={i} className="flex items-start gap-2.5 text-sm text-slate-700">
+                              <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
+                              {s}
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+                    {msg.source && msg.source !== "N/A" && (
+                      <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-slate-500 font-medium">📄 {msg.source}</span>
+                        <ConfBadge value={msg.confidence} />
+                      </div>
+                    )}
                     {msg.related && msg.related.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-slate-100">
-                        {msg.related.map((r, i) => (
-                          <button key={i} onClick={() => send(r)}
-                            className="text-[11px] bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-2.5 py-0.5 hover:bg-indigo-100">{r}</button>
-                        ))}
+                      <div className="mt-2 pt-2 border-t border-slate-100">
+                        <p className="text-[10px] font-semibold text-slate-400 mb-1.5">💡 Related:</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {msg.related.map((r, i) => (
+                            <button key={i} onClick={() => send(r)}
+                              className="text-[11px] bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-2.5 py-0.5 hover:bg-indigo-100">{r}</button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {msg.id !== "welcome" && (
+                      <div className="mt-2 pt-2 border-t border-slate-100 flex items-center gap-2">
+                        <span className="text-[10px] text-slate-400">Was this helpful?</span>
+                        <button className="text-base hover:scale-110 transition-transform" title="Helpful">👍</button>
+                        <button className="text-base hover:scale-110 transition-transform" title="Not helpful">👎</button>
                       </div>
                     )}
                     <p className="text-[10px] text-slate-400 mt-1">{msg.ts}</p>
@@ -1477,7 +1583,7 @@ export default function App() {
       </div>
 
       {/* ── RIGHT PANEL ── */}
-      <aside className="w-56 border-l bg-white p-4 flex flex-col gap-5 flex-shrink-0 overflow-y-auto">
+      <aside className="w-64 border-l bg-white p-4 flex flex-col gap-5 flex-shrink-0 overflow-y-auto">
         <div>
           <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Knowledge Base</p>
           <div className="bg-slate-50 rounded-xl p-3">
@@ -1495,16 +1601,19 @@ export default function App() {
         <div>
           <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Filter by Topic</p>
           <div className="flex flex-wrap gap-1.5">
-            {["General", "Summary", "Details", "Policy", "Technical"].map(topic => (
-              <button key={topic} onClick={() => toggleTopic(topic)}
-                className={\`text-[11px] px-2.5 py-1 rounded-full border transition-colors \${
-                  activeTopic === topic
-                    ? "bg-indigo-600 text-white border-indigo-600 font-semibold"
-                    : "bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100"
-                }\`}>
-                {topic}
-              </button>
-            ))}
+            {docs.length === 0
+              ? <p className="text-xs text-slate-400 italic">Upload documents to filter by topic</p>
+              : docs.map(d => d.name.replace(/\\.[^.]+$/, "")).map((topic: string) => (
+                <button key={topic} onClick={() => toggleTopic(topic)}
+                  className={\`text-[11px] px-2.5 py-1 rounded-full border transition-colors truncate max-w-full \${
+                    activeTopic === topic
+                      ? "bg-indigo-600 text-white border-indigo-600 font-semibold"
+                      : "bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100"
+                  }\`}>
+                  {topic}
+                </button>
+              ))
+            }
           </div>
         </div>
       </aside>
@@ -1570,6 +1679,8 @@ body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Ro
       react: "^18.3.1",
       "react-dom": "^18.3.1",
       "@tanstack/react-query": "^4.36.1",
+      "react-hot-toast": "^2.4.1",
+      "axios": "^1.7.2",
     },
     devDependencies: {
       "@types/react": "^18.3.3",
