@@ -695,7 +695,7 @@ async function buildRagScaffoldZip(html: string, plan: Plan): Promise<Blob> {
       <div class="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-sm">AI</div>
       <div>
         <p class="text-sm font-bold leading-tight truncate max-w-[160px]">${appTitle}</p>
-        <p class="text-xs text-slate-400">RAG · Azure OpenAI</p>
+        <p class="text-xs text-slate-400">FAISS RAG · Azure OpenAI</p>
       </div>
     </div>
   </div>
@@ -753,7 +753,7 @@ async function buildRagScaffoldZip(html: string, plan: Plan): Promise<Blob> {
 </div>
 
 <!-- RIGHT PANEL -->
-<aside class="w-56 border-l bg-white p-4 flex flex-col gap-5 flex-shrink-0 overflow-y-auto">
+<aside class="w-64 border-l bg-white p-4 flex flex-col gap-5 flex-shrink-0 overflow-y-auto">
   <div>
     <p class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Knowledge Base</p>
     <div class="bg-slate-50 rounded-xl p-3">
@@ -771,11 +771,7 @@ async function buildRagScaffoldZip(html: string, plan: Plan): Promise<Blob> {
   <div>
     <p class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Filter by Topic</p>
     <div class="flex flex-wrap gap-1.5" id="topic-chips">
-      <span class="chip" data-topic="policy">Policy</span>
-      <span class="chip" data-topic="product">Product</span>
-      <span class="chip" data-topic="support">Support</span>
-      <span class="chip" data-topic="billing">Billing</span>
-      <span class="chip" data-topic="technical">Technical</span>
+      <p class="text-xs text-slate-400 italic">Upload docs to see topics</p>
     </div>
   </div>
 </aside>
@@ -805,7 +801,7 @@ async function buildRagScaffoldZip(html: string, plan: Plan): Promise<Blob> {
     if(role==="user"){
       wrap.innerHTML = \`<div><div class="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm max-w-md leading-relaxed">\${escHtml(text)}</div><p class="text-[10px] text-slate-400 text-right mt-1">\${time}</p></div>\`;
     } else {
-      wrap.innerHTML = \`<div class="bg-white border border-slate-200 rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-xl"><p class="text-sm text-slate-800 leading-relaxed">\${escHtml(text)}</p><p class="text-[10px] text-slate-400 mt-1">\${time}</p></div>\`;
+      wrap.innerHTML = \`<div class="bg-white border border-slate-200 rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-xl"><p class="text-sm text-slate-800 leading-relaxed">\${escHtml(text)}</p><div class="flex items-center gap-3 mt-2 pt-2 border-t border-slate-100"><p class="text-[10px] text-slate-400">\${time}</p><div class="ml-auto flex items-center gap-1.5"><p class="text-[10px] text-slate-400">Helpful?</p><button onclick="this.style.color='#16a34a'" class="text-slate-400 hover:text-green-600 text-sm transition-colors" title="Helpful">👍</button><button onclick="this.style.color='#dc2626'" class="text-slate-400 hover:text-red-500 text-sm transition-colors" title="Not helpful">👎</button></div></div></div>\`;
     }
     chatMessages.appendChild(wrap);
     scrollBottom();
@@ -813,14 +809,38 @@ async function buildRagScaffoldZip(html: string, plan: Plan): Promise<Blob> {
 
   function escHtml(s){ const d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
 
+  function buildTopicChips(docs){
+    const container = document.getElementById("topic-chips");
+    if(!docs.length){ container.innerHTML='<p class="text-xs text-slate-400 italic">Upload docs to see topics</p>'; return; }
+    container.innerHTML = docs.map(d=>{ const name=(d.filename||d.name||"File").replace(/\.[^.]+$/,""); return \`<span class="chip" data-topic="\${escHtml(name)}">\${escHtml(name)}</span>\`; }).join("");
+    container.querySelectorAll(".chip").forEach(chip=>{
+      chip.addEventListener("click",()=>{
+        const topic=chip.dataset.topic;
+        if(activeTopic===topic){ activeTopic=null; chip.style.background=""; chip.style.fontWeight=""; }
+        else { activeTopic=topic; container.querySelectorAll(".chip").forEach(c=>{ c.style.background=""; c.style.fontWeight=""; }); chip.style.background="#c7d2fe"; chip.style.fontWeight="700"; sendMessage("Tell me about "+topic); }
+      });
+    });
+  }
+
+  function buildSuggestionsList(docs){
+    const container = document.getElementById("suggestions");
+    let qs;
+    if(!docs.length){ qs=["What can you help me with?","Summarise the uploaded documents","What are the key topics covered?"]; }
+    else { qs=[]; docs.forEach(d=>{ const n=(d.filename||d.name||"File").replace(/\.[^.]+$/,""); qs.push(\`What does \${n} cover?\`); qs.push(\`Summarise \${n}\`); qs.push(\`Common issues in \${n}?\`); }); qs=qs.slice(0,6); }
+    container.innerHTML = qs.map(q=>\`<button class="suggestion-btn text-left text-xs text-slate-300 hover:text-white hover:bg-gray-800 rounded px-2 py-1.5 transition-colors">\${escHtml(q)}</button>\`).join("");
+    container.querySelectorAll(".suggestion-btn").forEach(btn=>{ btn.addEventListener("click",()=>{ sendMessage(btn.textContent.trim()); }); });
+  }
+
   async function loadDocs(){
     try {
       const r = await fetch(API+"/api/documents");
       if(!r.ok) return;
       const docs = await r.json();
       kbCount.textContent = docs.length;
-      if(docs.length===0){ docList.innerHTML='<p class="text-xs text-slate-500 italic">No documents yet.</p>'; return; }
-      docList.innerHTML = docs.map(d=>\`<div class="bg-slate-700/50 rounded-lg p-2.5 mb-2"><p class="text-xs font-medium text-slate-200 truncate">\${escHtml(d.name||"File")}</p><span class="text-[10px] font-semibold mt-1 inline-block \${d.indexed?"text-emerald-400":"text-amber-400"}">\${d.indexed?"✓ Indexed":"⏳ Pending"}</span></div>\`).join("");
+      if(docs.length===0){ docList.innerHTML='<p class="text-xs text-slate-500 italic">No documents yet.</p>'; buildTopicChips([]); buildSuggestionsList([]); return; }
+      docList.innerHTML = docs.map(d=>{ const fn=d.filename||d.name||"File"; return \`<div class="bg-slate-700/50 rounded-lg p-2.5 mb-2 cursor-pointer hover:bg-slate-600/50 transition-colors" onclick="sendMessage('Summarise '+\${JSON.stringify(fn)})"><p class="text-xs font-medium text-slate-200 truncate">\${escHtml(fn)}</p><span class="text-[10px] font-semibold mt-1 inline-block \${d.indexed?"text-emerald-400":"text-amber-400"}">\${d.indexed?"✓ Indexed — click to explore":"⏳ Pending"}</span></div>\`; }).join("");
+      buildTopicChips(docs);
+      buildSuggestionsList(docs);
     } catch(e){ /* backend not running yet */ }
   }
 
@@ -845,17 +865,7 @@ async function buildRagScaffoldZip(html: string, plan: Plan): Promise<Blob> {
   sendBtn.addEventListener("click", ()=>{ const t=msgInput.value.trim(); if(t){ msgInput.value=""; sendMessage(t); } });
   msgInput.addEventListener("keydown", e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendBtn.click(); } });
 
-  document.querySelectorAll(".suggestion-btn").forEach(btn=>{
-    btn.addEventListener("click", ()=>{ sendMessage(btn.textContent.trim()); });
-  });
-
-  document.querySelectorAll(".chip").forEach(chip=>{
-    chip.addEventListener("click", ()=>{
-      const topic = chip.dataset.topic;
-      if(activeTopic===topic){ activeTopic=null; chip.style.background=""; chip.style.fontWeight=""; }
-      else { activeTopic=topic; document.querySelectorAll(".chip").forEach(c=>{ c.style.background=""; c.style.fontWeight=""; }); chip.style.background="#c7d2fe"; chip.style.fontWeight="700"; sendMessage("Tell me about "+topic); }
-    });
-  });
+  // suggestions + chips are wired dynamically in buildSuggestionsList / buildTopicChips
 
   // Upload
   const uploadBtn = document.getElementById("upload-btn");
@@ -876,6 +886,8 @@ async function buildRagScaffoldZip(html: string, plan: Plan): Promise<Blob> {
     loadDocs();
   });
 
+  buildSuggestionsList([]);
+  buildTopicChips([]);
   loadDocs();
   setInterval(loadDocs, 15000);
 })();
@@ -900,7 +912,7 @@ function renderMarkdown(text: string): React.ReactNode {
   });
 }
 
-interface ApiDoc { id: string; name: string; indexed: boolean; }
+interface ApiDoc { id: string; name?: string; filename?: string; indexed: boolean; }
 interface BotMsg { id: string; role: "bot"; answer: string; related?: string[]; ts: string; }
 interface UserMsg { id: string; role: "user"; text: string; ts: string; }
 type Msg = UserMsg | BotMsg;
@@ -920,7 +932,7 @@ function buildSuggestions(docs: ApiDoc[]): string[] {
   if (docs.length === 0) return ["What can you help me with?", "Summarise the uploaded documents", "What are the key topics covered?"];
   const qs: string[] = [];
   docs.forEach(d => {
-    const name = d.name.replace(/\.[^.]+$/, "");
+    const name = (d.filename ?? d.name ?? "Document").replace(/\.[^.]+$/, "");
     qs.push(\`What does \${name} cover?\`);
     qs.push(\`Summarise the key points in \${name}\`);
     qs.push(\`What are the common issues mentioned in \${name}?\`);
@@ -1024,7 +1036,7 @@ export default function App() {
             <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-sm">AI</div>
             <div className="min-w-0">
               <p className="text-sm font-bold leading-tight truncate">{appTitle}</p>
-              <p className="text-xs text-slate-400">RAG · Azure OpenAI</p>
+              <p className="text-xs text-slate-400">FAISS RAG · Azure OpenAI</p>
             </div>
           </div>
         </div>
@@ -1043,9 +1055,9 @@ export default function App() {
           {docs.length === 0
             ? <p className="text-xs text-slate-500 italic">No documents yet.</p>
             : docs.map(d => (
-              <button key={d.id} onClick={() => send(\`Summarise \${d.name}\`)}
+              <button key={d.id} onClick={() => send(\`Summarise \${d.filename ?? d.name}\`)}
                 className="w-full text-left bg-slate-700/50 hover:bg-slate-600/60 rounded-lg p-2.5 mb-2 transition-colors">
-                <p className="text-xs font-medium text-slate-200 truncate">{d.name}</p>
+                <p className="text-xs font-medium text-slate-200 truncate">{d.filename ?? d.name}</p>
                 <span className={\`text-[10px] font-semibold mt-1 inline-block \${d.indexed ? "text-emerald-400" : "text-amber-400"}\`}>
                   {d.indexed ? "✓ Indexed — click to explore" : "⏳ Pending"}
                 </span>
@@ -1174,7 +1186,7 @@ export default function App() {
           <div className="flex flex-wrap gap-1.5">
             {docs.length === 0
               ? <p className="text-xs text-slate-400 italic">Upload documents to filter by topic</p>
-              : docs.map(d => d.name.replace(/\\.[^.]+$/, "")).map((topic: string) => (
+              : docs.map(d => (d.filename ?? d.name ?? "Document").replace(/\\.[^.]+$/, "")).map((topic: string) => (
                 <button key={topic} onClick={() => toggleTopic(topic)}
                   className={\`text-[11px] px-2.5 py-1 rounded-full border transition-colors truncate max-w-full \${
                     activeTopic === topic
@@ -1457,7 +1469,7 @@ function renderMarkdown(text: string): React.ReactNode {
   });
 }
 
-interface ApiDoc { id: string; name: string; indexed: boolean; }
+interface ApiDoc { id: string; name?: string; filename?: string; indexed: boolean; }
 interface BotMsg { id: string; role: "bot"; answer: string; related?: string[]; ts: string; }
 interface UserMsg { id: string; role: "user"; text: string; ts: string; }
 type Msg = UserMsg | BotMsg;
@@ -1477,7 +1489,7 @@ function buildSuggestions(docs: ApiDoc[]): string[] {
   if (docs.length === 0) return ["What can you help me with?", "Summarise the uploaded documents", "What are the key topics covered?"];
   const qs: string[] = [];
   docs.forEach(d => {
-    const name = d.name.replace(/\.[^.]+$/, "");
+    const name = (d.filename ?? d.name ?? "Document").replace(/\.[^.]+$/, "");
     qs.push(\`What does \${name} cover?\`);
     qs.push(\`Summarise the key points in \${name}\`);
     qs.push(\`What are the common issues mentioned in \${name}?\`);
@@ -1586,7 +1598,7 @@ export default function App() {
             <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-sm">AI</div>
             <div className="min-w-0">
               <p className="text-sm font-bold leading-tight truncate">{appTitle}</p>
-              <p className="text-xs text-slate-400">RAG · Azure OpenAI</p>
+              <p className="text-xs text-slate-400">FAISS RAG · Azure OpenAI</p>
             </div>
           </div>
         </div>
@@ -1602,9 +1614,9 @@ export default function App() {
           {docs.length === 0
             ? <p className="text-xs text-slate-500 italic">No documents yet.</p>
             : docs.map(d => (
-              <button key={d.id} onClick={() => send(\`Summarise \${d.name}\`)}
+              <button key={d.id} onClick={() => send(\`Summarise \${d.filename ?? d.name}\`)}
                 className="w-full text-left bg-slate-700/50 hover:bg-slate-600/60 rounded-lg p-2.5 mb-2 transition-colors">
-                <p className="text-xs font-medium text-slate-200 truncate">{d.name}</p>
+                <p className="text-xs font-medium text-slate-200 truncate">{d.filename ?? d.name}</p>
                 <span className={\`text-[10px] font-semibold mt-1 inline-block \${d.indexed ? "text-emerald-400" : "text-amber-400"}\`}>
                   {d.indexed ? "✓ Indexed — click to explore" : "⏳ Pending"}
                 </span>
@@ -1728,7 +1740,7 @@ export default function App() {
           <div className="flex flex-wrap gap-1.5">
             {docs.length === 0
               ? <p className="text-xs text-slate-400 italic">Upload documents to filter by topic</p>
-              : docs.map(d => d.name.replace(/\\.[^.]+$/, "")).map((topic: string) => (
+              : docs.map(d => (d.filename ?? d.name ?? "Document").replace(/\\.[^.]+$/, "")).map((topic: string) => (
                 <button key={topic} onClick={() => toggleTopic(topic)}
                   className={\`text-[11px] px-2.5 py-1 rounded-full border transition-colors truncate max-w-full \${
                     activeTopic === topic
