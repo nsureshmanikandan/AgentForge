@@ -3445,25 +3445,26 @@ export default function Architect() {
             </div>
             <span className="text-sm font-semibold text-white">Planning Architect</span>
           </div>
+        </div>
+
+        {/* Mode selector: + New | Build | Suggest | Add Features */}
+        <div className="flex items-center gap-1.5 px-4 py-2.5 border-b-2 border-white/15" style={{ background: "rgba(255,255,255,0.03)" }}>
           <button
             onClick={newSession}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-gray-300 border border-white/10 transition-colors hover:bg-white/10"
-            style={{ background: "rgba(255,255,255,0.07)" }}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-indigo-300 border border-indigo-500/40 hover:bg-indigo-600/20 transition-all duration-150 flex-shrink-0"
+            style={{ background: "rgba(99,102,241,0.10)" }}
           >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
             New
           </button>
-        </div>
-
-        {/* Mode selector: Build | Suggest | Add Features */}
-        <div className="flex items-center gap-1.5 px-5 py-3 border-b-2 border-white/15" style={{ background: "rgba(255,255,255,0.03)" }}>
+          <div className="w-px h-4 bg-white/10 mx-0.5 flex-shrink-0" />
           {(["build", "suggest", "features"] as Mode[]).map((m) => (
             <button
               key={m}
               onClick={() => setMode(m)}
-              className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 ${
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 ${
                 mode === m
                   ? "bg-indigo-600 text-white"
                   : "text-gray-400 hover:text-gray-200"
