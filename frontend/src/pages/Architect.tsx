@@ -2897,6 +2897,7 @@ export default function Architect() {
     () => parseInt(localStorage.getItem(SESSION_CTR_KEY) ?? "0", 10)
   );
   const fileRef = useRef<HTMLInputElement>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [sidebarWidth, setSidebarWidth] = useState(460);
   const isResizing = useRef(false);
@@ -3822,8 +3823,9 @@ export default function Architect() {
             </div>
           )}
           <div
-            className="flex items-end gap-2 rounded-2xl px-4 py-3 border border-white/15 focus-within:border-indigo-500/60 transition-colors"
+            className="flex items-end gap-2 rounded-2xl px-4 py-3 border border-white/15 focus-within:border-indigo-500/60 transition-colors cursor-text"
             style={{ background: "rgba(255,255,255,0.06)" }}
+            onClick={() => chatInputRef.current?.focus()}
           >
             <input
               ref={fileRef}
@@ -3896,6 +3898,7 @@ export default function Architect() {
               </svg>
             </button>
             <textarea
+              ref={chatInputRef}
               rows={1}
               className="flex-1 bg-transparent text-sm text-gray-100 placeholder-gray-600 outline-none resize-none max-h-16 leading-relaxed"
               placeholder={
@@ -3915,6 +3918,22 @@ export default function Architect() {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   send();
+                }
+              }}
+              onPaste={(e) => {
+                const text = e.clipboardData.getData("text/plain");
+                if (text) {
+                  e.preventDefault();
+                  const ta = e.currentTarget;
+                  const start = ta.selectionStart ?? 0;
+                  const end = ta.selectionEnd ?? 0;
+                  const next = input.slice(0, start) + text + input.slice(end);
+                  setInput(next);
+                  requestAnimationFrame(() => {
+                    ta.selectionStart = ta.selectionEnd = start + text.length;
+                    ta.style.height = "auto";
+                    ta.style.height = Math.min(ta.scrollHeight, 64) + "px";
+                  });
                 }
               }}
             />
