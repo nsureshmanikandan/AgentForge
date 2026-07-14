@@ -689,7 +689,7 @@ async function buildRagScaffoldZip(html: string, plan: Plan): Promise<Blob> {
 <body class="flex h-screen overflow-hidden bg-slate-50">
 
 <!-- LEFT SIDEBAR -->
-<aside id="sidebar" class="w-64 bg-gray-900 text-white flex flex-col flex-shrink-0">
+<aside id="sidebar" class="w-52 bg-gray-900 text-white flex flex-col flex-shrink-0">
   <div class="p-4 border-b border-gray-700">
     <div class="flex items-center gap-3">
       <div class="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-sm">AI</div>
@@ -753,7 +753,7 @@ async function buildRagScaffoldZip(html: string, plan: Plan): Promise<Blob> {
 </div>
 
 <!-- RIGHT PANEL -->
-<aside class="w-64 border-l bg-white p-4 flex flex-col gap-5 flex-shrink-0 overflow-y-auto">
+<aside class="w-52 border-l bg-white p-4 flex flex-col gap-5 flex-shrink-0 overflow-y-auto">
   <div>
     <p class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Knowledge Base</p>
     <div class="bg-slate-50 rounded-xl p-3">
@@ -1030,7 +1030,7 @@ export default function App() {
     <div className="flex h-screen bg-slate-50 overflow-hidden" style={{ fontFamily: "'Inter','Segoe UI',sans-serif" }}>
 
       {/* ── LEFT SIDEBAR ── */}
-      <aside className="w-64 bg-gray-900 text-white flex flex-col flex-shrink-0">
+      <aside className="w-52 bg-gray-900 text-white flex flex-col flex-shrink-0">
         <div className="p-4 border-b border-gray-700">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-sm">AI</div>
@@ -1166,7 +1166,7 @@ export default function App() {
       </div>
 
       {/* ── RIGHT PANEL ── */}
-      <aside className="w-64 border-l bg-white p-4 flex flex-col gap-5 flex-shrink-0 overflow-y-auto">
+      <aside className="w-52 border-l bg-white p-4 flex flex-col gap-5 flex-shrink-0 overflow-y-auto">
         <div>
           <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Knowledge Base</p>
           <div className="bg-slate-50 rounded-xl p-3">
@@ -1592,7 +1592,7 @@ export default function App() {
     <div className="flex h-screen bg-slate-50 overflow-hidden" style={{ fontFamily: "'Inter','Segoe UI',sans-serif" }}>
 
       {/* ── LEFT SIDEBAR ── */}
-      <aside className="w-64 bg-gray-900 text-white flex flex-col flex-shrink-0">
+      <aside className="w-52 bg-gray-900 text-white flex flex-col flex-shrink-0">
         <div className="p-4 border-b border-gray-700">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-sm">AI</div>
@@ -1720,7 +1720,7 @@ export default function App() {
       </div>
 
       {/* ── RIGHT PANEL ── */}
-      <aside className="w-64 border-l bg-white p-4 flex flex-col gap-5 flex-shrink-0 overflow-y-auto">
+      <aside className="w-52 border-l bg-white p-4 flex flex-col gap-5 flex-shrink-0 overflow-y-auto">
         <div>
           <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Knowledge Base</p>
           <div className="bg-slate-50 rounded-xl p-3">
