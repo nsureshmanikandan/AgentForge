@@ -3437,13 +3437,10 @@ export default function Architect() {
 
         {/* Header + mode buttons in one row */}
         <div className="flex items-center gap-1.5 px-3 py-3 border-b-2 border-white/20" style={{ background: "rgba(99,102,241,0.08)" }}>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <div className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center">
-              <svg className="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-              </svg>
-            </div>
-            <span className="text-xs font-semibold text-white whitespace-nowrap">Architect</span>
+          <div className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center flex-shrink-0">
+            <svg className="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+            </svg>
           </div>
           <div className="w-px h-4 bg-white/15 flex-shrink-0" />
           <button
