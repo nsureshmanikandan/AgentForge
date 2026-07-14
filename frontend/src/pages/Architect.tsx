@@ -895,7 +895,7 @@ async function buildRagScaffoldZip(html: string, plan: Plan): Promise<Blob> {
 </body>
 </html>`);
 
-  // ── frontend/src/App.tsx — matches CC sandbox HTML layout exactly ────────────
+  // ── frontend/src/App.tsx — multi-page UI matching sandbox ───────────────────
   const ragAppTsx = `import React, { useState, useRef, useEffect } from "react";
 
 interface ApiDoc { id: string; name?: string; filename?: string; indexed: boolean; confidence?: number; }
@@ -965,8 +965,22 @@ function buildSuggestions(docs: ApiDoc[]): string[] {
   }).slice(0, 9);
 }
 
-// RAG Scaffold — backend on port 8001 — routes: /api/chat, /api/documents/upload, /api/documents
+// RAG Scaffold — backend on port 8003 — routes: /api/chat, /api/documents/upload, /api/documents
+type Page = "chat" | "questions" | "uploads" | "analytics" | "handoff";
+
+function getExt(filename: string): string {
+  return (filename.split(".").pop() ?? "DOC").toUpperCase();
+}
+function buildTopQuestions(docs: ApiDoc[]): string[] {
+  if (!docs.length) return ["What issue is being reported?", "How do I troubleshoot this problem?", "Who do I contact for support?"];
+  return docs.flatMap(d => {
+    const n = (d.filename ?? d.name ?? "Doc").replace(/\\.[^.]+$/, "");
+    return [\`What issue is being reported with \${n}?\`, \`How do I resolve a \${n} error?\`, \`Who do I contact for \${n} support?\`];
+  }).slice(0, 10);
+}
+
 export default function App() {
+  const [page, setPage] = useState<Page>("chat");
   const [appTitle, setAppTitle] = useState("AI Assistant");
   const [messages, setMessages] = useState<Msg[]>([{
     id: "welcome", role: "bot",
@@ -977,24 +991,20 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [docs, setDocs] = useState<ApiDoc[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [activeTopic, setActiveTopic] = useState<string | null>(null);
+  const [ticketForm, setTicketForm] = useState({ issue: "", name: "", priority: "Medium", details: "" });
+  const [ticketSent, setTicketSent] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-
-  const topics = buildTopics(docs);
   const suggestions = buildSuggestions(docs);
+  const topQuestions = buildTopQuestions(docs);
   const msgCount = messages.filter(m => m.role === "user").length;
-  const avgAcc = (() => {
-    const bm = messages.filter((m): m is BotMsg => m.role === "bot" && !!(m as BotMsg).confidence);
-    if (!bm.length) return null;
-    return Math.round(bm.reduce((a, m) => a + (m.confidence! > 1 ? m.confidence! : m.confidence! * 100), 0) / bm.length);
-  })();
+  const botMsgs = messages.filter((m): m is BotMsg => m.role === "bot" && m.id !== "welcome");
+  const lowConfCount = botMsgs.filter(m => m.confidence !== undefined && (m.confidence > 1 ? m.confidence : m.confidence * 100) < 75).length;
+  const lastQuery = (messages.filter(m => m.role === "user").slice(-1)[0] as UserMsg | undefined)?.text ?? null;
+  const unanswered = botMsgs.filter(m => m.out_of_scope || (m.confidence !== undefined && (m.confidence > 1 ? m.confidence : m.confidence * 100) < 50));
 
   useEffect(() => {
-    apiHealth().then(t => {
-      setAppTitle(t);
-      setMessages([{ id: "welcome", role: "bot", answer: \`Hello! I'm your AI assistant for \${t}. Upload documents and ask me anything.\`, ts: new Date().toLocaleTimeString() }]);
-    });
+    apiHealth().then(t => { setAppTitle(t); setMessages([{ id: "welcome", role: "bot", answer: \`Hello! I'm your AI assistant for \${t}. Upload documents and ask me anything.\`, ts: new Date().toLocaleTimeString() }]); });
     apiDocs().then(setDocs);
   }, []);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
@@ -1003,13 +1013,14 @@ export default function App() {
     const text = (override ?? input).trim();
     if (!text || loading) return;
     setInput("");
+    if (page !== "chat") setPage("chat");
     setMessages(p => [...p, { id: Date.now() + "u", role: "user", text, ts: new Date().toLocaleTimeString() }]);
     setLoading(true);
     try {
       const resp = await apiChat(text);
       setMessages(p => [...p, { id: Date.now() + "b", role: "bot", ...resp, ts: new Date().toLocaleTimeString() }]);
     } catch {
-      setMessages(p => [...p, { id: Date.now() + "e", role: "bot", answer: "⚠️ Backend not reachable. Ensure FastAPI is running on port 8001.", ts: new Date().toLocaleTimeString() }]);
+      setMessages(p => [...p, { id: Date.now() + "e", role: "bot", answer: "⚠️ Backend not reachable. Ensure FastAPI is running on port 8003.", ts: new Date().toLocaleTimeString() }]);
     } finally { setLoading(false); }
   }
 
@@ -1024,175 +1035,212 @@ export default function App() {
       else setDocs(p => [...p, ...results.map((r: any, i: number) => ({ id: String(Date.now() + i), name: r.title || r.filename || files[i]?.name || "Document", indexed: true }))]);
     } catch (err) {
       alert("Upload failed: " + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = "";
-    }
+    } finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
   }
 
-  return (
-    <div className="flex h-screen overflow-hidden bg-slate-50" style={{ fontFamily: "'Inter','Segoe UI',sans-serif" }}>
+  const navItems: { id: Page; icon: string; label: string }[] = [
+    { id: "chat", icon: "💬", label: "Support Chat" },
+    { id: "questions", icon: "💡", label: "Suggested Questions" },
+    { id: "uploads", icon: "📁", label: "Admin Uploads" },
+    { id: "analytics", icon: "📊", label: "Conversation Analytics" },
+    { id: "handoff", icon: "📞", label: "Ticket Handoff" },
+  ];
 
-      {/* ── LEFT SIDEBAR w-52 ── */}
-      <aside className="w-52 bg-gray-900 text-white flex flex-col flex-shrink-0">
-        <div className="p-4 border-b border-gray-700">
+  return (
+    <div className="flex h-screen overflow-hidden bg-gray-100" style={{ fontFamily: "'Inter','Segoe UI',sans-serif" }}>
+      <aside className="w-64 bg-slate-800 text-white flex flex-col flex-shrink-0">
+        <div className="p-4 border-b border-white/10">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-sm">AI</div>
-            <div>
-              <p className="text-sm font-bold leading-tight truncate max-w-[160px]">{appTitle}</p>
-              <p className="text-xs text-slate-400">FAISS RAG · Azure OpenAI</p>
-            </div>
+            <div className="w-10 h-10 rounded-xl bg-purple-600 flex items-center justify-center font-bold text-base">{appTitle.charAt(0).toUpperCase()}</div>
+            <div className="min-w-0"><p className="text-sm font-bold leading-tight truncate">{appTitle}</p><p className="text-xs text-slate-400 leading-tight">Document-aware support</p></div>
           </div>
         </div>
-        <div className="p-3 border-b border-gray-700">
-          <button onClick={() => fileRef.current?.click()} disabled={uploading}
-            className="w-full text-xs font-semibold py-2 px-3 rounded-lg border border-indigo-500 text-indigo-300 hover:bg-indigo-900/40 disabled:opacity-50 transition-colors">
-            {uploading ? "⏳ Indexing…" : "📎 Upload Documents"}
-          </button>
-          <input ref={fileRef} type="file" multiple accept=".pdf,.docx,.txt,.md,.csv" className="hidden" onChange={handleUpload} />
-        </div>
+        <nav className="p-3 border-b border-white/10 space-y-0.5">
+          {navItems.map(item => (
+            <button key={item.id} onClick={() => setPage(item.id)}
+              className={\`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left \${page === item.id ? "bg-indigo-600 text-white" : "text-slate-300 hover:bg-white/10"}\`}>
+              <span className="text-base">{item.icon}</span><span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
         <div className="flex-1 overflow-y-auto p-3">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Documents</p>
-          {docs.length === 0
-            ? <p className="text-xs text-slate-500 italic">No documents yet.</p>
-            : docs.map(d => {
-                const fn = d.filename ?? d.name ?? "File";
-                return (
-                  <div key={d.id} onClick={() => send(\`Summarise \${fn}\`)}
-                    className="bg-slate-700/50 rounded-lg p-2.5 mb-2 cursor-pointer hover:bg-slate-600/50 transition-colors">
-                    <p className="text-xs font-medium text-slate-200 truncate">{fn}</p>
-                    <span className={\`text-[10px] font-semibold mt-1 inline-block \${d.indexed ? "text-emerald-400" : "text-amber-400"}\`}>
-                      {d.indexed ? "✓ Indexed — click to explore" : "⏳ Pending"}
-                    </span>
-                  </div>
-                );
-              })}
-        </div>
-        <div className="p-3 border-t border-gray-700">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Suggested</p>
-          <div className="flex flex-col gap-1.5">
-            {suggestions.map(s => (
-              <button key={s} onClick={() => send(s)}
-                className="text-left text-xs text-slate-300 hover:text-white hover:bg-gray-800 rounded px-2 py-1.5 transition-colors">
-                {s}
-              </button>
-            ))}
-          </div>
+          <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-2 px-1">Top 10 Questions</p>
+          {topQuestions.map((q, i) => (
+            <button key={i} onClick={() => send(q)}
+              className="w-full flex items-start gap-2.5 text-left text-xs text-slate-300 hover:text-white hover:bg-white/10 rounded-lg px-2 py-2 transition-colors mb-1">
+              <span className="w-5 h-5 rounded-full bg-indigo-600/60 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
+              <span className="leading-snug">{q}</span>
+            </button>
+          ))}
         </div>
       </aside>
 
-      {/* ── MAIN CHAT ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-          <p className="flex-1 text-base font-bold text-slate-900">{appTitle}</p>
-          <span className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0">● AI Active</span>
-          <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0">● KB Connected</span>
-          <span className="text-xs font-semibold bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0">85–97% Accuracy</span>
-        </header>
-        <div className="flex-1 overflow-y-auto p-5 space-y-3">
-          {messages.map(msg => (
-            <div key={msg.id} className={\`flex \${msg.role === "user" ? "justify-end" : "justify-start"}\`}>
-              {msg.role === "user"
-                ? <div><div className="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm max-w-md leading-relaxed">{(msg as UserMsg).text}</div><p className="text-[10px] text-slate-400 text-right mt-1">{msg.ts}</p></div>
-                : (() => { const bm = msg as BotMsg; return (
-                  <div className={\`bg-white border \${bm.out_of_scope ? "border-amber-200" : "border-slate-200"} rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-xl\`}>
-                    {bm.out_of_scope && <div className="flex items-center gap-2 mb-3 text-amber-700 bg-amber-50 rounded-lg px-3 py-2 text-xs font-medium">⚠ This question may be outside the scope of your knowledge base</div>}
-                    <div className="space-y-0.5">{renderMarkdown(bm.answer)}</div>
-                    {bm.steps && bm.steps.length > 0 && (
-                      <div className="mt-3 pt-3 border-t border-slate-100">
-                        <p className="text-xs font-semibold text-slate-500 mb-2">Step-by-Step Resolution</p>
-                        <ol className="space-y-1.5">
-                          {bm.steps.map((s, i) => (
-                            <li key={i} className="flex items-start gap-2.5 text-sm text-slate-700">
-                              <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
-                              {s}
-                            </li>
-                          ))}
-                        </ol>
-                      </div>
-                    )}
-                    {bm.source && bm.source !== "N/A" && (
-                      <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 flex-wrap">
-                        <span className="text-xs text-slate-500 font-medium">📄 {bm.source}</span>
-                        <ConfBadge value={bm.confidence} />
-                      </div>
-                    )}
-                    {bm.related && bm.related.length > 0 && (
-                      <div className="mt-2 pt-2 border-t border-slate-100">
-                        <p className="text-[10px] font-semibold text-slate-400 mb-1.5">Suggested follow-ups:</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {bm.related.map((r, i) => (
-                            <button key={i} onClick={() => send(r)} className="text-[11px] bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-2.5 py-0.5 hover:bg-indigo-100">{r}</button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {msg.id !== "welcome" && (
-                      <div className="mt-2 pt-2 border-t border-slate-100 flex items-center gap-2">
-                        <span className="text-[10px] text-slate-400">Helpful?</span>
-                        <button className="text-base hover:scale-110 transition-transform" title="Helpful">👍</button>
-                        <button className="text-base hover:scale-110 transition-transform" title="Not helpful">👎</button>
-                      </div>
-                    )}
-                    <p className="text-[10px] text-slate-400 mt-1">{msg.ts}</p>
-                  </div>
-                ); })()}
-            </div>
-          ))}
-          {loading && (
-            <div className="flex justify-start">
-              <div className="bg-white border border-slate-200 rounded-2xl px-4 py-3 inline-flex gap-1.5 shadow-sm">
-                {[0,1,2].map(i => <span key={i} className="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: \`\${i * 0.14}s\` }} />)}
+        {page === "chat" && (<>
+          <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+            <span className="text-lg">💬</span><p className="flex-1 text-base font-bold text-slate-900">Support Chat</p>
+            <span className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full">● AI Active</span>
+            <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full">● KB Connected</span>
+            <span className="text-xs font-semibold bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full">FAISS RAG · Azure OpenAI</span>
+          </header>
+          <div className="flex-1 overflow-y-auto p-5 space-y-3 bg-slate-50">
+            {messages.map(msg => (
+              <div key={msg.id} className={\`flex \${msg.role === "user" ? "justify-end" : "justify-start"}\`}>
+                {msg.role === "user"
+                  ? <div><div className="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm max-w-md">{(msg as UserMsg).text}</div><p className="text-[10px] text-slate-400 text-right mt-1">{msg.ts}</p></div>
+                  : (() => { const bm = msg as BotMsg; return (
+                    <div className={\`bg-white border \${bm.out_of_scope ? "border-amber-200" : "border-slate-200"} rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-xl\`}>
+                      {bm.out_of_scope && <div className="mb-3 text-amber-700 bg-amber-50 rounded-lg px-3 py-2 text-xs font-medium">⚠ Outside knowledge base scope</div>}
+                      <div className="space-y-0.5">{renderMarkdown(bm.answer)}</div>
+                      {bm.steps && bm.steps.length > 0 && <div className="mt-3 pt-3 border-t border-slate-100"><p className="text-xs font-semibold text-slate-500 mb-2">Step-by-Step Resolution</p><ol className="space-y-1.5">{bm.steps.map((s, i) => <li key={i} className="flex items-start gap-2.5 text-sm text-slate-700"><span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>{s}</li>)}</ol></div>}
+                      {bm.source && bm.source !== "N/A" && <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 flex-wrap"><span className="text-xs text-slate-500">📄 {bm.source}</span><ConfBadge value={bm.confidence} /></div>}
+                      {bm.related && bm.related.length > 0 && <div className="mt-2 pt-2 border-t border-slate-100"><p className="text-[10px] font-semibold text-slate-400 mb-1.5">Follow-ups:</p><div className="flex flex-wrap gap-1.5">{bm.related.map((r, i) => <button key={i} onClick={() => send(r)} className="text-[11px] bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-2.5 py-0.5 hover:bg-indigo-100">{r}</button>)}</div></div>}
+                      {msg.id !== "welcome" && <div className="mt-2 pt-2 border-t border-slate-100 flex items-center gap-2"><span className="text-[10px] text-slate-400">Helpful?</span><button className="text-base">👍</button><button className="text-base">👎</button></div>}
+                      <p className="text-[10px] text-slate-400 mt-1">{msg.ts}</p>
+                    </div>); })()}
               </div>
-            </div>
-          )}
-          <div ref={bottomRef} />
-        </div>
-        <footer className="bg-white border-t border-slate-200 p-3.5 flex-shrink-0">
-          <div className="flex gap-2.5 items-end">
-            <textarea value={input} onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-              placeholder="Ask a question…" rows={2}
-              className="flex-1 resize-none border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
-            <button onClick={() => send()} disabled={!input.trim() || loading}
-              className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white rounded-xl px-5 py-2.5 text-sm font-semibold h-[44px] whitespace-nowrap transition-colors">Send ➤</button>
+            ))}
+            {loading && <div className="flex justify-start"><div className="bg-white border border-slate-200 rounded-2xl px-4 py-3 inline-flex gap-1.5 shadow-sm">{[0,1,2].map(i => <span key={i} className="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: \`\${i * 0.14}s\` }} />)}</div></div>}
+            <div ref={bottomRef} />
           </div>
-          <p className="text-xs text-slate-400 text-center mt-2">Powered by Knowledge Base · FAISS RAG · Azure OpenAI</p>
-        </footer>
+          <div className="bg-white border-t border-slate-200 p-3.5 flex-shrink-0">
+            <div className="flex gap-2.5 items-end mb-2">
+              <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Ask a question…" rows={2} className="flex-1 resize-none border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+              <button onClick={() => send()} disabled={!input.trim() || loading} className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white rounded-xl px-5 py-2.5 text-sm font-semibold h-[44px] transition-colors">Send ➤</button>
+            </div>
+            <div className="flex flex-wrap gap-1.5 mb-2">{suggestions.slice(0, 3).map(s => <button key={s} onClick={() => send(s)} className="text-[11px] bg-slate-100 text-slate-600 border border-slate-200 rounded-full px-2.5 py-0.5 hover:bg-indigo-50 hover:text-indigo-600">{s}</button>)}</div>
+            <p className="text-xs text-slate-400 text-center">Powered by Knowledge Base · FAISS RAG · Azure OpenAI</p>
+          </div>
+        </>)}
+
+        {page === "questions" && (<>
+          <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+            <span className="text-lg">💡</span><p className="flex-1 text-base font-bold text-slate-900">Suggested Questions</p>
+            <span className="text-xs text-slate-500">{docs.length} document{docs.length !== 1 ? "s" : ""} indexed</span>
+          </header>
+          <div className="flex-1 overflow-y-auto p-5">
+            {docs.length === 0
+              ? <div className="text-center py-20 text-slate-400"><p className="text-4xl mb-3">💡</p><p className="font-semibold">No documents uploaded yet</p></div>
+              : docs.map(d => {
+                  const fn = (d.filename ?? d.name ?? "Document").replace(/\\.[^.]+$/, "");
+                  const qs = [\`What does \${fn} cover?\`, \`Summarise \${fn}\`, \`What are common issues in \${fn}?\`, \`How do I resolve a \${fn} error?\`, \`Who do I contact for \${fn} support?\`];
+                  return (
+                    <div key={d.id} className="bg-white rounded-xl border border-slate-200 shadow-sm mb-4 overflow-hidden">
+                      <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center gap-2">
+                        <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded">{getExt(d.filename ?? d.name ?? "DOC")}</span>
+                        <p className="text-sm font-bold text-slate-800 truncate">{d.filename ?? d.name}</p>
+                        <span className="ml-auto text-[11px] text-emerald-600 font-semibold">✓ Indexed</span>
+                      </div>
+                      <div className="divide-y divide-slate-100">
+                        {qs.map((q, i) => (
+                          <button key={i} onClick={() => send(q)} className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">
+                            <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{i + 1}</span>{q}<span className="ml-auto text-slate-300 text-xs">→</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+          </div>
+        </>)}
+
+        {page === "uploads" && (<>
+          <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+            <span className="text-lg">📁</span><p className="flex-1 text-base font-bold text-slate-900">Admin Uploads</p>
+            <button onClick={() => fileRef.current?.click()} disabled={uploading} className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold px-4 py-2 rounded-lg">{uploading ? "⏳ Indexing…" : "📎 Upload Documents"}</button>
+            <input ref={fileRef} type="file" multiple accept=".pdf,.docx,.txt,.md,.csv" className="hidden" onChange={handleUpload} />
+          </header>
+          <div className="flex-1 overflow-y-auto p-5">
+            <div onClick={() => fileRef.current?.click()} className="border-2 border-dashed border-indigo-300 rounded-xl p-10 text-center mb-6 cursor-pointer hover:bg-indigo-50">
+              <p className="text-4xl mb-2">📎</p><p className="text-sm font-semibold text-slate-700">Click to upload documents</p>
+              <p className="text-xs text-slate-400 mt-1">PDF, DOCX, TXT, MD, CSV — multiple files</p>
+            </div>
+            {docs.length === 0 ? <p className="text-center text-slate-400 text-sm italic">No documents uploaded yet.</p>
+              : <div className="grid grid-cols-2 gap-3">{docs.map(d => { const fn = d.filename ?? d.name ?? "File"; return (
+                  <div key={d.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0"><span className="text-[10px] font-bold text-blue-700">{getExt(fn)}</span></div>
+                      <div className="min-w-0"><p className="text-sm font-semibold text-slate-800 truncate">{fn}</p><p className={\`text-[11px] font-semibold mt-0.5 \${d.indexed ? "text-emerald-600" : "text-amber-500"}\`}>{d.indexed ? "✓ Indexed" : "⏳ Pending"}</p></div>
+                    </div>
+                  </div>); })}</div>}
+          </div>
+        </>)}
+
+        {page === "analytics" && (<>
+          <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+            <span className="text-lg">📊</span><p className="flex-1 text-base font-bold text-slate-900">Conversation Analytics</p>
+          </header>
+          <div className="flex-1 overflow-y-auto p-5">
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              {[{ label: "Messages", value: msgCount, color: "text-slate-900" }, { label: "Low Confidence", value: lowConfCount, color: "text-amber-500" }, { label: "Last Query", value: lastQuery ? lastQuery.slice(0, 20) + (lastQuery.length > 20 ? "…" : "") : "--", color: "text-slate-600" }].map(({ label, value, color }) => (
+                <div key={label} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center">
+                  <p className="text-xs text-slate-400 mb-1">{label}</p><p className={\`text-2xl font-bold \${color}\`}>{value}</p>
+                </div>
+              ))}
+            </div>
+            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm mb-4">
+              <p className="text-sm font-bold text-slate-700 mb-4">Message Volume</p>
+              {msgCount === 0 ? <div className="h-32 flex items-center justify-center text-slate-400 text-sm">No messages yet</div>
+                : <div className="h-32 flex items-end gap-1">{messages.filter(m => m.role === "user").map((m, i) => <div key={i} className="flex-1 bg-indigo-400 rounded-t" style={{ height: \`\${Math.min(100, 30 + i * 8)}%\` }} />)}</div>}
+            </div>
+            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+              <p className="text-sm font-bold text-slate-700 mb-3">Unanswered / Escalated</p>
+              {unanswered.length === 0 ? <p className="text-sm text-emerald-600 bg-emerald-50 rounded-lg px-3 py-2">No unresolved queries in this session.</p>
+                : unanswered.map((m, i) => <div key={i} className="flex items-start gap-2 py-2 border-b border-slate-100 last:border-0"><span className="text-amber-500">⚠</span><p className="text-sm text-slate-600">{m.answer.slice(0, 80)}…</p></div>)}
+            </div>
+          </div>
+        </>)}
+
+        {page === "handoff" && (<>
+          <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+            <span className="text-lg">📞</span><p className="flex-1 text-base font-bold text-slate-900">Ticket Handoff</p>
+          </header>
+          <div className="flex-1 overflow-y-auto p-5">
+            {ticketSent
+              ? <div className="max-w-md mx-auto text-center py-20"><p className="text-5xl mb-4">✅</p><p className="text-lg font-bold text-slate-800">Ticket Submitted</p><p className="text-sm text-slate-500 mt-2">Support will follow up shortly.</p><button onClick={() => { setTicketSent(false); setTicketForm({ issue: "", name: "", priority: "Medium", details: "" }); }} className="mt-6 bg-indigo-600 text-white text-sm font-semibold px-6 py-2.5 rounded-lg">Submit Another</button></div>
+              : <div className="max-w-lg mx-auto bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+                  <p className="text-sm font-bold text-slate-700 mb-4">Log a Support Ticket</p>
+                  <div className="space-y-4">
+                    <div><label className="text-xs font-semibold text-slate-600 block mb-1">Issue Category</label>
+                      <select value={ticketForm.issue} onChange={e => setTicketForm(p => ({ ...p, issue: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                        <option value="">Select category…</option><option>SAP Handheld</option><option>ID Disabled</option><option>Lane Issues</option><option>MFA</option><option>NCR Printer</option><option>Network</option><option>Pinpad</option><option>Password Reset</option><option>Other</option>
+                      </select></div>
+                    <div><label className="text-xs font-semibold text-slate-600 block mb-1">Your Name</label>
+                      <input value={ticketForm.name} onChange={e => setTicketForm(p => ({ ...p, name: e.target.value }))} placeholder="Enter your name" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" /></div>
+                    <div><label className="text-xs font-semibold text-slate-600 block mb-1">Priority</label>
+                      <div className="flex gap-2">{["Low", "Medium", "High", "Critical"].map(p => <button key={p} onClick={() => setTicketForm(prev => ({ ...prev, priority: p }))} className={\`flex-1 py-1.5 text-xs font-semibold rounded-lg border \${ticketForm.priority === p ? p === "Critical" ? "bg-red-600 text-white border-red-600" : p === "High" ? "bg-amber-500 text-white border-amber-500" : p === "Medium" ? "bg-yellow-400 text-white border-yellow-400" : "bg-green-500 text-white border-green-500" : "border-slate-200 text-slate-500 hover:bg-slate-50"}\`}>{p}</button>)}</div></div>
+                    <div><label className="text-xs font-semibold text-slate-600 block mb-1">Details</label>
+                      <textarea value={ticketForm.details} onChange={e => setTicketForm(p => ({ ...p, details: e.target.value }))} placeholder="Describe the issue…" rows={4} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400" /></div>
+                    <button onClick={() => { if (ticketForm.issue && ticketForm.name) setTicketSent(true); else alert("Please fill in Issue Category and Name."); }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 rounded-lg">Submit Ticket</button>
+                  </div>
+                </div>}
+          </div>
+        </>)}
       </div>
 
-      {/* ── RIGHT PANEL w-52 ── */}
-      <aside className="w-52 border-l bg-white p-4 flex flex-col gap-5 flex-shrink-0 overflow-y-auto">
-        <div>
-          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Knowledge Base</p>
-          <div className="bg-slate-50 rounded-xl p-3">
-            <p className="text-2xl font-bold text-indigo-600">{docs.length}</p>
-            <p className="text-xs text-slate-500 mt-0.5">Documents indexed</p>
-          </div>
+      <aside className="w-64 border-l bg-white flex flex-col flex-shrink-0">
+        <div className="px-4 py-3.5 border-b border-slate-200 flex items-center justify-between">
+          <p className="text-sm font-bold text-slate-800">Knowledge Base</p>
+          <span className="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[24px] text-center">{docs.length}</span>
         </div>
-        <div>
-          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Session</p>
-          <div className="bg-slate-50 rounded-xl p-3">
-            <p className="text-2xl font-bold text-emerald-600">{msgCount}</p>
-            <p className="text-xs text-slate-500 mt-0.5">Messages sent</p>
-          </div>
+        <div className="flex-1 overflow-y-auto p-3">
+          {docs.length === 0 ? <p className="text-xs text-slate-400 italic p-2">No documents yet.</p>
+            : docs.map(d => { const fn = d.filename ?? d.name ?? "File"; return (
+              <div key={d.id} className="border border-slate-200 rounded-xl p-3 mb-2 cursor-pointer hover:border-indigo-300" onClick={() => send(\`Summarise \${fn}\`)}>
+                <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded">{getExt(fn)}</span>
+                <p className="text-sm font-semibold text-slate-800 mt-1.5 truncate">{fn}</p>
+                <div className="flex items-center justify-between mt-1.5"><span className="text-[11px] text-slate-400">—</span><span className={\`text-[11px] font-semibold \${d.indexed ? "text-emerald-600" : "text-amber-500"}\`}>{d.indexed ? "✓ Indexed" : "⏳ Pending"}</span></div>
+              </div>); })}
         </div>
-        <div>
-          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Filter by Topic</p>
-          <div className="flex flex-wrap gap-1.5">
-            {topics.length === 0
-              ? <p className="text-xs text-slate-400 italic">Upload docs to see topics</p>
-              : topics.map(({ topic }) => (
-                  <span key={topic}
-                    onClick={() => { setActiveTopic(activeTopic === topic ? null : topic); if (activeTopic !== topic) send(\`Tell me about \${topic}\`); }}
-                    className={\`cursor-pointer rounded-full px-2.5 py-0.5 text-[11px] whitespace-nowrap border \${activeTopic === topic ? "bg-indigo-100 text-indigo-700 border-indigo-400 font-bold" : "bg-blue-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100"}\`}>
-                    {topic}
-                  </span>
-                ))}
+        <div className="border-t border-slate-200 p-4">
+          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">Session</p>
+          <div className="space-y-2 text-xs text-slate-600">
+            <div className="flex justify-between"><span>Messages</span><span className="font-bold text-slate-800">{msgCount}</span></div>
+            <div className="flex justify-between"><span>Low Confidence</span><span className={\`font-bold \${lowConfCount > 0 ? "text-amber-500" : "text-slate-800"}\`}>{lowConfCount}</span></div>
+            <div className="flex justify-between"><span>Last Query</span><span className="font-bold text-slate-800 truncate ml-2 max-w-[100px]">{lastQuery ? lastQuery.slice(0, 15) + (lastQuery.length > 15 ? "…" : "") : "--"}</span></div>
           </div>
         </div>
       </aside>
-
     </div>
   );
 }
@@ -1441,6 +1489,8 @@ async function buildSourceZip(html: string, plan: Plan): Promise<Blob> {
   // ── src/App.tsx — matches CC sandbox HTML layout exactly ─────────────────────
   const appTsx = `import React, { useState, useRef, useEffect } from "react";
 
+type Page = "chat" | "questions" | "uploads" | "analytics" | "handoff";
+
 interface ApiDoc { id: string; name?: string; filename?: string; indexed: boolean; confidence?: number; }
 interface BotMsg { id: string; role: "bot"; answer: string; steps?: string[]; source?: string; confidence?: number; out_of_scope?: boolean; related?: string[]; ts: string; }
 interface UserMsg { id: string; role: "user"; text: string; ts: string; }
@@ -1449,10 +1499,13 @@ type Msg = UserMsg | BotMsg;
 function ConfBadge({ value }: { value?: number }) {
   if (!value) return null;
   const pct = Math.round(value > 1 ? value : value * 100);
+  const color = pct >= 90 ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+    : pct >= 75 ? "bg-amber-50 text-amber-700 border-amber-200"
+    : "bg-red-50 text-red-700 border-red-200";
   return (
-    <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-2 py-0.5">
-      <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5.5" stroke="currentColor" strokeWidth="1"/><path d="M3.5 6l2 2 3-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-      {pct}% confidence
+    <span className={\`inline-flex items-center gap-1 text-[11px] font-bold border rounded-full px-2 py-0.5 \${color}\`}>
+      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/></svg>
+      {pct}% accuracy
     </span>
   );
 }
@@ -1469,8 +1522,8 @@ function renderMarkdown(text: string): React.ReactNode {
 }
 
 async function apiHealth(): Promise<string> {
-  const r = await fetch("/api/health");
-  if (!r.ok) return "AI Assistant";
+  const r = await fetch("/api/health").catch(() => null);
+  if (!r || !r.ok) return "AI Assistant";
   const d = await r.json();
   return d.app || "AI Assistant";
 }
@@ -1485,7 +1538,7 @@ async function apiChat(question: string): Promise<Omit<BotMsg, "id" | "role" | "
   });
   if (!r.ok) throw new Error("Chat API " + r.status);
   const d = await r.json();
-  return { answer: d.answer || d.response || "No response received.", steps: d.steps, source: d.source, confidence: d.confidence, related: d.related };
+  return { answer: d.answer || d.response || "No response received.", steps: d.steps, source: d.source, confidence: d.confidence, out_of_scope: d.out_of_scope, related: d.related };
 }
 async function apiUpload(file: File): Promise<any> {
   const fd = new FormData(); fd.append("file", file);
@@ -1493,31 +1546,44 @@ async function apiUpload(file: File): Promise<any> {
   if (!r.ok) throw new Error("Upload " + r.status);
   return r.json().catch(() => ({}));
 }
-function buildTopics(docs: ApiDoc[]): { topic: string; count: number }[] {
-  const map: Record<string, number> = {};
-  docs.forEach(d => { const t = (d.filename ?? d.name ?? "Document").replace(/\\.[^.]+$/, ""); map[t] = (map[t] ?? 0) + 1; });
-  return Object.entries(map).map(([topic, count]) => ({ topic, count }));
+function buildTopQuestions(docs: ApiDoc[]): string[] {
+  if (!docs.length) return ["What issue is being reported?", "How do I troubleshoot this problem?", "Who do I contact for support?"];
+  return docs.flatMap(d => {
+    const n = (d.filename ?? d.name ?? "Doc").replace(/\\.[^.]+$/, "");
+    return [\`What issue is being reported with \${n}?\`, \`How do I resolve a \${n} error?\`, \`Who do I contact for \${n} support?\`];
+  }).slice(0, 10);
 }
 function buildSuggestions(docs: ApiDoc[]): string[] {
   if (!docs.length) return ["What can you help me with?", "Summarise the uploaded documents", "What are the key topics covered?"];
-  return docs.flatMap(d => { const n = (d.filename ?? d.name ?? "Doc").replace(/\\.[^.]+$/, ""); return [\`What does \${n} cover?\`, \`Summarise \${n}\`, \`What are common issues in \${n}?\`]; }).slice(0, 9);
+  return docs.flatMap(d => {
+    const n = (d.filename ?? d.name ?? "Doc").replace(/\\.[^.]+$/, "");
+    return [\`What does \${n} cover?\`, \`Summarise \${n}\`, \`What are common issues in \${n}?\`];
+  }).slice(0, 9);
+}
+function getExt(filename: string): string {
+  return (filename.split(".").pop() ?? "DOC").toUpperCase();
 }
 
-// Custom Code — backend on port 8002 — routes: /api/chat, /api/documents/upload
+// Custom Code — backend on port 8002 — routes: /api/chat, /api/documents/upload, /api/documents
 export default function App() {
+  const [page, setPage] = useState<Page>("chat");
   const [appTitle, setAppTitle] = useState("AI Assistant");
   const [messages, setMessages] = useState<Msg[]>([{ id: "welcome", role: "bot", answer: "Hello! I'm your AI assistant. Upload knowledge base documents and ask me anything.", ts: new Date().toLocaleTimeString() }]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [docs, setDocs] = useState<ApiDoc[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [activeTopic, setActiveTopic] = useState<string | null>(null);
+  const [ticketForm, setTicketForm] = useState({ issue: "", name: "", priority: "Medium", details: "" });
+  const [ticketSent, setTicketSent] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const topics = buildTopics(docs);
   const suggestions = buildSuggestions(docs);
+  const topQuestions = buildTopQuestions(docs);
   const msgCount = messages.filter(m => m.role === "user").length;
-  const avgAcc = (() => { const bm = messages.filter((m): m is BotMsg => m.role === "bot" && !!(m as BotMsg).confidence); if (!bm.length) return null; return Math.round(bm.reduce((a, m) => a + (m.confidence! > 1 ? m.confidence! : m.confidence! * 100), 0) / bm.length); })();
+  const botMsgs = messages.filter((m): m is BotMsg => m.role === "bot" && m.id !== "welcome");
+  const lowConfCount = botMsgs.filter(m => m.confidence !== undefined && (m.confidence > 1 ? m.confidence : m.confidence * 100) < 75).length;
+  const lastQuery = (messages.filter(m => m.role === "user").slice(-1)[0] as UserMsg | undefined)?.text ?? null;
+  const unanswered = botMsgs.filter(m => m.out_of_scope || (m.confidence !== undefined && (m.confidence > 1 ? m.confidence : m.confidence * 100) < 50));
 
   useEffect(() => {
     apiHealth().then(t => { setAppTitle(t); setMessages([{ id: "welcome", role: "bot", answer: \`Hello! I'm your AI assistant for \${t}. Upload documents and ask me anything.\`, ts: new Date().toLocaleTimeString() }]); });
@@ -1529,6 +1595,7 @@ export default function App() {
     const text = (override ?? input).trim();
     if (!text || loading) return;
     setInput("");
+    if (page !== "chat") setPage("chat");
     setMessages(p => [...p, { id: Date.now() + "u", role: "user", text, ts: new Date().toLocaleTimeString() }]);
     setLoading(true);
     try {
@@ -1553,169 +1620,210 @@ export default function App() {
     } finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
   }
 
-  return (
-    <div className="flex h-screen overflow-hidden bg-slate-50" style={{ fontFamily: "'Inter','Segoe UI',sans-serif" }}>
+  const navItems: { id: Page; icon: string; label: string }[] = [
+    { id: "chat", icon: "💬", label: "Support Chat" },
+    { id: "questions", icon: "💡", label: "Suggested Questions" },
+    { id: "uploads", icon: "📁", label: "Admin Uploads" },
+    { id: "analytics", icon: "📊", label: "Conversation Analytics" },
+    { id: "handoff", icon: "📞", label: "Ticket Handoff" },
+  ];
 
-      {/* ── LEFT SIDEBAR w-52 ── */}
-      <aside className="w-52 bg-gray-900 text-white flex flex-col flex-shrink-0">
-        <div className="p-4 border-b border-gray-700">
+  return (
+    <div className="flex h-screen overflow-hidden bg-gray-100" style={{ fontFamily: "'Inter','Segoe UI',sans-serif" }}>
+      <aside className="w-64 bg-slate-800 text-white flex flex-col flex-shrink-0">
+        <div className="p-4 border-b border-white/10">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-sm">AI</div>
-            <div>
-              <p className="text-sm font-bold leading-tight truncate max-w-[160px]">{appTitle}</p>
-              <p className="text-xs text-slate-400">Custom Code · Azure OpenAI</p>
-            </div>
+            <div className="w-10 h-10 rounded-xl bg-purple-600 flex items-center justify-center font-bold text-base">{appTitle.charAt(0).toUpperCase()}</div>
+            <div className="min-w-0"><p className="text-sm font-bold leading-tight truncate">{appTitle}</p><p className="text-xs text-slate-400 leading-tight">Document-aware support</p></div>
           </div>
         </div>
-        <div className="p-3 border-b border-gray-700">
-          <button onClick={() => fileRef.current?.click()} disabled={uploading}
-            className="w-full text-xs font-semibold py-2 px-3 rounded-lg border border-indigo-500 text-indigo-300 hover:bg-indigo-900/40 disabled:opacity-50 transition-colors">
-            {uploading ? "⏳ Indexing…" : "📎 Upload Documents"}
-          </button>
-          <input ref={fileRef} type="file" multiple accept=".pdf,.docx,.txt,.md,.csv" className="hidden" onChange={handleUpload} />
-        </div>
+        <nav className="p-3 border-b border-white/10 space-y-0.5">
+          {navItems.map(item => (
+            <button key={item.id} onClick={() => setPage(item.id)}
+              className={\`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left \${page === item.id ? "bg-indigo-600 text-white" : "text-slate-300 hover:bg-white/10"}\`}>
+              <span className="text-base">{item.icon}</span><span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
         <div className="flex-1 overflow-y-auto p-3">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Documents</p>
-          {docs.length === 0
-            ? <p className="text-xs text-slate-500 italic">No documents yet.</p>
-            : docs.map(d => {
-                const fn = d.filename ?? d.name ?? "File";
-                return (
-                  <div key={d.id} onClick={() => send(\`Summarise \${fn}\`)}
-                    className="bg-slate-700/50 rounded-lg p-2.5 mb-2 cursor-pointer hover:bg-slate-600/50 transition-colors">
-                    <p className="text-xs font-medium text-slate-200 truncate">{fn}</p>
-                    <span className={\`text-[10px] font-semibold mt-1 inline-block \${d.indexed ? "text-emerald-400" : "text-amber-400"}\`}>
-                      {d.indexed ? "✓ Indexed — click to explore" : "⏳ Pending"}
-                    </span>
-                  </div>
-                );
-              })}
-        </div>
-        <div className="p-3 border-t border-gray-700">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Suggested</p>
-          <div className="flex flex-col gap-1.5">
-            {suggestions.map(s => (
-              <button key={s} onClick={() => send(s)}
-                className="text-left text-xs text-slate-300 hover:text-white hover:bg-gray-800 rounded px-2 py-1.5 transition-colors">
-                {s}
-              </button>
-            ))}
-          </div>
+          <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-2 px-1">Top 10 Questions</p>
+          {topQuestions.map((q, i) => (
+            <button key={i} onClick={() => send(q)}
+              className="w-full flex items-start gap-2.5 text-left text-xs text-slate-300 hover:text-white hover:bg-white/10 rounded-lg px-2 py-2 transition-colors mb-1">
+              <span className="w-5 h-5 rounded-full bg-indigo-600/60 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
+              <span className="leading-snug">{q}</span>
+            </button>
+          ))}
         </div>
       </aside>
 
-      {/* ── MAIN CHAT ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-          <p className="flex-1 text-base font-bold text-slate-900">{appTitle}</p>
-          <span className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0">● AI Active</span>
-          <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0">● KB Connected</span>
-          <span className="text-xs font-semibold bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0">85–97% Accuracy</span>
-        </header>
-        <div className="flex-1 overflow-y-auto p-5 space-y-3">
-          {messages.map(msg => (
-            <div key={msg.id} className={\`flex \${msg.role === "user" ? "justify-end" : "justify-start"}\`}>
-              {msg.role === "user"
-                ? <div><div className="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm max-w-md leading-relaxed">{(msg as UserMsg).text}</div><p className="text-[10px] text-slate-400 text-right mt-1">{msg.ts}</p></div>
-                : (() => { const bm = msg as BotMsg; return (
-                  <div className={\`bg-white border \${bm.out_of_scope ? "border-amber-200" : "border-slate-200"} rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-xl\`}>
-                    {bm.out_of_scope && <div className="flex items-center gap-2 mb-3 text-amber-700 bg-amber-50 rounded-lg px-3 py-2 text-xs font-medium">⚠ This question may be outside the scope of your knowledge base</div>}
-                    <div className="space-y-0.5">{renderMarkdown(bm.answer)}</div>
-                    {bm.steps && bm.steps.length > 0 && (
-                      <div className="mt-3 pt-3 border-t border-slate-100">
-                        <p className="text-xs font-semibold text-slate-500 mb-2">Step-by-Step Resolution</p>
-                        <ol className="space-y-1.5">
-                          {bm.steps.map((s, i) => (
-                            <li key={i} className="flex items-start gap-2.5 text-sm text-slate-700">
-                              <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
-                              {s}
-                            </li>
-                          ))}
-                        </ol>
-                      </div>
-                    )}
-                    {bm.source && bm.source !== "N/A" && (
-                      <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 flex-wrap">
-                        <span className="text-xs text-slate-500 font-medium">📄 {bm.source}</span>
-                        <ConfBadge value={bm.confidence} />
-                      </div>
-                    )}
-                    {bm.related && bm.related.length > 0 && (
-                      <div className="mt-2 pt-2 border-t border-slate-100">
-                        <p className="text-[10px] font-semibold text-slate-400 mb-1.5">Suggested follow-ups:</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {bm.related.map((r, i) => (
-                            <button key={i} onClick={() => send(r)} className="text-[11px] bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-2.5 py-0.5 hover:bg-indigo-100">{r}</button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {msg.id !== "welcome" && (
-                      <div className="mt-2 pt-2 border-t border-slate-100 flex items-center gap-2">
-                        <span className="text-[10px] text-slate-400">Helpful?</span>
-                        <button className="text-base hover:scale-110 transition-transform" title="Helpful">👍</button>
-                        <button className="text-base hover:scale-110 transition-transform" title="Not helpful">👎</button>
-                      </div>
-                    )}
-                    <p className="text-[10px] text-slate-400 mt-1">{msg.ts}</p>
-                  </div>
-                ); })()}
-            </div>
-          ))}
-          {loading && (
-            <div className="flex justify-start">
-              <div className="bg-white border border-slate-200 rounded-2xl px-4 py-3 inline-flex gap-1.5 shadow-sm">
-                {[0,1,2].map(i => <span key={i} className="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: \`\${i * 0.14}s\` }} />)}
+        {page === "chat" && (<>
+          <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+            <span className="text-lg">💬</span><p className="flex-1 text-base font-bold text-slate-900">Support Chat</p>
+            <span className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full">● AI Active</span>
+            <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full">● KB Connected</span>
+            <span className="text-xs font-semibold bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full">Custom Code · Azure OpenAI</span>
+          </header>
+          <div className="flex-1 overflow-y-auto p-5 space-y-3 bg-slate-50">
+            {messages.map(msg => (
+              <div key={msg.id} className={\`flex \${msg.role === "user" ? "justify-end" : "justify-start"}\`}>
+                {msg.role === "user"
+                  ? <div><div className="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm max-w-md">{(msg as UserMsg).text}</div><p className="text-[10px] text-slate-400 text-right mt-1">{msg.ts}</p></div>
+                  : (() => { const bm = msg as BotMsg; return (
+                    <div className={\`bg-white border \${bm.out_of_scope ? "border-amber-200" : "border-slate-200"} rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-xl\`}>
+                      {bm.out_of_scope && <div className="mb-3 text-amber-700 bg-amber-50 rounded-lg px-3 py-2 text-xs font-medium">⚠ Outside knowledge base scope</div>}
+                      <div className="space-y-0.5">{renderMarkdown(bm.answer)}</div>
+                      {bm.steps && bm.steps.length > 0 && <div className="mt-3 pt-3 border-t border-slate-100"><p className="text-xs font-semibold text-slate-500 mb-2">Step-by-Step Resolution</p><ol className="space-y-1.5">{bm.steps.map((s, i) => <li key={i} className="flex items-start gap-2.5 text-sm text-slate-700"><span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>{s}</li>)}</ol></div>}
+                      {bm.source && bm.source !== "N/A" && <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 flex-wrap"><span className="text-xs text-slate-500 font-medium">📄 {bm.source}</span><ConfBadge value={bm.confidence} /></div>}
+                      {bm.related && bm.related.length > 0 && <div className="mt-2 pt-2 border-t border-slate-100"><p className="text-[10px] font-semibold text-slate-400 mb-1.5">Follow-ups:</p><div className="flex flex-wrap gap-1.5">{bm.related.map((r, i) => <button key={i} onClick={() => send(r)} className="text-[11px] bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-2.5 py-0.5 hover:bg-indigo-100">{r}</button>)}</div></div>}
+                      {msg.id !== "welcome" && <div className="mt-2 pt-2 border-t border-slate-100 flex items-center gap-2"><span className="text-[10px] text-slate-400">Helpful?</span><button className="text-base">👍</button><button className="text-base">👎</button></div>}
+                      <p className="text-[10px] text-slate-400 mt-1">{msg.ts}</p>
+                    </div>); })()}
               </div>
-            </div>
-          )}
-          <div ref={bottomRef} />
-        </div>
-        <footer className="bg-white border-t border-slate-200 p-3.5 flex-shrink-0">
-          <div className="flex gap-2.5 items-end">
-            <textarea value={input} onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-              placeholder="Ask a question…" rows={2}
-              className="flex-1 resize-none border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
-            <button onClick={() => send()} disabled={!input.trim() || loading}
-              className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white rounded-xl px-5 py-2.5 text-sm font-semibold h-[44px] whitespace-nowrap transition-colors">Send ➤</button>
+            ))}
+            {loading && <div className="flex justify-start"><div className="bg-white border border-slate-200 rounded-2xl px-4 py-3 inline-flex gap-1.5 shadow-sm">{[0,1,2].map(i => <span key={i} className="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: \`\${i * 0.14}s\` }} />)}</div></div>}
+            <div ref={bottomRef} />
           </div>
-          <p className="text-xs text-slate-400 text-center mt-2">Powered by Knowledge Base · Custom Code · Azure OpenAI</p>
-        </footer>
+          <div className="bg-white border-t border-slate-200 p-3.5 flex-shrink-0">
+            <div className="flex gap-2.5 items-end mb-2">
+              <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Ask a question…" rows={2} className="flex-1 resize-none border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+              <button onClick={() => send()} disabled={!input.trim() || loading} className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white rounded-xl px-5 py-2.5 text-sm font-semibold h-[44px] transition-colors">Send ➤</button>
+            </div>
+            <div className="flex flex-wrap gap-1.5 mb-2">{suggestions.slice(0, 3).map(s => <button key={s} onClick={() => send(s)} className="text-[11px] bg-slate-100 text-slate-600 border border-slate-200 rounded-full px-2.5 py-0.5 hover:bg-indigo-50 hover:text-indigo-600">{s}</button>)}</div>
+            <p className="text-xs text-slate-400 text-center">Powered by Knowledge Base · Custom Code · Azure OpenAI</p>
+          </div>
+        </>)}
+
+        {page === "questions" && (<>
+          <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+            <span className="text-lg">💡</span><p className="flex-1 text-base font-bold text-slate-900">Suggested Questions</p>
+            <span className="text-xs text-slate-500">{docs.length} document{docs.length !== 1 ? "s" : ""} indexed</span>
+          </header>
+          <div className="flex-1 overflow-y-auto p-5">
+            {docs.length === 0
+              ? <div className="text-center py-20 text-slate-400"><p className="text-4xl mb-3">💡</p><p className="font-semibold">No documents uploaded yet</p><p className="text-sm mt-1">Upload documents to see suggested questions</p></div>
+              : docs.map(d => {
+                  const fn = (d.filename ?? d.name ?? "Document").replace(/\\.[^.]+$/, "");
+                  const qs = [\`What does \${fn} cover?\`, \`Summarise \${fn}\`, \`What are common issues in \${fn}?\`, \`How do I resolve a \${fn} error?\`, \`Who do I contact for \${fn} support?\`];
+                  return (
+                    <div key={d.id} className="bg-white rounded-xl border border-slate-200 shadow-sm mb-4 overflow-hidden">
+                      <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center gap-2">
+                        <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded">{getExt(d.filename ?? d.name ?? "DOC")}</span>
+                        <p className="text-sm font-bold text-slate-800 truncate">{d.filename ?? d.name}</p>
+                        <span className="ml-auto text-[11px] text-emerald-600 font-semibold">✓ Indexed</span>
+                      </div>
+                      <div className="divide-y divide-slate-100">
+                        {qs.map((q, i) => (
+                          <button key={i} onClick={() => send(q)} className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">
+                            <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{i + 1}</span>{q}
+                            <span className="ml-auto text-slate-300 text-xs">→</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+          </div>
+        </>)}
+
+        {page === "uploads" && (<>
+          <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+            <span className="text-lg">📁</span><p className="flex-1 text-base font-bold text-slate-900">Admin Uploads</p>
+            <button onClick={() => fileRef.current?.click()} disabled={uploading} className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold px-4 py-2 rounded-lg">{uploading ? "⏳ Indexing…" : "📎 Upload Documents"}</button>
+            <input ref={fileRef} type="file" multiple accept=".pdf,.docx,.txt,.md,.csv" className="hidden" onChange={handleUpload} />
+          </header>
+          <div className="flex-1 overflow-y-auto p-5">
+            <div onClick={() => fileRef.current?.click()} className="border-2 border-dashed border-indigo-300 rounded-xl p-10 text-center mb-6 cursor-pointer hover:bg-indigo-50">
+              <p className="text-4xl mb-2">📎</p><p className="text-sm font-semibold text-slate-700">Click to upload documents</p>
+              <p className="text-xs text-slate-400 mt-1">Supports PDF, DOCX, TXT, MD, CSV — multiple files</p>
+            </div>
+            {docs.length === 0 ? <p className="text-center text-slate-400 text-sm italic">No documents uploaded yet.</p>
+              : <div className="grid grid-cols-2 gap-3">{docs.map(d => { const fn = d.filename ?? d.name ?? "File"; return (
+                  <div key={d.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0"><span className="text-[10px] font-bold text-blue-700">{getExt(fn)}</span></div>
+                      <div className="min-w-0"><p className="text-sm font-semibold text-slate-800 truncate">{fn}</p><p className={\`text-[11px] font-semibold mt-0.5 \${d.indexed ? "text-emerald-600" : "text-amber-500"}\`}>{d.indexed ? "✓ Indexed" : "⏳ Pending"}</p></div>
+                    </div>
+                  </div>); })}</div>}
+          </div>
+        </>)}
+
+        {page === "analytics" && (<>
+          <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+            <span className="text-lg">📊</span><p className="flex-1 text-base font-bold text-slate-900">Conversation Analytics</p>
+          </header>
+          <div className="flex-1 overflow-y-auto p-5">
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              {[{ label: "Messages", value: msgCount, color: "text-slate-900" }, { label: "Low Confidence", value: lowConfCount, color: "text-amber-500" }, { label: "Last Query", value: lastQuery ? lastQuery.slice(0, 20) + (lastQuery.length > 20 ? "…" : "") : "--", color: "text-slate-600" }].map(({ label, value, color }) => (
+                <div key={label} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center">
+                  <p className="text-xs text-slate-400 mb-1">{label}</p><p className={\`text-2xl font-bold \${color}\`}>{value}</p>
+                </div>
+              ))}
+            </div>
+            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm mb-4">
+              <p className="text-sm font-bold text-slate-700 mb-4">Message Volume</p>
+              {msgCount === 0 ? <div className="h-32 flex items-center justify-center text-slate-400 text-sm">No messages yet</div>
+                : <div className="h-32 flex items-end gap-1">{messages.filter(m => m.role === "user").map((m, i) => <div key={i} className="flex-1 bg-indigo-400 rounded-t" style={{ height: \`\${Math.min(100, 30 + i * 8)}%\` }} />)}</div>}
+            </div>
+            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+              <p className="text-sm font-bold text-slate-700 mb-3">Unanswered / Escalated</p>
+              {unanswered.length === 0 ? <p className="text-sm text-emerald-600 bg-emerald-50 rounded-lg px-3 py-2">No unresolved queries in this session.</p>
+                : unanswered.map((m, i) => <div key={i} className="flex items-start gap-2 py-2 border-b border-slate-100 last:border-0"><span className="text-amber-500">⚠</span><p className="text-sm text-slate-600">{m.answer.slice(0, 80)}…</p></div>)}
+            </div>
+          </div>
+        </>)}
+
+        {page === "handoff" && (<>
+          <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+            <span className="text-lg">📞</span><p className="flex-1 text-base font-bold text-slate-900">Ticket Handoff</p>
+          </header>
+          <div className="flex-1 overflow-y-auto p-5">
+            {ticketSent
+              ? <div className="max-w-md mx-auto text-center py-20"><p className="text-5xl mb-4">✅</p><p className="text-lg font-bold text-slate-800">Ticket Submitted</p><p className="text-sm text-slate-500 mt-2">Your ticket has been logged. Support will follow up shortly.</p><button onClick={() => { setTicketSent(false); setTicketForm({ issue: "", name: "", priority: "Medium", details: "" }); }} className="mt-6 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-6 py-2.5 rounded-lg">Submit Another</button></div>
+              : <div className="max-w-lg mx-auto bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+                  <p className="text-sm font-bold text-slate-700 mb-4">Log a Support Ticket</p>
+                  <div className="space-y-4">
+                    <div><label className="text-xs font-semibold text-slate-600 block mb-1">Issue Category</label>
+                      <select value={ticketForm.issue} onChange={e => setTicketForm(p => ({ ...p, issue: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                        <option value="">Select category…</option><option>SAP Handheld</option><option>ID Disabled</option><option>Lane Issues</option><option>MFA</option><option>NCR Printer</option><option>Network</option><option>Pinpad</option><option>Password Reset</option><option>Other</option>
+                      </select></div>
+                    <div><label className="text-xs font-semibold text-slate-600 block mb-1">Your Name</label>
+                      <input value={ticketForm.name} onChange={e => setTicketForm(p => ({ ...p, name: e.target.value }))} placeholder="Enter your name" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" /></div>
+                    <div><label className="text-xs font-semibold text-slate-600 block mb-1">Priority</label>
+                      <div className="flex gap-2">{["Low", "Medium", "High", "Critical"].map(p => <button key={p} onClick={() => setTicketForm(prev => ({ ...prev, priority: p }))} className={\`flex-1 py-1.5 text-xs font-semibold rounded-lg border \${ticketForm.priority === p ? p === "Critical" ? "bg-red-600 text-white border-red-600" : p === "High" ? "bg-amber-500 text-white border-amber-500" : p === "Medium" ? "bg-yellow-400 text-white border-yellow-400" : "bg-green-500 text-white border-green-500" : "border-slate-200 text-slate-500 hover:bg-slate-50"}\`}>{p}</button>)}</div></div>
+                    <div><label className="text-xs font-semibold text-slate-600 block mb-1">Details</label>
+                      <textarea value={ticketForm.details} onChange={e => setTicketForm(p => ({ ...p, details: e.target.value }))} placeholder="Describe the issue…" rows={4} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400" /></div>
+                    <button onClick={() => { if (ticketForm.issue && ticketForm.name) setTicketSent(true); else alert("Please fill in Issue Category and Name."); }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 rounded-lg">Submit Ticket</button>
+                  </div>
+                </div>}
+          </div>
+        </>)}
       </div>
 
-      {/* ── RIGHT PANEL w-52 ── */}
-      <aside className="w-52 border-l bg-white p-4 flex flex-col gap-5 flex-shrink-0 overflow-y-auto">
-        <div>
-          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Knowledge Base</p>
-          <div className="bg-slate-50 rounded-xl p-3">
-            <p className="text-2xl font-bold text-indigo-600">{docs.length}</p>
-            <p className="text-xs text-slate-500 mt-0.5">Documents indexed</p>
-          </div>
+      <aside className="w-64 border-l bg-white flex flex-col flex-shrink-0">
+        <div className="px-4 py-3.5 border-b border-slate-200 flex items-center justify-between">
+          <p className="text-sm font-bold text-slate-800">Knowledge Base</p>
+          <span className="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[24px] text-center">{docs.length}</span>
         </div>
-        <div>
-          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Session</p>
-          <div className="bg-slate-50 rounded-xl p-3">
-            <p className="text-2xl font-bold text-emerald-600">{msgCount}</p>
-            <p className="text-xs text-slate-500 mt-0.5">Messages sent</p>
-          </div>
+        <div className="flex-1 overflow-y-auto p-3">
+          {docs.length === 0 ? <p className="text-xs text-slate-400 italic p-2">No documents yet.</p>
+            : docs.map(d => { const fn = d.filename ?? d.name ?? "File"; return (
+              <div key={d.id} className="border border-slate-200 rounded-xl p-3 mb-2 cursor-pointer hover:border-indigo-300" onClick={() => send(\`Summarise \${fn}\`)}>
+                <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded">{getExt(fn)}</span>
+                <p className="text-sm font-semibold text-slate-800 mt-1.5 truncate">{fn}</p>
+                <div className="flex items-center justify-between mt-1.5"><span className="text-[11px] text-slate-400">—</span><span className={\`text-[11px] font-semibold \${d.indexed ? "text-emerald-600" : "text-amber-500"}\`}>{d.indexed ? "✓ Indexed" : "⏳ Pending"}</span></div>
+              </div>); })}
         </div>
-        <div>
-          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Filter by Topic</p>
-          <div className="flex flex-wrap gap-1.5">
-            {topics.length === 0
-              ? <p className="text-xs text-slate-400 italic">Upload docs to see topics</p>
-              : topics.map(({ topic }) => (
-                  <span key={topic}
-                    onClick={() => { setActiveTopic(activeTopic === topic ? null : topic); if (activeTopic !== topic) send(\`Tell me about \${topic}\`); }}
-                    className={\`cursor-pointer rounded-full px-2.5 py-0.5 text-[11px] whitespace-nowrap border \${activeTopic === topic ? "bg-indigo-100 text-indigo-700 border-indigo-400 font-bold" : "bg-blue-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100"}\`}>
-                    {topic}
-                  </span>
-                ))}
+        <div className="border-t border-slate-200 p-4">
+          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">Session</p>
+          <div className="space-y-2 text-xs text-slate-600">
+            <div className="flex justify-between"><span>Messages</span><span className="font-bold text-slate-800">{msgCount}</span></div>
+            <div className="flex justify-between"><span>Low Confidence</span><span className={\`font-bold \${lowConfCount > 0 ? "text-amber-500" : "text-slate-800"}\`}>{lowConfCount}</span></div>
+            <div className="flex justify-between"><span>Last Query</span><span className="font-bold text-slate-800 truncate ml-2 max-w-[100px]">{lastQuery ? lastQuery.slice(0, 15) + (lastQuery.length > 15 ? "…" : "") : "--"}</span></div>
           </div>
         </div>
       </aside>
-
     </div>
   );
 }
