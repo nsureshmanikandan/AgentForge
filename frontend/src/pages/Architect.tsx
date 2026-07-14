@@ -310,7 +310,17 @@ function PromptEvolutionSection({ history }: { history: PromptVersion[] }) {
   );
 }
 
-function PlanProgressState({ messages, loading }: { messages: Message[]; loading: boolean }) {
+interface PlanProgressStateProps {
+  messages: Message[];
+  loading: boolean;
+  qAnswers?: Record<string, string>;
+  qLocked?: boolean;
+  pickAnswer?: (qId: string, opt: string) => void;
+  submitAnswers?: () => void;
+  hasAnswers?: boolean;
+}
+
+function PlanProgressState({ messages, loading, qAnswers = {}, qLocked = false, pickAnswer, submitAnswers, hasAnswers }: PlanProgressStateProps) {
   const userMsgs   = messages.filter(m => m.role === "user").length;
   const hasQs      = messages.some(m => m.response?.type === "questions");
   const qCount     = messages.filter(m => m.response?.type === "questions").length;
@@ -321,6 +331,12 @@ function PlanProgressState({ messages, loading }: { messages: Message[]; loading
     : loading && userMsgs > 0 ? 3
     : userMsgs > 0 && !hasQs ? 3
     : 0;
+
+  // Extract latest questions from messages
+  const lastQMsg = [...messages].reverse().find(m => m.response?.type === "questions");
+  const liveQuestions = lastQMsg?.response?.questions ?? [];
+  const answeredCount = Object.keys(qAnswers).length;
+  const totalCount = liveQuestions.length;
 
   const steps = [
     { id: 1, label: "Understanding your requirements",    done: userMsgs >= 1 || stage >= 2 },
@@ -333,13 +349,121 @@ function PlanProgressState({ messages, loading }: { messages: Message[]; loading
     "GPT-4o analyses your prompt to pick the ideal React + FastAPI + PostgreSQL stack.",
     "FAISS vector store and Azure OpenAI embeddings will be wired automatically.",
     "The plan includes agents, API endpoints, DB schema and a ready-to-deploy sandbox.",
-    "Answer the clarifying questions on the left to get a more precise plan.",
+    "Answer all questions above to generate a precise, ready-to-deploy plan.",
   ];
   const [tipIdx, setTipIdx] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTipIdx(i => (i + 1) % tips.length), 3500);
     return () => clearInterval(t);
   }, []);
+
+  // ── Stage 2: Clarifying questions — show them as the primary right-panel UI ──
+  if (stage === 2 && liveQuestions.length > 0) {
+    return (
+      <div className="flex flex-col h-full">
+        {/* Header */}
+        <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center flex-shrink-0 shadow">
+            <svg className="w-4.5 h-4.5 text-white w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-gray-900">Clarifying Questions</p>
+            <p className="text-xs text-gray-400">Answer to generate a precise architecture plan</p>
+          </div>
+          {/* Progress pill */}
+          <div className={`flex-shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full ${
+            answeredCount === totalCount
+              ? "bg-emerald-100 text-emerald-700"
+              : "bg-violet-100 text-violet-700"
+          }`}>
+            {answeredCount}/{totalCount} answered
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        <div className="h-1 bg-gray-100">
+          <div
+            className="h-full bg-gradient-to-r from-violet-500 to-indigo-500 transition-all duration-500"
+            style={{ width: totalCount > 0 ? `${(answeredCount / totalCount) * 100}%` : "0%" }}
+          />
+        </div>
+
+        {/* Questions list */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          {liveQuestions.map((q, idx) => {
+            const answered = qAnswers[q.id];
+            return (
+              <div key={q.id} className={`rounded-2xl border transition-all duration-300 ${
+                answered
+                  ? "border-violet-200 bg-violet-50/60"
+                  : "border-gray-200 bg-white"
+              }`}>
+                {/* Question header */}
+                <div className="flex items-start gap-3 px-4 pt-4 pb-3">
+                  <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold mt-0.5 ${
+                    answered ? "bg-violet-600 text-white" : "bg-gray-100 text-gray-500"
+                  }`}>
+                    {answered ? (
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : idx + 1}
+                  </div>
+                  <p className="text-sm font-medium text-gray-800 leading-snug">{q.text}</p>
+                </div>
+
+                {/* Options grid */}
+                <div className="px-4 pb-4 flex flex-wrap gap-2 pl-13" style={{ paddingLeft: "2.75rem" }}>
+                  {q.options.map((opt) => {
+                    const selected = qAnswers[q.id] === opt;
+                    return (
+                      <button
+                        key={opt}
+                        disabled={qLocked}
+                        onClick={() => pickAnswer?.(q.id, opt)}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-150 ${
+                          selected
+                            ? "bg-violet-600 border-violet-600 text-white shadow-sm"
+                            : "bg-white border-gray-200 text-gray-600 hover:border-violet-400 hover:text-violet-700 hover:bg-violet-50"
+                        } ${qLocked && !selected ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+                      >
+                        {selected && <span className="mr-1">✓</span>}
+                        {opt}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Footer CTA */}
+        <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/80">
+          {hasAnswers ? (
+            <button
+              onClick={submitAnswers}
+              className="w-full py-3 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-sm font-semibold rounded-xl transition-all duration-200 shadow-sm hover:shadow-md flex items-center justify-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              Generate Architecture Plan →
+            </button>
+          ) : (
+            <div className="w-full py-3 bg-gray-200 text-gray-400 text-sm font-medium rounded-xl text-center cursor-not-allowed select-none">
+              Answer {totalCount - answeredCount} more question{totalCount - answeredCount !== 1 ? "s" : ""} to continue
+            </div>
+          )}
+          <p className="text-center text-[10px] text-gray-400 mt-2">
+            GPT-4o will use your answers to design a precise, ready-to-deploy plan
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center justify-center h-full px-10 py-8 select-none">
@@ -407,8 +531,8 @@ function PlanProgressState({ messages, loading }: { messages: Message[]; loading
   );
 }
 
-function PlanTab({ plan, promptHistory, messages, loading }: { plan?: Plan; promptHistory?: PromptVersion[]; messages: Message[]; loading: boolean }) {
-  if (!plan) return <PlanProgressState messages={messages} loading={loading} />;
+function PlanTab({ plan, promptHistory, messages, loading, qAnswers, qLocked, pickAnswer, submitAnswers, hasAnswers }: { plan?: Plan; promptHistory?: PromptVersion[]; messages: Message[]; loading: boolean; qAnswers?: Record<string, string>; qLocked?: boolean; pickAnswer?: (qId: string, opt: string) => void; submitAnswers?: () => void; hasAnswers?: boolean }) {
+  if (!plan) return <PlanProgressState messages={messages} loading={loading} qAnswers={qAnswers} qLocked={qLocked} pickAnswer={pickAnswer} submitAnswers={submitAnswers} hasAnswers={hasAnswers} />;
   return (
     <div className="p-6 space-y-6 overflow-y-auto h-full">
       {/* Prompt Evolution — shown only when history exists */}
@@ -3949,7 +4073,7 @@ export default function Architect() {
               </div>
             </div>
           )}
-          {tab === "plan" && <PlanTab plan={plan} promptHistory={active?.promptHistory} messages={active?.messages ?? []} loading={loading} />}
+          {tab === "plan" && <PlanTab plan={plan} promptHistory={active?.promptHistory} messages={active?.messages ?? []} loading={loading} qAnswers={qAnswers} qLocked={qLocked} pickAnswer={pickAnswer} submitAnswers={submitAnswers} hasAnswers={hasAnswers} />}
           {tab === "agents" && <AgentsTab plan={plan} />}
           {tab === "app" && <AppTab plan={plan} uiHtml={uiHtml} onGenerateUI={() => handleGenerateUI()} generatingUI={generatingUI} uiError={uiError} progressStep={progressStep} />}
           {tab === "database" && <DatabaseTab plan={plan} />}
