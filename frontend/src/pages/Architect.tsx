@@ -694,8 +694,8 @@ async function buildRagScaffoldZip(html: string, plan: Plan): Promise<Blob> {
     <div class="flex items-center gap-3">
       <div class="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-sm">AI</div>
       <div>
-        <p class="text-sm font-bold leading-tight">${appTitle.split(" ").slice(0, 4).join(" ")}</p>
-        <p class="text-xs text-slate-400">FAISS RAG · GPT-4o</p>
+        <p class="text-sm font-bold leading-tight truncate max-w-[160px]">${appTitle}</p>
+        <p class="text-xs text-slate-400">RAG · Azure OpenAI</p>
       </div>
     </div>
   </div>
@@ -723,8 +723,9 @@ async function buildRagScaffoldZip(html: string, plan: Plan): Promise<Blob> {
 <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
   <header class="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
     <p class="flex-1 text-base font-bold text-slate-900">${appTitle}</p>
-    <span class="text-xs font-semibold bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full">● AI Active</span>
-    <span class="text-xs font-semibold bg-blue-100 text-blue-700 px-3 py-1 rounded-full">● KB Connected</span>
+    <span class="text-xs font-semibold bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0">● AI Active</span>
+    <span class="text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0">● KB Connected</span>
+    <span class="text-xs font-semibold bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0">85–97% Accuracy</span>
   </header>
   <div id="chat-scroll" class="flex-1 overflow-y-auto p-5">
     <div id="chat-messages">
@@ -747,7 +748,7 @@ async function buildRagScaffoldZip(html: string, plan: Plan): Promise<Blob> {
         class="flex-1 resize-none border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400"></textarea>
       <button id="send-btn" class="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white rounded-xl px-5 py-2.5 text-sm font-semibold h-[44px] whitespace-nowrap transition-colors">Send ➤</button>
     </div>
-    <p class="text-xs text-slate-400 text-center mt-2">Powered by FAISS RAG · Azure OpenAI GPT-4o</p>
+    <p class="text-xs text-slate-400 text-center mt-2">Powered by Knowledge Base · FAISS RAG · Azure OpenAI</p>
   </footer>
 </div>
 
@@ -1023,7 +1024,7 @@ export default function App() {
             <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-sm">AI</div>
             <div className="min-w-0">
               <p className="text-sm font-bold leading-tight truncate">{appTitle}</p>
-              <p className="text-xs text-slate-400">FAISS RAG · GPT-4o</p>
+              <p className="text-xs text-slate-400">RAG · Azure OpenAI</p>
             </div>
           </div>
         </div>
@@ -1148,7 +1149,7 @@ export default function App() {
               className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white rounded-xl px-5 py-2.5 text-sm font-semibold h-[44px] whitespace-nowrap transition-colors"
             >Send ➤</button>
           </div>
-          <p className="text-xs text-slate-400 text-center mt-2">Powered by FAISS RAG · Azure OpenAI GPT-4o</p>
+          <p className="text-xs text-slate-400 text-center mt-2">Powered by Knowledge Base · FAISS RAG · Azure OpenAI</p>
         </footer>
       </div>
 
@@ -1585,7 +1586,7 @@ export default function App() {
             <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-sm">AI</div>
             <div className="min-w-0">
               <p className="text-sm font-bold leading-tight truncate">{appTitle}</p>
-              <p className="text-xs text-slate-400">FAISS RAG · GPT-4o</p>
+              <p className="text-xs text-slate-400">RAG · Azure OpenAI</p>
             </div>
           </div>
         </div>
@@ -1702,7 +1703,7 @@ export default function App() {
               Send ➤
             </button>
           </div>
-          <p className="text-xs text-slate-400 text-center mt-2">Powered by FAISS RAG · Azure OpenAI GPT-4o</p>
+          <p className="text-xs text-slate-400 text-center mt-2">Powered by Knowledge Base · FAISS RAG · Azure OpenAI</p>
         </footer>
       </div>
 
