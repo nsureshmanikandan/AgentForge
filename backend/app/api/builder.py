@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+﻿from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -143,7 +143,7 @@ Rules:
 async def _run_pipeline(nodes: list[dict], edges: list[dict], initial_input: str = "") -> tuple[list[WorkflowRunLog], str]:
     """Execute nodes in topological order with GPT-4o. Returns (logs, final_output)."""
     ordered = _topo_sort(nodes, edges)
-    client = AzureOpenAIClient(model="gpt-4o")
+    client = AzureOpenAIClient()
     logs: list[WorkflowRunLog] = []
     previous_output: str = initial_input
 
@@ -224,7 +224,7 @@ async def _run_pipeline(nodes: list[dict], edges: list[dict], initial_input: str
 @router.post("/auto-build")
 async def auto_build_workflow(body: AutoBuildRequest):
     """Use GPT-4o to decompose a pipeline description into a React Flow node graph."""
-    client = AzureOpenAIClient(model="gpt-4o")
+    client = AzureOpenAIClient()
     messages = [
         {"role": "system", "content": AUTO_BUILD_SYSTEM},
         {"role": "user", "content": f"Pipeline: {body.description}"},
@@ -473,7 +473,7 @@ async def trigger_workflow_stream(workflow_id: str, body: TriggerRequest, db: As
 
     async def event_stream():
         ordered = _topo_sort(nodes, edges)
-        client = AzureOpenAIClient(model="gpt-4o")
+        client = AzureOpenAIClient()
         logs: list[WorkflowRunLog] = []
         previous_output: str = trigger_input
 

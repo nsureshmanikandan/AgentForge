@@ -1,9 +1,10 @@
+﻿from app.config import settings
 import pytest
 from app.schemas.agent import AgentCreate, AgentOut, AgentRunRequest, AgentRunResponse, GenerateRequest
 
 def test_agent_create_schema_defaults():
     body = AgentCreate(name="Bot", system_prompt="You are helpful.")
-    assert body.model == "gpt-4o"
+    assert body.model == settings.azure_openai_deployment_gpt4o
     assert body.tools == []
     assert body.guardrails == {"pii": True, "hallucination": True}
 

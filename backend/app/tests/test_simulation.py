@@ -1,3 +1,4 @@
+﻿from app.config import settings
 import pytest
 from unittest.mock import AsyncMock, patch
 
@@ -6,7 +7,7 @@ async def test_simulation_all_pass():
     from app.core.simulation import SimulationRunner
     config = {
         "name": "Test Agent", "system_prompt": "You are helpful.",
-        "model": "gpt-4o", "tools": [], "guardrails": {"pii": False, "hallucination": False},
+        "model": settings.azure_openai_deployment_gpt4o, "tools": [], "guardrails": {"pii": False, "hallucination": False},
     }
     test_cases = [
         {"input": "What is 2+2?", "expected_contains": "4"},
@@ -27,7 +28,7 @@ async def test_simulation_all_pass():
 @pytest.mark.asyncio
 async def test_simulation_partial_fail():
     from app.core.simulation import SimulationRunner
-    config = {"name": "Bot", "system_prompt": "...", "model": "gpt-4o", "tools": [], "guardrails": {}}
+    config = {"name": "Bot", "system_prompt": "...", "model": settings.azure_openai_deployment_gpt4o, "tools": [], "guardrails": {}}
     test_cases = [
         {"input": "Q1", "expected_contains": "yes"},
         {"input": "Q2", "expected_contains": "no"},
@@ -47,7 +48,7 @@ async def test_simulation_partial_fail():
 @pytest.mark.asyncio
 async def test_simulation_no_expected_always_passes():
     from app.core.simulation import SimulationRunner
-    config = {"name": "Bot", "system_prompt": "...", "model": "gpt-4o", "tools": [], "guardrails": {}}
+    config = {"name": "Bot", "system_prompt": "...", "model": settings.azure_openai_deployment_gpt4o, "tools": [], "guardrails": {}}
     test_cases = [{"input": "Anything", "expected_contains": ""}]
     runner = SimulationRunner(config, test_cases)
     with patch("app.core.simulation.AgentOrchestrator") as MockOrch:

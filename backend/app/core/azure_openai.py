@@ -1,17 +1,15 @@
-from openai import AsyncAzureOpenAI
+﻿from openai import AsyncAzureOpenAI
 from opentelemetry import trace
 from opentelemetry.trace import StatusCode
 from app.config import settings
 from app.core.telemetry import get_tracer
 
 class AzureOpenAIClient:
-    def __init__(self, model: str = "gpt-4o"):
-        self.model = model
-        self.deployment = (
-            settings.azure_openai_deployment_gpt45
-            if "4-5" in model or model.endswith("5")
-            else settings.azure_openai_deployment_gpt4o
-        )
+    def __init__(self, deployment: str | None = None):
+        # Single source of truth: always read from settings/.env
+        # Pass deployment only when explicitly needing the gpt45 variant
+        self.deployment = deployment or settings.azure_openai_deployment_gpt4o
+        self.model = self.deployment
         self._client = AsyncAzureOpenAI(
             azure_endpoint=settings.azure_openai_endpoint,
             api_key=settings.azure_openai_api_key,
@@ -30,7 +28,7 @@ class AzureOpenAIClient:
                     model=self.deployment,
                     messages=messages,
                     temperature=temperature,
-                    max_tokens=max_tokens,
+                    max_completion_tokens=max_tokens,
                 )
                 result = response.choices[0].message.content
                 span.set_attribute("llm.prompt_messages", len(messages))

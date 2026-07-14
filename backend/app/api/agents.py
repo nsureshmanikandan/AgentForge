@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+﻿from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
@@ -40,7 +40,7 @@ Return ONLY a valid JSON array with exactly 3 objects. Each object must have:
 }
 Return ONLY the JSON array. No explanation. No markdown."""
 
-    client = AzureOpenAIClient(model="gpt-4o")
+    client = AzureOpenAIClient()
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": f"My problem/goal: {body.problem}"},

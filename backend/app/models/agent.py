@@ -1,8 +1,9 @@
-import uuid
+﻿import uuid
 from datetime import datetime
 from sqlalchemy import String, DateTime, JSON, Integer, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
+from app.config import settings
 
 class Agent(Base):
     __tablename__ = "agents"
@@ -11,7 +12,7 @@ class Agent(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str] = mapped_column(String, default="")
     system_prompt: Mapped[str] = mapped_column(String, default="")
-    model: Mapped[str] = mapped_column(String, default="gpt-4o")
+    model: Mapped[str] = mapped_column(String, default=lambda: settings.azure_openai_deployment_gpt4o)
     tools: Mapped[list] = mapped_column(JSON, default=list)
     guardrails: Mapped[dict] = mapped_column(JSON, default=dict)
     created_by: Mapped[str] = mapped_column(String, nullable=False, default="system")

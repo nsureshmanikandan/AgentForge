@@ -1,14 +1,16 @@
-import json
+﻿import json
 import time
 from app.core.azure_openai import AzureOpenAIClient
 from app.core.guardrails import GuardrailsEngine
 from app.core.telemetry import get_tracer
+from app.config import settings
 
 
 class AgentOrchestrator:
     def __init__(self, agent_config: dict):
         self.config = agent_config
-        self._llm = AzureOpenAIClient(model=agent_config.get("model", "gpt-4o"))
+        # deployment comes from the agent record (stored in DB); fall back to settings
+        self._llm = AzureOpenAIClient(deployment=agent_config.get("model") or None)
         guardrail_cfg = agent_config.get("guardrails", {})
         self._guardrails = GuardrailsEngine(
             pii_enabled=guardrail_cfg.get("pii", True),
@@ -19,7 +21,7 @@ class AgentOrchestrator:
         tracer = get_tracer()
         with tracer.start_as_current_span("agent.run") as span:
             span.set_attribute("agent.name", self.config.get("name", "unknown"))
-            span.set_attribute("agent.model", self.config.get("model", "gpt-4o"))
+            span.set_attribute("agent.model", self.config.get("model") or settings.azure_openai_deployment_gpt4o)
 
             start = time.monotonic()
 

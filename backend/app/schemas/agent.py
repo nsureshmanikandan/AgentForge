@@ -1,12 +1,13 @@
-from pydantic import BaseModel, Field
+﻿from pydantic import BaseModel, Field
 from datetime import datetime
+from app.config import settings
 
 
 class AgentCreate(BaseModel):
     name: str
     description: str = ""
     system_prompt: str
-    model: str = "gpt-4o"
+    model: str = Field(default_factory=lambda: settings.azure_openai_deployment_gpt4o)
     tools: list[str] = []
     guardrails: dict = Field(default_factory=lambda: {"pii": True, "hallucination": True})
     agent_type: str = "agent"

@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import logging
 import time
 import uuid
@@ -270,7 +270,7 @@ async def voice_chat_text(
         messages.append({"role": "user", "content": body.message})
 
         try:
-            client = AzureOpenAIClient(model="gpt-4o")
+            client = AzureOpenAIClient()
             reply = await client.chat(messages, temperature=0.7, max_tokens=300)
         except Exception as exc:
             span.record_exception(exc)
@@ -336,7 +336,7 @@ async def voice_chat(body: VoiceChatRequest, current_user: User = Depends(get_cu
 
         t_llm = time.time()
         try:
-            client = AzureOpenAIClient(model="gpt-4o")
+            client = AzureOpenAIClient()
             reply = await client.chat(messages, temperature=0.7, max_tokens=300)
         except Exception as exc:
             span.record_exception(exc)

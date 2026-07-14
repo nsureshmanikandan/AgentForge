@@ -1,3 +1,4 @@
+﻿from app.config import settings
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
@@ -7,7 +8,7 @@ async def test_single_agent_run_returns_output():
     config = {
         "name": "Test Agent",
         "system_prompt": "You are helpful.",
-        "model": "gpt-4o",
+        "model": settings.azure_openai_deployment_gpt4o,
         "tools": [],
         "guardrails": {"pii": True, "hallucination": True},
     }
@@ -25,7 +26,7 @@ async def test_single_agent_pii_triggers_guardrail():
     config = {
         "name": "Test Agent",
         "system_prompt": "You are helpful.",
-        "model": "gpt-4o",
+        "model": settings.azure_openai_deployment_gpt4o,
         "tools": [],
         "guardrails": {"pii": True, "hallucination": False},
     }
@@ -40,8 +41,8 @@ async def test_single_agent_pii_triggers_guardrail():
 @pytest.mark.asyncio
 async def test_multi_agent_orchestrator():
     from app.core.orchestrator import MultiAgentOrchestrator
-    manager_cfg = {"name": "Manager", "system_prompt": "You coordinate.", "model": "gpt-4o", "tools": [], "guardrails": {"pii": False, "hallucination": False}}
-    worker_cfg = {"name": "Researcher", "system_prompt": "You research.", "model": "gpt-4o", "tools": [], "guardrails": {"pii": False, "hallucination": False}}
+    manager_cfg = {"name": "Manager", "system_prompt": "You coordinate.", "model": settings.azure_openai_deployment_gpt4o, "tools": [], "guardrails": {"pii": False, "hallucination": False}}
+    worker_cfg = {"name": "Researcher", "system_prompt": "You research.", "model": settings.azure_openai_deployment_gpt4o, "tools": [], "guardrails": {"pii": False, "hallucination": False}}
 
     orch = MultiAgentOrchestrator(manager_cfg, [worker_cfg])
 

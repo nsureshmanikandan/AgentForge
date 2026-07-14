@@ -1,4 +1,4 @@
-import io
+﻿import io
 import os
 import tempfile
 from app.core.azure_openai import AzureOpenAIClient
@@ -36,7 +36,7 @@ def _extract_docx_text(file_bytes: bytes) -> str:
 class RAGEngine:
     def __init__(self, kb_id: str):
         self.kb_id = kb_id
-        self._llm = AzureOpenAIClient(model="gpt-4o")
+        self._llm = AzureOpenAIClient()
         self._chunks: list[str] = []
 
     async def ingest(self, file_bytes: bytes, filename: str) -> int:
