@@ -3443,7 +3443,7 @@ export default function Architect() {
                 <path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
               </svg>
             </div>
-            <span className="text-xs font-semibold text-white whitespace-nowrap">Planning Architect</span>
+            <span className="text-xs font-semibold text-white whitespace-nowrap">Architect</span>
           </div>
           <div className="w-px h-4 bg-white/15 flex-shrink-0" />
           <button
