@@ -147,9 +147,9 @@ function App() {
       <div className="w-72 bg-gray-900 text-white flex flex-col flex-shrink-0">
         <div className="p-5 border-b border-white/10">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-lg font-bold">L</div>
+            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-lg font-bold">{APP_CONFIG.company ? APP_CONFIG.company[0].toUpperCase() : APP_CONFIG.title[0].toUpperCase()}</div>
             <div>
-              <div className="text-sm font-bold leading-tight">Loblaw Support</div>
+              <div className="text-sm font-bold leading-tight">{APP_CONFIG.title}</div>
               <div className="text-xs text-gray-400">AI-Powered Knowledge Base</div>
             </div>
           </div>
@@ -402,22 +402,28 @@ Your job is to help users plan, design, and architect AI-powered applications an
 ## Rules
 
 **Phase 1 -- Clarification (FIRST response ONLY -- NEVER repeat this phase):**
-When a user FIRST describes what they want to build (and there are NO prior questions in the conversation history), respond with a JSON object asking AT MOST 3 quick questions:
+ALWAYS ask clarifying questions on the FIRST user message -- no exceptions, even if the prompt is very detailed. Every build request has unstated assumptions (scale, hosting, auth, integrations) that affect architecture. Respond with EXACTLY 2 smart, targeted questions specific to what the user described:
 {
   "type": "questions",
-  "message": "Great -- [1-2 sentence summary of what you understood]. Just 2-3 quick questions before I generate your plan:",
+  "message": "Great -- [1-2 sentence summary of what you understood]. Two quick questions before I generate your plan:",
   "questions": [
     { "id": "q1", "text": "Question here?", "options": ["Option A", "Option B", "Option C"] },
     { "id": "q2", "text": "Question here?", "options": ["Option A", "Option B", "Option C"] }
   ]
 }
 STRICT RULES for Phase 1:
-- Ask AT MOST 3 questions, ideally just 2.
+- ALWAYS ask EXACTLY 2 questions on the first message. Never 0, never 1, never 3.
+- Questions must be SPECIFIC to the user's domain -- not generic. For a detailed prompt, ask about things NOT already specified (scale, hosting environment, auth strategy, key integration, budget tier, etc.).
 - ONLY ask this ONE time per conversation. If you already asked questions in this conversation, you are FORBIDDEN from asking questions again.
 - If the conversation history already contains a message of type "questions" from you, SKIP Phase 1 entirely and go directly to Phase 2.
 
-**Phase 2 -- Plan Generation (after user answers questions OR if user gave enough detail upfront):**
-IMMEDIATELY after the user responds to your clarifying questions (or if their initial prompt is detailed enough), generate a comprehensive plan. DO NOT ask more questions. Generate the plan NOW:
+MANDATORY EXAMPLE -- even a fully-specced prompt MUST get questions:
+User: "Build The Council -- a decision intelligence app with 5 AI advisors (Contrarian, First Principles, Expansionist, Outsider, Executor), blind peer review, chairman verdict, alignment matrix, 5 pages, PostgreSQL, export to Excel/PPT."
+Your ONLY valid response: {"type":"questions","message":"Got it -- you want a multi-agent decision intelligence platform with 5 advisor personas, blind peer review, and a structured chairman verdict. Two quick questions before I generate your plan:","questions":[{"id":"q1","text":"Expected user scale and hosting?","options":["Small team (< 50 users), Azure-hosted","Mid-size org (50-500 users), cloud-agnostic","Enterprise (500+), on-premise or private cloud"]},{"id":"q2","text":"Authentication approach?","options":["Azure AD SSO (Entra ID)","Simple email + password login","No auth -- internal tool"]}]}
+NEVER output {"type":"plan",...} as your first response. That is a critical error.
+
+**Phase 2 -- Plan Generation (after user answers your 2 questions):**
+IMMEDIATELY after the user responds to your clarifying questions, generate a comprehensive plan. DO NOT ask more questions. Generate the plan NOW:
 {
   "type": "plan",
   "message": "Drafted the full plan -- here is your architecture. Let me know what to refine.",
@@ -456,7 +462,7 @@ If the user asks follow-up questions or requests changes, respond with:
 - Default frontend: React + TypeScript + Vite. Default backend: Python FastAPI. Only change if user explicitly asks.
 - Make agent names, features, and endpoints SPECIFIC to the user's actual use case -- never generic.
 - If user says "like Lyzr" or "like AgentForge" -- describe a similar platform tailored to their domain.
-- **MOST IMPORTANT**: You may ONLY ask questions ONCE per conversation. The moment the user has answered your questions (i.e., you see a user message after your "questions" response), you MUST generate the full plan immediately. NEVER ask another round of questions. NEVER say "a couple more questions". Generate the plan.
+- **MOST IMPORTANT**: You MUST ask exactly 2 questions on the FIRST message -- always, no exceptions. After the user answers, generate the full plan immediately. NEVER ask another round of questions. NEVER say "a couple more questions". Generate the plan.
 - If the conversation already has a {"type":"questions"} response from you, treat the next user message as final answers and output {"type":"plan",...} immediately.
 """
 # Inject deployment model from settings — single source of truth
@@ -1657,8 +1663,10 @@ async def generate_ui(req: GenerateUIRequest):
         detected_type = "FORM APP"
     elif any(k in prompt_lower for k in ["portal", "self-service", "employee portal", "client portal"]):
         detected_type = "PORTAL"
+    elif any(k in prompt_lower for k in ["decision", "advisor", "verdict", "council", "intelligence", "recommendation", "review board"]):
+        detected_type = "CUSTOM"
     else:
-        detected_type = "CHATBOT"
+        detected_type = "CUSTOM"
 
     # Build document section â€" use real extracted content when available
     # TWO-PASS strategy when documents are provided:

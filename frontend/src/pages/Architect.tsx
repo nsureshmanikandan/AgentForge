@@ -3221,7 +3221,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": {
-        target: "http://localhost:8002",
+        target: "http://localhost:8000",
         changeOrigin: true,
       },
     },
@@ -4580,14 +4580,14 @@ export default function Architect() {
             if (text.trim()) {
               const preloaded = [{ name: csvName, text }];
               setFiles(preloaded);
-              setTimeout(() => send(queued, preloaded), 80);
+              setTimeout(() => send(queued + QUESTIONS_SUFFIX, preloaded), 80);
             } else {
-              setTimeout(() => send(queued), 80);
+              setTimeout(() => send(queued + QUESTIONS_SUFFIX), 80);
             }
           })
-          .catch(() => setTimeout(() => send(queued), 80));
+          .catch(() => setTimeout(() => send(queued + QUESTIONS_SUFFIX), 80));
       } else {
-        setTimeout(() => send(queued), 80);
+        setTimeout(() => send(queued + QUESTIONS_SUFFIX), 80);
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4674,13 +4674,15 @@ export default function Architect() {
   }
 
   const PLAN_SUFFIX = "\n\nNow generate the full architecture plan immediately. Do not ask any more questions.";
+  const QUESTIONS_SUFFIX = "\n\n[SYSTEM: You MUST respond with {\"type\":\"questions\",...} asking exactly 2 clarifying questions. Do NOT generate a plan on this message. This is your only valid response format right now.]";
 
   async function send(overrideContent?: string, overrideFiles?: { name: string; text: string }[]) {
     const rawText = overrideContent ?? input.trim();
     const activeFiles = overrideFiles ?? files;
     if (!rawText && activeFiles.length === 0 && visualFiles.length === 0) return;
-    // Strip the hidden suffix for display
-    const displayText = rawText.replace(PLAN_SUFFIX, "").trim();
+    // Strip hidden suffixes for display only — preserve them for API content
+    const hasQSuffix = rawText.includes(QUESTIONS_SUFFIX);
+    const displayText = rawText.replace(PLAN_SUFFIX, "").replace(QUESTIONS_SUFFIX, "").trim();
     let sid = activeSid;
     if (!sid) {
       const id = crypto.randomUUID();
@@ -4751,8 +4753,9 @@ export default function Architect() {
         role: m.role === "assistant" ? "assistant" : "user",
         content: m.content,
       }));
-      // Use annotated content (includes visual-ref note) for the AI, not display text
-      history.push({ role: "user", content: msgContent });
+      // Use annotated content for the AI; re-append QUESTIONS_SUFFIX if this was a forced-questions send
+      const apiContent = hasQSuffix ? msgContent + QUESTIONS_SUFFIX : msgContent;
+      history.push({ role: "user", content: apiContent });
 
       const res = await architectApi.chat(history);
       const data: ArchitectResponse = res.data;
