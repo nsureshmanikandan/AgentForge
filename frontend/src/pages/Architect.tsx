@@ -3367,13 +3367,37 @@ Open \`sandbox.html\` directly in any browser for a fully working UI demo — no
       ? ""
       : `
 def _agent_answer(agent, question: str, history: list) -> dict:
-    """Wrapper: calls answer_question if present, else the main method."""
+    """General-purpose chat wrapper for any agent class."""
+    import json
+    from app.config import settings
+    # 1. Prefer explicit answer_question method
     if hasattr(agent, "answer_question"):
         return agent.answer_question(question, history)
-    result = agent.${mainMethod}(question)
-    if isinstance(result, dict):
-        return result
-    return {"answer": str(result)}
+    # 2. Use agent._call helper if available (takes system_prompt, user_prompt)
+    if hasattr(agent, "_call"):
+        try:
+            return agent._call(
+                "You are an AI assistant. Answer the user question helpfully and concisely. Respond in JSON with keys: answer (string), steps (list), source (string), confidence (int 0-100), related (list), out_of_scope (bool).",
+                question
+            )
+        except Exception:
+            pass
+    # 3. Fall back to agent.client directly
+    if hasattr(agent, "client"):
+        messages = [{"role": "system", "content": "You are an AI assistant. Answer helpfully. Respond in JSON: {answer, steps, source, confidence, related, out_of_scope}."}]
+        for h in (history or []):
+            if h.get("role") and h.get("content"):
+                messages.append({"role": h["role"], "content": h["content"]})
+        messages.append({"role": "user", "content": question})
+        resp = agent.client.chat.completions.create(
+            model=settings.AZURE_OPENAI_DEPLOYMENT_NAME,
+            messages=messages,
+            max_completion_tokens=800,
+            temperature=0.3,
+            response_format={"type": "json_object"},
+        )
+        return json.loads(resp.choices[0].message.content or '{"answer":"No response"}')
+    return {"answer": "Agent not configured correctly.", "confidence": 0}
 `;
 
     return `from fastapi import APIRouter, Depends, HTTPException
