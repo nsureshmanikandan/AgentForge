@@ -2110,14 +2110,9 @@ ${featurePageComponents}
                 </div>
               </div>
               <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-                <p className="text-sm font-bold text-slate-700 mb-3">Plan Features</p>
+                <p className="text-sm font-bold text-slate-700 mb-3">Quick Start</p>
                 <div className="space-y-2">
-                  {${JSON.stringify(featureList)}.map((f: string, i: number) => (
-                    <div key={i} className="flex items-center gap-3 text-sm text-slate-700 bg-slate-50 rounded-lg px-3 py-2">
-                      <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{i+1}</span>
-                      {f}
-                    </div>
-                  ))}
+                  ${suggestedQs.slice(0, 4).map((q, i) => `<button key={${i}} onClick={() => sendMessage(${JSON.stringify(q)})} className="w-full text-left flex items-start gap-3 text-sm text-slate-700 bg-slate-50 hover:bg-indigo-50 rounded-lg px-3 py-2 transition-colors"><span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">${i + 1}</span><span className="line-clamp-2">${q}</span></button>`).join("\n                  ")}
                 </div>
               </div>
             </div>
@@ -3359,10 +3354,27 @@ Open \`sandbox.html\` directly in any browser for a fully working UI demo — no
     // Derive module name from file path: backend/app/agents/support_agent.py → support_agent
     const moduleName = agentPath.replace(/^.*\/agents\//, "").replace(/\.py$/, "");
     const hasAnswerQuestion = /def answer_question\s*\(/.test(agentSrc as string);
-    // If agent has no answer_question, wrap its first public method in a stub
+    // Find the agent's main public method name (not __init__, not _private, not answer_question itself)
+    const mainMethodMatch = (agentSrc as string).match(/def\s+([a-z][a-z_0-9]+)\s*\(self/g);
+    const mainMethod = mainMethodMatch
+      ?.map(m => m.replace(/def\s+/, "").replace(/\s*\(self.*/, ""))
+      .find(m => !m.startsWith("_") && m !== "answer_question") ?? "run";
     const agentCall = hasAnswerQuestion
-      ? `agent.answer_question(req.question)`
-      : `getattr(agent, next(m for m in dir(agent) if not m.startswith("_")))(req.question)`;
+      ? `agent.answer_question(req.question, req.history)`
+      : `agent.answer_question(req.question, req.history)`;
+
+    const fallbackCall = hasAnswerQuestion
+      ? ""
+      : `
+def _agent_answer(agent, question: str, history: list) -> dict:
+    """Wrapper: calls answer_question if present, else the main method."""
+    if hasattr(agent, "answer_question"):
+        return agent.answer_question(question, history)
+    result = agent.${mainMethod}(question)
+    if isinstance(result, dict):
+        return result
+    return {"answer": str(result)}
+`;
 
     return `from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -3372,7 +3384,7 @@ from app.database import get_db
 from app.models import ChatMessage
 from app.agents.${moduleName} import ${className}
 import uuid
-
+${fallbackCall}
 router = APIRouter()
 
 class ChatRequest(BaseModel):
@@ -3394,9 +3406,10 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
     session_id = req.session_id or str(uuid.uuid4())
     try:
         agent = ${className}()
-        result = ${agentCall}
+        result = ${hasAnswerQuestion ? `agent.answer_question(req.question, req.history)` : `_agent_answer(agent, req.question, req.history)`}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        import traceback
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\\n{traceback.format_exc()}")
     if not isinstance(result, dict):
         result = {"answer": str(result)}
     db.add(ChatMessage(session_id=session_id, role="user", content=req.question))
