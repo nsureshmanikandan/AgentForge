@@ -1729,28 +1729,40 @@ function buildDynamicAppTsx(plan: Plan, appTitle: string, port: number): string 
     .join("\n");
 
   const featurePageComponents = featurePages
-    .map(
-      (p, i) => `
+    .map((p, i) => {
+      const feat = (featureList[i] ?? p.label).toLowerCase();
+      const api = apiList[i] ?? "";
+      const apiMethod = api.startsWith("POST") ? "POST" : api.startsWith("PUT") ? "PUT" : "GET";
+      const apiPath = api.replace(/^(GET|POST|PUT|DELETE)\s+/, "").split(" ")[0] ?? "/api/data";
+
+      // Detect feature type by keywords
+      const isForm = /form|intake|creat|submit|input|add|new|register/i.test(feat);
+      const isUpload = /upload|file|attach|import|document|csv|xlsx|pdf/i.test(feat);
+      const isList = /history|list|search|filter|browse|all |decisions|records/i.test(feat);
+      const isView = /view|verdict|result|output|detail|report|show|display/i.test(feat);
+
+      if (isUpload) return `
       {currentPage === "${p.id}" && (
-        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-          <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-            <span className="text-lg">${p.icon}</span>
-            <p className="flex-1 text-base font-bold text-slate-900">${p.label}</p>
-          </header>
-          <div className="flex-1 overflow-y-auto p-5 bg-slate-50">
-            <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-              <h2 className="text-lg font-bold text-slate-800 mb-2">${featureList[i] ?? p.label}</h2>
-              <p className="text-sm text-slate-500 mb-4">This section handles: <strong>${featureList[i] ?? p.label}</strong></p>
-              ${
-                apiList[i]
-                  ? `<div className="bg-slate-50 rounded-lg p-3 font-mono text-xs text-slate-600">API: ${apiList[i]}</div>`
-                  : ""
-              }
-            </div>
-          </div>
-        </div>
-      )}`
-    )
+        <UploadPage icon="${p.icon}" label="${p.label}" apiBase={API_BASE} />
+      )}`;
+      if (isForm) return `
+      {currentPage === "${p.id}" && (
+        <FormPage icon="${p.icon}" label="${p.label}" apiBase={API_BASE} apiPath="${apiPath}" method="${apiMethod}" />
+      )}`;
+      if (isList) return `
+      {currentPage === "${p.id}" && (
+        <ListPage icon="${p.icon}" label="${p.label}" apiBase={API_BASE} apiPath="${apiPath}" />
+      )}`;
+      if (isView) return `
+      {currentPage === "${p.id}" && (
+        <ViewPage icon="${p.icon}" label="${p.label}" apiBase={API_BASE} apiPath="${apiPath}" />
+      )}`;
+      // default: simple card with API call
+      return `
+      {currentPage === "${p.id}" && (
+        <ListPage icon="${p.icon}" label="${p.label}" apiBase={API_BASE} apiPath="${apiPath}" />
+      )}`;
+    })
     .join("\n");
 
   return `import React, { useState, useRef, useEffect } from "react";
@@ -1759,6 +1771,188 @@ const API_BASE = "http://localhost:${port}";
 const SESSION_ID = Math.random().toString(36).slice(2);
 
 interface Message { role: "user" | "bot"; text: string; time: string; }
+
+// ── Reusable functional page components ──────────────────────────────────────
+
+function FormPage({ icon, label, apiBase, apiPath, method }: { icon: string; label: string; apiBase: string; apiPath: string; method: string }) {
+  const [fields, setFields] = React.useState<Record<string,string>>({});
+  const [status, setStatus] = React.useState<"idle"|"loading"|"ok"|"err">("idle");
+  const [result, setResult] = React.useState<string>("");
+  const fieldNames = ["title","question","context","constraints","stakes","name","description","input","value"];
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setStatus("loading");
+    try {
+      const r = await fetch(apiBase + apiPath, { method, headers:{"Content-Type":"application/json"}, body: JSON.stringify(fields) });
+      const data = await r.json();
+      setResult(JSON.stringify(data, null, 2));
+      setStatus("ok");
+    } catch { setStatus("err"); setResult("Error — check backend is running."); }
+  }
+  return (
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+        <span className="text-lg">{icon}</span>
+        <p className="flex-1 text-base font-bold text-slate-900">{label}</p>
+      </header>
+      <div className="flex-1 overflow-y-auto p-5 bg-slate-50">
+        <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4 max-w-2xl">
+          {fieldNames.map(f => (
+            <div key={f}>
+              <label className="block text-xs font-semibold text-slate-600 mb-1 capitalize">{f}</label>
+              <textarea rows={f === "question" || f === "context" || f === "constraints" ? 3 : 1}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
+                value={fields[f] ?? ""} onChange={e => setFields(prev => ({...prev,[f]:e.target.value}))} />
+            </div>
+          ))}
+          <button type="submit" disabled={status==="loading"}
+            className="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors">
+            {status==="loading" ? "Submitting…" : "Submit"}
+          </button>
+          {result && <pre className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-700 overflow-x-auto whitespace-pre-wrap">{result}</pre>}
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function UploadPage({ icon, label, apiBase }: { icon: string; label: string; apiBase: string }) {
+  const [file, setFile] = React.useState<File|null>(null);
+  const [status, setStatus] = React.useState<"idle"|"loading"|"ok"|"err">("idle");
+  const [result, setResult] = React.useState<string>("");
+  async function handleUpload() {
+    if (!file) return;
+    setStatus("loading");
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const r = await fetch(apiBase + "/api/documents/upload", { method:"POST", body: fd });
+      const data = await r.json();
+      setResult(JSON.stringify(data, null, 2));
+      setStatus("ok");
+    } catch { setStatus("err"); setResult("Upload failed — check backend is running."); }
+  }
+  return (
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+        <span className="text-lg">{icon}</span>
+        <p className="flex-1 text-base font-bold text-slate-900">{label}</p>
+      </header>
+      <div className="flex-1 overflow-y-auto p-5 bg-slate-50">
+        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm max-w-xl space-y-4">
+          <label className="block border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-indigo-400 transition-colors">
+            <p className="text-2xl mb-2">📎</p>
+            <p className="text-sm font-semibold text-slate-700">{file ? file.name : "Click to select file"}</p>
+            <p className="text-xs text-slate-400 mt-1">Supports .xlsx, .csv, .pdf, .docx, .txt</p>
+            <input type="file" className="hidden" accept=".xlsx,.csv,.pdf,.docx,.txt"
+              onChange={e => { if (e.target.files?.[0]) setFile(e.target.files[0]); }} />
+          </label>
+          {file && (
+            <button onClick={handleUpload} disabled={status==="loading"}
+              className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors">
+              {status==="loading" ? "Uploading…" : "Upload File"}
+            </button>
+          )}
+          {result && <pre className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-700 overflow-x-auto whitespace-pre-wrap">{result}</pre>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ListPage({ icon, label, apiBase, apiPath }: { icon: string; label: string; apiBase: string; apiPath: string }) {
+  const [items, setItems] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [search, setSearch] = React.useState("");
+  const [selected, setSelected] = React.useState<any>(null);
+  const [error, setError] = React.useState("");
+  React.useEffect(() => {
+    setLoading(true);
+    fetch(apiBase + apiPath).then(r=>r.json()).then(d => {
+      setItems(Array.isArray(d) ? d : d.items ?? d.data ?? d.decisions ?? d.results ?? []);
+    }).catch(() => setError("Could not load data — check backend is running.")).finally(()=>setLoading(false));
+  }, []);
+  const filtered = items.filter(it => JSON.stringify(it).toLowerCase().includes(search.toLowerCase()));
+  return (
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+        <span className="text-lg">{icon}</span>
+        <p className="flex-1 text-base font-bold text-slate-900">{label}</p>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…"
+          className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 w-48" />
+      </header>
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        <div className="w-1/3 border-r border-slate-200 overflow-y-auto bg-white">
+          {loading && <p className="p-4 text-sm text-slate-400">Loading…</p>}
+          {error && <p className="p-4 text-sm text-red-500">{error}</p>}
+          {!loading && !error && filtered.length === 0 && <p className="p-4 text-sm text-slate-400">No records found.</p>}
+          {filtered.map((it, i) => (
+            <button key={i} onClick={()=>setSelected(it)}
+              className={\`w-full text-left px-4 py-3 border-b border-slate-100 hover:bg-slate-50 transition-colors \${selected===it?"bg-indigo-50":""}\`}>
+              <p className="text-sm font-semibold text-slate-800 truncate">{it.title ?? it.name ?? it.question ?? it.id ?? \`Item \${i+1}\`}</p>
+              <p className="text-xs text-slate-400 mt-0.5">{it.status ?? it.created_at ?? ""}</p>
+            </button>
+          ))}
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 bg-slate-50">
+          {selected ? (
+            <pre className="bg-white border border-slate-200 rounded-xl p-4 text-xs text-slate-700 whitespace-pre-wrap overflow-x-auto shadow-sm">{JSON.stringify(selected, null, 2)}</pre>
+          ) : (
+            <div className="flex items-center justify-center h-full text-slate-400 text-sm">Select a record to view details</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ViewPage({ icon, label, apiBase, apiPath }: { icon: string; label: string; apiBase: string; apiPath: string }) {
+  const [id, setId] = React.useState("");
+  const [data, setData] = React.useState<any>(null);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState("");
+  async function fetchData() {
+    if (!id.trim()) return;
+    setLoading(true); setError(""); setData(null);
+    try {
+      const path = apiPath.replace(/\{[^}]+\}/, id.trim());
+      const r = await fetch(apiBase + path);
+      setData(await r.json());
+    } catch { setError("Could not load — check backend is running."); }
+    finally { setLoading(false); }
+  }
+  return (
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+        <span className="text-lg">{icon}</span>
+        <p className="flex-1 text-base font-bold text-slate-900">{label}</p>
+      </header>
+      <div className="flex-1 overflow-y-auto p-5 bg-slate-50">
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm max-w-2xl space-y-4">
+          <div className="flex gap-2">
+            <input value={id} onChange={e=>setId(e.target.value)} placeholder="Enter ID…"
+              className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+            <button onClick={fetchData} disabled={loading}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors">
+              {loading ? "Loading…" : "Load"}
+            </button>
+          </div>
+          {error && <p className="text-sm text-red-500">{error}</p>}
+          {data && (
+            <div className="space-y-3">
+              {Object.entries(data).map(([k,v]) => (
+                <div key={k} className="border border-slate-100 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-1">{k}</p>
+                  <p className="text-sm text-slate-800 whitespace-pre-wrap">{typeof v === "object" ? JSON.stringify(v, null, 2) : String(v)}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const NAV = [
 ${navItems}
