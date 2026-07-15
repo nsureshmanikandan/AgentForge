@@ -7,8 +7,8 @@ _ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 class Settings(BaseSettings):
     azure_openai_endpoint: str = ""
     azure_openai_api_key: str = ""
-    azure_openai_deployment_gpt4o: str = "gpt-5.4-mini"
-    azure_openai_deployment_gpt45: str = "gpt-5.4-mini"
+    azure_openai_deployment_gpt4o: str = "gpt-4o"
+    azure_openai_deployment_gpt45: str = "gpt-4o"
     azure_openai_api_version: str = "2024-12-01-preview"
 
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/agentforge"

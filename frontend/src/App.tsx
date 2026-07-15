@@ -330,21 +330,36 @@ function Sidebar() {
       )}
       {/* Logo */}
       <div className="px-3 py-4 border-b border-gray-200 flex-shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white flex-shrink-0">
-            <IconBolt />
+        {collapsed ? (
+          /* Collapsed: bolt icon + expand button stacked, fully centered */
+          <div className="flex flex-col items-center gap-2">
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white flex-shrink-0">
+              <IconBolt />
+            </div>
+            <button
+              onClick={toggle}
+              title="Expand sidebar (Ctrl+B)"
+              className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+            >
+              <ChevronRightIcon />
+            </button>
           </div>
-          {!collapsed && (
+        ) : (
+          /* Expanded: bolt + title + collapse button in a row */
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white flex-shrink-0">
+              <IconBolt />
+            </div>
             <span className="font-semibold text-slate-900 text-base tracking-tight whitespace-nowrap">AgentForge</span>
-          )}
-          <button
-            onClick={toggle}
-            title="Toggle sidebar (Ctrl+B)"
-            className="ml-auto p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 flex-shrink-0"
-          >
-            {collapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
-          </button>
-        </div>
+            <button
+              onClick={toggle}
+              title="Collapse sidebar (Ctrl+B)"
+              className="ml-auto p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 flex-shrink-0"
+            >
+              <ChevronLeftIcon />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* User org */}
