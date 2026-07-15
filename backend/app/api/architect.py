@@ -2483,8 +2483,116 @@ RULES:
             yield session
   NEVER use the sync SessionLocal() pattern with a try/finally yield in async code
 - Route Depends parameter type MUST match: `db: AsyncSession = Depends(get_db)` — use AsyncSession not Session
-- FILE UPLOAD — If the plan includes file upload or context upload: implement `POST /api/upload` accepting `file: UploadFile = File(...)`. Parse content based on extension: .xlsx/.csv use openpyxl or csv module to extract rows as list[dict]; .pdf use PyMuPDF/fitz; .docx use python-docx; .txt read as utf-8. Return `{"rows": [...], "text": "...", "filename": "..."}`. Add openpyxl to requirements.txt.
-- EXPORT — If the plan includes Excel or report export: implement `GET /api/export/{record_id}/excel` using openpyxl to generate an in-memory .xlsx (BytesIO) with one sheet per major section (e.g. per advisor + Summary). Return as `StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=report.xlsx"})`. Add openpyxl to requirements.txt. Do NOT use xlwt or xlrd — openpyxl only.
+- FILE UPLOAD — MANDATORY if the plan mentions file upload, context upload, CSV/Excel intake, or document input. Implement exactly:
+  ```python
+  # backend/app/api/upload.py
+  import csv, io
+  from fastapi import APIRouter, UploadFile, File, HTTPException
+  router = APIRouter()
+  @router.post("/upload")
+  async def upload_file(file: UploadFile = File(...)):
+      content = await file.read()
+      filename = file.filename or ""
+      rows, text = [], ""
+      if filename.endswith(".csv"):
+          decoded = content.decode("utf-8", errors="ignore")
+          reader = csv.DictReader(io.StringIO(decoded))
+          rows = list(reader); text = decoded
+      elif filename.endswith(".xlsx"):
+          import openpyxl
+          wb = openpyxl.load_workbook(io.BytesIO(content))
+          ws = wb.active
+          headers = [c.value for c in next(ws.iter_rows(max_row=1))]
+          rows = [dict(zip(headers, [c.value for c in r])) for r in ws.iter_rows(min_row=2)]
+          text = "\n".join(str(r) for r in rows)
+      elif filename.endswith(".txt") or filename.endswith(".md"):
+          text = content.decode("utf-8", errors="ignore")
+      else:
+          raise HTTPException(status_code=400, detail="Unsupported file type")
+      return {"rows": rows, "text": text, "filename": filename}
+  ```
+  Register `upload_router` in main.py. Add `openpyxl` to requirements.txt.
+
+- EXPORT — MANDATORY if the plan mentions Excel export, PPT export, report export, or export center. You MUST implement ALL of the following in `backend/app/api/export.py` and register the router in main.py:
+  ```python
+  # backend/app/api/export.py
+  import io
+  from fastapi import APIRouter, Depends, HTTPException
+  from fastapi.responses import StreamingResponse
+  from sqlalchemy.ext.asyncio import AsyncSession
+  from sqlalchemy import select
+  from app.database import get_db
+  from app.models import Decision  # use the actual model name
+  router = APIRouter()
+
+  @router.get("/export/{record_id}/excel")
+  async def export_excel(record_id: int, db: AsyncSession = Depends(get_db)):
+      import openpyxl
+      result = await db.execute(select(Decision).where(Decision.id == record_id))
+      record = result.scalar_one_or_none()
+      if not record: raise HTTPException(404, "Not found")
+      wb = openpyxl.Workbook()
+      # Sheet 1: Summary
+      ws = wb.active; ws.title = "Summary"
+      ws.append(["Field", "Value"])
+      ws.append(["Title", getattr(record, "title", "")])
+      ws.append(["Question", getattr(record, "question", "")])
+      ws.append(["Status", getattr(record, "status", "")])
+      ws.append(["Created", str(getattr(record, "created_at", ""))])
+      # Sheet 2: Advisor outputs (if stored as JSON field named advisor_outputs or result)
+      raw = getattr(record, "result", None) or getattr(record, "advisor_outputs", None)
+      if raw:
+          import json
+          try:
+              data = json.loads(raw) if isinstance(raw, str) else raw
+              ws2 = wb.create_sheet("Advisors")
+              if isinstance(data, dict):
+                  ws2.append(["Key", "Value"])
+                  for k, v in data.items(): ws2.append([str(k), str(v)])
+              elif isinstance(data, list):
+                  if data: ws2.append(list(data[0].keys()))
+                  for row in data: ws2.append(list(row.values()))
+          except Exception: pass
+      buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+      return StreamingResponse(buf,
+          media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          headers={"Content-Disposition": f"attachment; filename=report_{record_id}.xlsx"})
+
+  @router.get("/export/{record_id}/ppt")
+  async def export_ppt(record_id: int, db: AsyncSession = Depends(get_db)):
+      from pptx import Presentation
+      from pptx.util import Inches, Pt
+      result = await db.execute(select(Decision).where(Decision.id == record_id))
+      record = result.scalar_one_or_none()
+      if not record: raise HTTPException(404, "Not found")
+      prs = Presentation()
+      # Title slide
+      slide = prs.slides.add_slide(prs.slide_layouts[0])
+      slide.shapes.title.text = getattr(record, "title", "Decision Report")
+      slide.placeholders[1].text = getattr(record, "question", "")
+      # Summary slide
+      slide2 = prs.slides.add_slide(prs.slide_layouts[1])
+      slide2.shapes.title.text = "Summary"
+      tf = slide2.placeholders[1].text_frame; tf.word_wrap = True
+      tf.text = f"Status: {getattr(record, 'status', '')}\nCreated: {getattr(record, 'created_at', '')}"
+      # Advisor outputs slide
+      raw = getattr(record, "result", None) or getattr(record, "advisor_outputs", None)
+      if raw:
+          import json
+          try:
+              data = json.loads(raw) if isinstance(raw, str) else raw
+              slide3 = prs.slides.add_slide(prs.slide_layouts[1])
+              slide3.shapes.title.text = "Advisor Outputs"
+              tf3 = slide3.placeholders[1].text_frame; tf3.word_wrap = True
+              tf3.text = json.dumps(data, indent=2)[:800]
+          except Exception: pass
+      buf = io.BytesIO(); prs.save(buf); buf.seek(0)
+      return StreamingResponse(buf,
+          media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+          headers={"Content-Disposition": f"attachment; filename=report_{record_id}.pptx"})
+  ```
+  In main.py add: `from app.api.export import router as export_router` and `app.include_router(export_router, prefix="/api")`.
+  In requirements.txt add BOTH `openpyxl` and `python-pptx` on separate lines — these are REQUIRED, do not omit them.
 - RETRY LOGIC — All Azure OpenAI calls MUST use a retry wrapper: `import time; def _call_with_retry(fn, retries=3, delay=2): ...` that catches `openai.RateLimitError` and `openai.APIStatusError` with status 429/503, sleeps `delay * (attempt+1)` seconds, and re-raises after retries exhausted. Every `self.client.chat.completions.create(...)` call MUST be wrapped with this helper.
 - STRUCTURED LOGGING — Every FastAPI endpoint MUST log request start and completion using Python's `logging` module: `import logging; logger = logging.getLogger(__name__)`. At endpoint entry log `logger.info("POST /api/decisions id=%s", decision_id)`. On exception log `logger.error("...", exc_info=True)`. In main.py configure: `logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")`.
 - SSE PROGRESS — If the plan includes live progress updates: implement `GET /api/{resource}/{id}/stream` as a Server-Sent Events endpoint using FastAPI `StreamingResponse` with `media_type="text/event-stream"`. Yield `data: {json}\n\n` strings. Example: `async def stream_progress(id: int, db=Depends(get_db)): async def gen(): yield f"data: {json.dumps({'stage': 'advisor_1', 'pct': 20})}\n\n"; return StreamingResponse(gen(), media_type="text/event-stream")`. Frontend connects with `new EventSource("/api/decisions/1/stream")`.
