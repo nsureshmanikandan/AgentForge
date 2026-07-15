@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import JSZip from "jszip";
 import { architectApi } from "../api/client";
 
@@ -3567,6 +3567,7 @@ const REFINE_TRIGGERS = /\b(add|change|update|fix|improve|make|show|display|incl
 
 export default function Architect() {
   const location = useLocation();
+  const navigate = useNavigate();
   const processedLocationKey = useRef<string | null>(null);
   const [sessions, setSessions] = useState<Session[]>(() => loadSessions());
   const [activeSid, setActiveSid] = useState<string | null>(
@@ -3704,16 +3705,17 @@ export default function Architect() {
     const sampleFile = (location.state as any)?.sampleFile as { name: string; url: string } | undefined;
 
     if (queued) {
+      // Clear location state immediately so a page refresh doesn't re-fire the send
+      navigate(location.pathname, { replace: true, state: null });
+
       setInput(queued);
       if (sampleFile) {
-        // Fetch CSV version, then send prompt with file already in state
         const csvUrl = sampleFile.url.replace(/\.xlsx$/, ".csv");
         const csvName = sampleFile.name.replace(/\.xlsx$/, ".csv");
         fetch(csvUrl)
           .then((r) => r.text())
           .then((text) => {
             if (text.trim()) {
-              // Pass file directly to avoid stale closure — send() receives it as overrideFiles
               const preloaded = [{ name: csvName, text }];
               setFiles(preloaded);
               setTimeout(() => send(queued, preloaded), 80);
