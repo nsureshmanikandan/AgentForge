@@ -3705,8 +3705,8 @@ export default function Architect() {
     const sampleFile = (location.state as any)?.sampleFile as { name: string; url: string } | undefined;
 
     if (queued) {
-      // Clear location state immediately so a page refresh doesn't re-fire the send
-      navigate(location.pathname, { replace: true, state: null });
+      // Clear history state without re-rendering (navigate() would abort the in-flight request)
+      window.history.replaceState({}, '', location.pathname);
 
       setInput(queued);
       if (sampleFile) {
