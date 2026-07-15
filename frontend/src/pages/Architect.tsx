@@ -3589,7 +3589,8 @@ export default function Architect() {
   const fileRef = useRef<HTMLInputElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const [sidebarWidth, setSidebarWidth] = useState(460);
+  const [sidebarWidth, setSidebarWidth] = useState(400);
+  const [chatCollapsed, setChatCollapsed] = useState(false);
   const isResizing = useRef(false);
   const resizeStartX = useRef(0);
   const resizeStartW = useRef(0);
@@ -4159,7 +4160,7 @@ export default function Architect() {
   return (
     <div className="flex h-screen bg-[#0f1117] overflow-hidden">
       {/* ── Left panel ──────────────────────────────────────────────────────── */}
-      <div className="flex-shrink-0 flex flex-col border-r-2 border-white/20 relative" style={{ width: sidebarWidth }}>
+      <div className="flex-shrink-0 flex flex-col border-r-2 border-white/20 relative overflow-hidden transition-[width] duration-200" style={{ width: chatCollapsed ? 0 : sidebarWidth }}>
 
         {/* Header + mode buttons in one row */}
         <div className="flex items-center gap-1.5 px-3 py-3 border-b-2 border-white/20" style={{ background: "rgba(99,102,241,0.08)" }}>
@@ -4659,11 +4660,13 @@ export default function Architect() {
         </div>
       </div>
 
-      {/* ── Resize handle ──────────────────────────────────────────────────── */}
+      {/* ── Resize handle + collapse toggle ───────────────────────────────── */}
       <div
-        className="w-1.5 flex-shrink-0 cursor-col-resize group relative z-10 hover:bg-indigo-500/30 transition-colors"
-        style={{ background: "rgba(255,255,255,0.06)" }}
+        className="flex-shrink-0 relative z-10 flex items-center justify-center cursor-col-resize hover:bg-indigo-500/20 transition-colors"
+        style={{ width: 16, background: "rgba(255,255,255,0.04)" }}
         onMouseDown={(e) => {
+          if ((e.target as HTMLElement).closest("button")) return;
+          if (chatCollapsed) return;
           e.preventDefault();
           isResizing.current = true;
           resizeStartX.current = e.clientX;
@@ -4672,7 +4675,23 @@ export default function Architect() {
           document.body.style.userSelect = "none";
         }}
       >
-        <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-0.5 group-hover:bg-indigo-400 transition-colors rounded-full" />
+        {/* collapse / expand button centred on the handle */}
+        <button
+          onClick={() => setChatCollapsed((c) => !c)}
+          title={chatCollapsed ? "Expand chat panel" : "Collapse chat panel"}
+          className="relative z-20 flex items-center justify-center w-5 h-8 rounded bg-white/10 hover:bg-indigo-500/60 text-white/50 hover:text-white transition-all"
+          style={{ fontSize: 10 }}
+        >
+          {chatCollapsed ? (
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+            </svg>
+          ) : (
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+            </svg>
+          )}
+        </button>
       </div>
 
       {/* ── Right panel ─────────────────────────────────────────────────────── */}
