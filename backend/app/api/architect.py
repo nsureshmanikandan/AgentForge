@@ -2340,7 +2340,18 @@ RULES:
   {{"react": "^18.3.1", "react-dom": "^18.3.1", "@tanstack/react-query": "^4.36.1", "axios": "^1.7.2", "react-hot-toast": "^2.4.1", "lucide-react": "^0.400.0"}}
 - package.json devDependencies MUST include: typescript@^5, vite@^5, @vitejs/plugin-react@^4, tailwindcss@^3, autoprefixer, postcss, @types/react@^18, @types/react-dom@^18
 - CRITICAL: @tanstack/react-query MUST be in dependencies — main.tsx imports QueryClientProvider from it and the app will show a blank white screen if it is missing
-- src/App.tsx is a SINGLE PAGE (no React Router) — the entire app is the 3-panel chat UI
+- src/App.tsx is a SINGLE PAGE (no React Router) — uses useState to switch between pages
+- The app has multiple pages: one chat page PLUS one real functional page per feature in the plan
+- FORBIDDEN: stub/placeholder feature pages that just show a description card or "This section handles: ..." text. Every non-chat feature page MUST be a REAL functional UI that calls the actual API endpoints.
+- Each feature page MUST implement its full UI based on what the feature description says:
+  * A "form" feature → render a real <form> with labeled <input>/<textarea> fields, a submit button, and call the relevant POST endpoint on submit (show loading state + success/error feedback)
+  * An "upload" feature → render a real file input or drag-and-drop zone, call the upload endpoint with FormData, show filename + parsed preview on success
+  * A "view/history/list" feature → fetch data from the relevant GET endpoint on mount (useEffect), render it as a table or card list with real field values, show empty state if no data
+  * An "export" feature → render buttons for each export format, call the export endpoint and trigger a file download via URL.createObjectURL
+  * An "analytics/dashboard" feature → fetch data from the relevant GET endpoint on mount, render stat tiles and a data table with real values
+- FORBIDDEN: feature pages that show the plan feature description as their heading content — the heading should be a short label like "Decision Intake" not the full feature spec text
+- FORBIDDEN: feature pages that only show an "API: POST /api/..." monospace line as their content
+- Every page must have proper loading, error, and empty states
 - FORBIDDEN: solid colored badges like bg-green-500 text-white — use the exact pill style above
 - FORBIDDEN: showing "Last Query: ..." in the session panel — only show message COUNT
 - FORBIDDEN: hardcoding any filenames in uploadedDocs initial state — it MUST be useState<string[]>([])
@@ -2450,24 +2461,38 @@ RULES:
                 {{"role":"user","content":f"Context:\\n{{context}}\\n\\nQuestion: {{question}}"}}
             ], max_completion_tokens=800, temperature=0.3, response_format={{"type":"json_object"}})
             return json.loads(response.choices[0].message.content or "{{}}")
-  * MANDATORY — every agent class MUST include a method named exactly `answer_question(self, question: str) -> dict` (single param, no context). This is the entry point called by the chat API. Domain-specific methods (analyze_advisor, synthesize_verdict, etc.) are fine as helpers, but answer_question MUST exist and internally call them. For multi-step agents (e.g. council with 5 advisors), answer_question orchestrates the full flow and returns the final result.
+  * MANDATORY — the PRIMARY/ORCHESTRATOR agent class MUST include a method named exactly `answer_question(self, question: str, history: list = None) -> dict`. This is the ONLY entry point the chat API calls — NEVER use getattr() or dynamic method dispatch. Domain-specific methods (analyze_advisor, synthesize_verdict, etc.) are fine as helpers, but answer_question MUST exist on the orchestrator and internally call them. For multi-agent apps (e.g. council with 5 advisors), answer_question orchestrates the full flow and returns the final result. The chat API MUST call it as: `result = agent.answer_question(req.question, req.history)` — never `getattr(agent, next(m for m in dir(agent) if not m.startswith("_")))(req.question)` which will find a sub-agent object instead of a callable method.
+  * MANDATORY — ALL SQLAlchemy models referenced anywhere in app/api/*.py MUST be defined in app/models.py. Check every `from app.models import X` in every api file and confirm X exists as a class in models.py. Common omissions that crash on startup: ChatMessage (needed by chat.py), Document (needed by documents.py). If chat history persistence is implemented, add: `class ChatMessage(Base): __tablename__="chat_messages"; id, session_id, role, content, created_at`.
+  * MANDATORY — if app/api/documents.py imports `from app import rag`, then app/rag.py MUST be generated. Include a `build_index(docs: list[dict])` function and a `search(query: str, top_k: int = 3) -> list[dict]` function using faiss-cpu + sentence-transformers. Both functions must degrade gracefully (no crash) if the index is empty or packages are unavailable.
   * CRITICAL — any agent method that answers an end-user question (matches route "/ask", "/chat", or similar) MUST return this exact rich schema, NOT a bare string:
     {{"answer": "1-2 sentence summary", "steps": ["Step 1: ...", "Step 2: ...", "Step 3: ..."], "source": "<document/data source or N/A>", "confidence": <0-100 int>, "related": ["follow-up question", "another follow-up"], "out_of_scope": <true|false>}}
     Use response_format={{"type": "json_object"}} on the chat.completions.create call and json.loads() the result — this is what the frontend's bot bubble renders (Step-by-Step Resolution list, confidence badge, source, suggested follow-ups). A bare string answer will render as plain text with no formatting, which is FORBIDDEN.
     The FastAPI route returning this dict MUST NOT wrap it further — return the dict as-is so the frontend receives {{answer, steps, source, confidence, related, out_of_scope}} directly.
-- config.py MUST use pydantic-settings with extra='ignore' so unknown .env vars don't crash:
+- config.py MUST use pydantic-settings with UPPERCASE field names (matching the .env keys exactly) and an absolute env_file path. Use this EXACT pattern:
+    from pathlib import Path
     from pydantic_settings import BaseSettings, SettingsConfigDict
+    _ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
     class Settings(BaseSettings):
-        model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+        model_config = SettingsConfigDict(env_file=str(_ENV_FILE), extra="allow")
         DATABASE_URL: str = "sqlite+aiosqlite:///./app.db"
         AZURE_OPENAI_ENDPOINT: str = ""
-        ...
+        AZURE_OPENAI_API_KEY: str = ""
+        AZURE_OPENAI_API_VERSION: str = "2024-12-01-preview"
+        AZURE_OPENAI_DEPLOYMENT_NAME: str = "gpt-4o"
+        AZURE_OPENAI_EMBEDDING_DEPLOYMENT: str = "text-embedding-3-small"
+    settings = Settings()
+  CRITICAL RULES:
+  1. Field names MUST be UPPERCASE (DATABASE_URL, AZURE_OPENAI_ENDPOINT, etc.) — NEVER use lowercase aliases (azure_openai_endpoint). Pydantic-settings maps .env keys to field names case-insensitively, but if you define both lowercase and uppercase fields, one will silently override the other and the endpoint will be empty string, causing "Request URL is missing an http:// or https:// protocol" at runtime.
+  2. env_file MUST use absolute path via Path(__file__). A relative ".env" causes the uvicorn --reload subprocess worker to look in a different working directory and silently fall back to all defaults.
+  3. All agent files MUST reference settings.AZURE_OPENAI_ENDPOINT, settings.AZURE_OPENAI_API_KEY, etc. (uppercase) — never settings.azure_openai_endpoint.
+  4. database.py MUST use settings.DATABASE_URL (uppercase).
+  5. NEVER use max_tokens with gpt-5.4-mini or any o-series model — use max_completion_tokens instead. max_tokens causes a 400 BadRequestError.
 - config.py MUST define: DATABASE_URL, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT_NAME, AZURE_OPENAI_EMBEDDING_DEPLOYMENT (default: "text-embedding-3-small")
-- database.py pattern: engine = create_async_engine(settings.DATABASE_URL); async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+- database.py pattern: engine = create_async_engine(settings.DATABASE_URL); async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False). Also add greenlet to requirements.txt — SQLAlchemy async engine requires it on Python 3.13 Windows.
 - Always use selectinload() for SQLAlchemy async relationship loading
 - All endpoints must be fully implemented with real DB queries — no placeholder functions
 - Include __init__.py in backend/app/, backend/app/api/, backend/app/agents/
-- requirements.txt MUST include these exact Python-3.13-compatible versions: fastapi==0.111.0, uvicorn[standard]==0.29.0, pydantic==2.7.1, pydantic-settings==2.2.1, sqlalchemy==2.0.30, asyncpg==0.29.0, psycopg2-binary==2.9.9, openai==1.30.1, python-multipart==0.0.9, python-dotenv==1.0.1, PyPDF2==3.0.1, python-docx>=1.1.0, faiss-cpu==1.10.0, numpy==2.1.3, tiktoken==0.8.0, sentence-transformers==3.3.1, openpyxl==3.1.2, python-pptx==0.6.23, pandas==2.2.3. NEVER use numpy==1.26.4 or pandas==2.2.2 (no cp313 wheels — source build fails on Windows). NEVER use faiss-cpu==1.8.0 (does not exist on PyPI).
+- requirements.txt MUST include these exact Python-3.13-compatible versions (ALL have pre-built cp313 Windows wheels — no C/Rust compiler needed): fastapi==0.115.8, uvicorn[standard]==0.34.0, pydantic==2.10.6, pydantic-settings==2.7.1, sqlalchemy==2.0.36, asyncpg==0.30.0, psycopg2-binary==2.9.10, openai==1.86.0, python-multipart==0.0.20, python-dotenv==1.0.1, PyPDF2==3.0.1, python-docx>=1.1.0, faiss-cpu==1.10.0, numpy==2.1.3, tiktoken==0.8.0, sentence-transformers==3.3.1, openpyxl==3.1.2, python-pptx==0.6.23, pandas==2.2.3, greenlet>=3.0.0, alembic==1.14.1. NEVER use: numpy==1.26.4 or pandas==2.2.2 (no cp313 wheels), faiss-cpu==1.8.0 (does not exist on PyPI), openai==1.30.1 (proxies conflict with httpx on Python 3.13), asyncpg==0.29.0 or psycopg2-binary==2.9.9 (no cp313 wheels, require Visual C++ 14.0).
 - Document extraction agent MUST handle .docx (python-docx), .pdf (PyMuPDF/fitz OR PyPDF2), and plain text — never skip .docx
 - .env.example DATABASE_URL MUST be sqlite+aiosqlite:///./app.db (not postgres) — postgres is for docker-compose only
 - RESERVED COLUMN NAMES — NEVER use these as SQLAlchemy column names (they shadow SQLAlchemy internals and crash on startup): metadata, registry, __mapper_cls__. Use alternatives: doc_metadata, extra_data, meta_info

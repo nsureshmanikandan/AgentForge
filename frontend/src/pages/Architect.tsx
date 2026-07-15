@@ -2601,22 +2601,24 @@ CORS_ORIGINS=http://localhost:5173
 `;
 
   // ── backend/requirements.txt ──────────────────────────────────────────────────
-  const requirementsTxt = `fastapi==0.111.0
-uvicorn[standard]==0.29.0
-sqlalchemy==2.0.30
-alembic==1.13.1
-asyncpg==0.29.0
-psycopg2-binary==2.9.9
-openai==1.30.1
-faiss-cpu==1.8.0
-numpy==1.26.4
+  const requirementsTxt = `fastapi==0.115.8
+uvicorn[standard]==0.34.0
+sqlalchemy==2.0.36
+alembic==1.14.1
+asyncpg==0.30.0
+psycopg2-binary==2.9.10
+openai==1.86.0
+greenlet>=3.0.0
+faiss-cpu==1.10.0
+numpy==2.1.3
 python-dotenv==1.0.1
-python-multipart==0.0.9
-pydantic==2.7.1
-pydantic-settings==2.2.1
-tiktoken==0.7.0
+python-multipart==0.0.20
+pydantic==2.10.6
+pydantic-settings==2.7.1
+tiktoken==0.9.0
 pypdf2==3.0.1
-sentence-transformers==2.7.0
+sentence-transformers==3.0.1
+pandas==2.2.3
 `;
 
   // ── backend/main.py ───────────────────────────────────────────────────────────
@@ -2662,20 +2664,23 @@ if __name__ == "__main__":
   const initPy = ``;
 
   // ── backend/app/config.py ─────────────────────────────────────────────────────
-  const configPy = `from pydantic_settings import BaseSettings
+  const configPy = `from pathlib import Path
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
 class Settings(BaseSettings):
-    azure_openai_endpoint: str = ""
-    azure_openai_api_key: str = ""
-    azure_openai_api_version: str = "2024-02-15-preview"
-    azure_openai_deployment: str = "gpt-4o"
-    azure_openai_embedding_deployment: str = "text-embedding-ada-002"
-    database_url: str = "postgresql+asyncpg://postgres:password@localhost:5432/${appName.replace(/-/g, "_")}"
-    app_secret_key: str = "change-me"
-    cors_origins: str = "http://localhost:5173"
+    model_config = SettingsConfigDict(env_file=str(_ENV_FILE), extra="allow")
 
-    class Config:
-        env_file = ".env"
+    AZURE_OPENAI_ENDPOINT: str = ""
+    AZURE_OPENAI_API_KEY: str = ""
+    AZURE_OPENAI_API_VERSION: str = "2024-12-01-preview"
+    AZURE_OPENAI_DEPLOYMENT: str = "gpt-5.4-mini"
+    AZURE_OPENAI_DEPLOYMENT_NAME: str = "gpt-5.4-mini"
+    AZURE_OPENAI_EMBEDDING_DEPLOYMENT: str = "text-embedding-3-small"
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/${appName.replace(/-/g, "_")}"
+    APP_SECRET_KEY: str = "change-me"
+    CORS_ORIGINS: str = "http://localhost:5173"
 
 settings = Settings()
 `;
@@ -2685,7 +2690,7 @@ settings = Settings()
 from sqlalchemy.orm import DeclarativeBase
 from app.config import settings
 
-engine = create_async_engine(settings.database_url, echo=False)
+engine = create_async_engine(settings.DATABASE_URL, echo=False)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 class Base(DeclarativeBase):
@@ -2820,10 +2825,10 @@ def answer(query: str, history: list[dict] | None = None) -> dict:
 
     client = _get_client()
     response = client.chat.completions.create(
-        model=settings.azure_openai_deployment,
+        model=settings.AZURE_OPENAI_DEPLOYMENT_NAME,
         messages=messages,
         temperature=0.3,
-        max_tokens=1200,
+        max_completion_tokens=1200,
     )
     raw = response.choices[0].message.content or ""
 
@@ -3238,11 +3243,40 @@ async def get_history(session_id: str, db: AsyncSession = Depends(get_db)):
   zip.file("backend/app/api/chat.py", buildAgentChatPy());
   zip.file("backend/app/api/documents.py", documentsApiPy);
 
-  // Only use static rag.py + models.py when AI produced no backend files at all
+  // Always ensure ChatMessage + Document are in models.py
   const hasBackendFiles = Object.keys(aiFiles).some(p => p.startsWith("backend/"));
   if (!hasBackendFiles) {
     zip.file("backend/app/models.py", modelsPy);
     zip.file("backend/app/rag.py", ragPy);
+  } else {
+    // AI produced backend files — patch models.py to add missing required models
+    const aiModelsSrc = (aiFiles["backend/app/models.py"] as string) || modelsPy;
+    const extraModels = `
+
+class Document(Base):
+    __tablename__ = "documents"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    embedding_indexed: Mapped[bool] = mapped_column(Integer, nullable=False, default=False)
+    uploaded_at: Mapped[object] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), server_default=func.now())
+`;
+    const patchedModels = aiModelsSrc.includes("class ChatMessage")
+      ? aiModelsSrc
+      : aiModelsSrc + extraModels;
+    zip.file("backend/app/models.py", patchedModels);
+    if (!aiFiles["backend/app/rag.py"]) {
+      zip.file("backend/app/rag.py", ragPy);
+    }
   }
 
   return zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
@@ -3258,6 +3292,24 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
 }) {
   const [downloadingRag, setDownloadingRag] = useState(false);
   const [downloadingCustom, setDownloadingCustom] = useState(false);
+
+  const downloadZip = async () => {
+    if (downloadingCustom || !plan) return;
+    setDownloadingCustom(true);
+    try {
+      const blob = await buildSourceZip(uiHtml, plan);
+      const url = URL.createObjectURL(blob);
+      const appSlug = (plan.summary.split(" ").slice(0, 4).join("-") || "agentforge-app")
+        .toLowerCase().replace(/[^a-z0-9-]/g, "-");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${appSlug}-custom-code.zip`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } finally {
+      setDownloadingCustom(false);
+    }
+  };
 
   if (!plan) return <EmptyState tab="app" />;
 
@@ -3356,22 +3408,6 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
         setTimeout(() => URL.revokeObjectURL(url), 60000);
       } finally {
         setDownloadingRag(false);
-      }
-    };
-
-    const downloadZip = async () => {
-      if (downloadingCustom) return;
-      setDownloadingCustom(true);
-      try {
-        const blob = await buildSourceZip(uiHtml, plan);
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${appSlug}-custom-code.zip`;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
-      } finally {
-        setDownloadingCustom(false);
       }
     };
 
@@ -3604,6 +3640,25 @@ export default function Architect() {
   const messages = active?.messages ?? [];
   const plan = active?.plan;
   const uiHtml = active?.uiHtml;
+
+  const [downloadingCustom, setDownloadingCustom] = useState(false);
+  const downloadZip = async () => {
+    if (downloadingCustom || !plan) return;
+    setDownloadingCustom(true);
+    try {
+      const blob = await buildSourceZip(uiHtml, plan);
+      const url = URL.createObjectURL(blob);
+      const appSlug = (plan.summary.split(" ").slice(0, 4).join("-") || "agentforge-app")
+        .toLowerCase().replace(/[^a-z0-9-]/g, "-");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${appSlug}-custom-code.zip`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } finally {
+      setDownloadingCustom(false);
+    }
+  };
 
   function detectChangeType(text: string): PromptChangeType {
     const t = text.toLowerCase();
@@ -4722,11 +4777,15 @@ export default function Architect() {
                   </svg>
                   Plan ready
                 </span>
-                <button className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-medium transition-colors">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
-                  </svg>
-                  Deploy Plan
+                <button onClick={downloadZip} disabled={downloadingCustom} className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-lg text-xs font-medium transition-colors">
+                  {downloadingCustom ? (
+                    <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                  ) : (
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
+                    </svg>
+                  )}
+                  {downloadingCustom ? "Generating…" : "Deploy Plan"}
                 </button>
                 {plan && (
                   <button
