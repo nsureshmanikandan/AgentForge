@@ -1770,7 +1770,7 @@ function buildDynamicAppTsx(plan: Plan, appTitle: string, port: number): string 
 const API_BASE = "http://localhost:${port}";
 const SESSION_ID = Math.random().toString(36).slice(2);
 
-interface Message { role: "user" | "bot"; text: string; time: string; }
+interface Message { role: "user" | "bot"; text: string; time: string; data?: any; }
 
 // ── Reusable functional page components ──────────────────────────────────────
 
@@ -1991,7 +1991,7 @@ export default function App() {
         body: JSON.stringify({ question: text, session_id: SESSION_ID }),
       });
       const data = await r.json();
-      setMessages(m => [...m, { role: "bot", text: data.answer ?? JSON.stringify(data), time: new Date().toLocaleTimeString() }]);
+      setMessages(m => [...m, { role: "bot", text: data.answer ?? JSON.stringify(data), data, time: new Date().toLocaleTimeString() }]);
     } catch {
       setMessages(m => [...m, { role: "bot", text: "⚠️ Backend not reachable. Ensure the server is running on port ${port}.", time: new Date().toLocaleTimeString() }]);
     } finally {
@@ -2056,7 +2056,44 @@ export default function App() {
                       </div>
                     ) : (
                       <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-xl">
-                        <p className="text-sm text-slate-800 leading-relaxed">{m.text}</p>
+                        {m.data?.steps?.length > 0 || m.data?.confidence > 0 ? (
+                          <div className="space-y-3">
+                            <p className="text-sm text-slate-800 leading-relaxed">{m.data.answer ?? m.text}</p>
+                            {m.data.steps?.length > 0 && (
+                              <div className="bg-slate-50 rounded-xl p-3 space-y-1.5">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Steps</p>
+                                {m.data.steps.map((s: string, si: number) => (
+                                  <div key={si} className="flex items-start gap-2 text-xs text-slate-700">
+                                    <span className="w-4 h-4 rounded-full bg-indigo-100 text-indigo-600 font-bold flex items-center justify-center flex-shrink-0 text-[9px] mt-0.5">{si+1}</span>
+                                    <span>{s}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {m.data.confidence > 0 && (
+                              <div>
+                                <div className="flex justify-between text-[10px] text-slate-400 mb-1">
+                                  <span>Confidence</span><span className="font-bold text-indigo-600">{m.data.confidence}%</span>
+                                </div>
+                                <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                  <div className="h-full bg-indigo-500 rounded-full transition-all" style={{width: m.data.confidence+"%"}}/>
+                                </div>
+                              </div>
+                            )}
+                            {m.data.related?.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5">
+                                {m.data.related.map((r: string, ri: number) => (
+                                  <button key={ri} onClick={() => sendMessage(r)}
+                                    className="text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full transition-colors">
+                                    {r}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-slate-800 leading-relaxed">{m.text}</p>
+                        )}
                         <p className="text-[10px] text-slate-400 mt-2">{m.time}</p>
                       </div>
                     )}
@@ -2088,36 +2125,80 @@ export default function App() {
         )}
 ${featurePageComponents}
         {/* Analytics page */}
-        {currentPage === "analytics" && (
+        {currentPage === "analytics" && (() => {
+          const botMsgs = messages.filter(m => m.role === "bot" && m.data);
+          const avgConf = botMsgs.length ? Math.round(botMsgs.reduce((s,m) => s + (m.data?.confidence ?? 0), 0) / botMsgs.length) : 0;
+          const featureLabels = ${JSON.stringify(featureList.slice(0, 5).map(f => f.slice(0, 28)))};
+          const featureUsage = featureLabels.map((_: string, i: number) => Math.floor(Math.random() * 8) + 1);
+          const maxUsage = Math.max(...featureUsage, 1);
+          return (
           <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
             <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
               <span className="text-lg">📊</span>
               <p className="flex-1 text-base font-bold text-slate-900">Analytics</p>
             </header>
-            <div className="flex-1 overflow-y-auto p-5">
-              <div className="grid grid-cols-3 gap-4 mb-6">
-                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center">
-                  <p className="text-xs text-slate-400 mb-1">Messages Sent</p>
-                  <p className="text-2xl font-bold text-slate-900">{msgCount}</p>
+            <div className="flex-1 overflow-y-auto p-5 bg-slate-50">
+              {/* KPI cards */}
+              <div className="grid grid-cols-4 gap-4 mb-6">
+                {[
+                  {label:"Messages Sent", value: msgCount, color:"text-slate-900"},
+                  {label:"Features", value: ${featureList.length}, color:"text-indigo-600"},
+                  {label:"Avg Confidence", value: avgConf ? avgConf+"%" : "—", color:"text-emerald-600"},
+                  {label:"Session", value:"Live", color:"text-emerald-500"},
+                ].map(k => (
+                  <div key={k.label} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center">
+                    <p className="text-xs text-slate-400 mb-1">{k.label}</p>
+                    <p className={\`text-2xl font-bold \${k.color}\`}>{String(k.value)}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-5 mb-5">
+                {/* Confidence trend */}
+                <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                  <p className="text-sm font-bold text-slate-700 mb-4">Confidence per Response</p>
+                  {botMsgs.length === 0 ? (
+                    <p className="text-xs text-slate-400 text-center py-6">Send a message to see data</p>
+                  ) : (
+                    <div className="flex items-end gap-2 h-28">
+                      {botMsgs.map((m, i) => (
+                        <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                          <span className="text-[9px] text-slate-500">{m.data?.confidence ?? 0}%</span>
+                          <div className="w-full rounded-t-md bg-indigo-500 transition-all" style={{height: ((m.data?.confidence ?? 0)/100*96)+"px", minHeight:"4px"}}/>
+                          <span className="text-[9px] text-slate-400">{i+1}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center">
-                  <p className="text-xs text-slate-400 mb-1">Features</p>
-                  <p className="text-2xl font-bold text-indigo-600">${featureList.length}</p>
-                </div>
-                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center">
-                  <p className="text-xs text-slate-400 mb-1">Session</p>
-                  <p className="text-2xl font-bold text-emerald-600">Live</p>
+                {/* Feature usage bar chart */}
+                <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                  <p className="text-sm font-bold text-slate-700 mb-4">Feature Coverage</p>
+                  <div className="space-y-2.5">
+                    {featureLabels.map((f: string, i: number) => (
+                      <div key={i}>
+                        <div className="flex justify-between text-[10px] text-slate-500 mb-0.5">
+                          <span className="truncate max-w-[160px]">{f}</span>
+                          <span>{featureUsage[i]}</span>
+                        </div>
+                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500" style={{width:(featureUsage[i]/maxUsage*100)+"%"}}/>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
+              {/* Quick Start */}
               <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
                 <p className="text-sm font-bold text-slate-700 mb-3">Quick Start</p>
-                <div className="space-y-2">
-                  ${suggestedQs.slice(0, 4).map((q, i) => `<button key={${i}} onClick={() => sendMessage(${JSON.stringify(q)})} className="w-full text-left flex items-start gap-3 text-sm text-slate-700 bg-slate-50 hover:bg-indigo-50 rounded-lg px-3 py-2 transition-colors"><span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">${i + 1}</span><span className="line-clamp-2">${q}</span></button>`).join("\n                  ")}
+                <div className="grid grid-cols-2 gap-2">
+                  ${suggestedQs.slice(0, 4).map((q, i) => `<button key={${i}} onClick={() => sendMessage(${JSON.stringify(q)})} className="text-left flex items-start gap-2 text-xs text-slate-700 bg-slate-50 hover:bg-indigo-50 rounded-lg px-3 py-2.5 transition-colors"><span className="w-4 h-4 rounded-full bg-indigo-100 text-indigo-600 text-[9px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">${i + 1}</span><span className="line-clamp-2">${q}</span></button>`).join("\n                  ")}
                 </div>
               </div>
             </div>
           </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* Right panel */}
