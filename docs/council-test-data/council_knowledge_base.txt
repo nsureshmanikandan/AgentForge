@@ -1,0 +1,63 @@
+THE COUNCIL - DECISION INTELLIGENCE PLATFORM
+Knowledge Base Document v1.0
+============================================================
+
+ABOUT THE COUNCIL
+-----------------
+The Council is a multi-agent decision intelligence platform where 5 specialized AI advisors
+analyze complex business decisions from different perspectives, conduct blind peer reviews,
+and a Chairman AI synthesizes a final verdict with confidence scoring.
+
+ADVISOR PERSONAS
+----------------
+1. Contrarian Advisor
+   Role: Challenges assumptions, identifies what could go wrong
+   Focus: Risk identification, devil's advocate, surface hidden flaws
+
+2. First Principles Advisor
+   Role: Breaks problems down to fundamental truths
+   Focus: Logical reasoning from basics, avoids inherited assumptions
+
+3. Expansionist Advisor
+   Role: Explores upside potential and growth opportunities
+   Focus: Market expansion, blue-sky thinking, opportunity mapping
+
+4. Outsider Advisor
+   Role: Brings external perspective, industry benchmarks
+   Focus: Competitive landscape, analogous industries, fresh eyes
+
+5. Executor Advisor
+   Role: Focuses on practical implementation
+   Focus: Timelines, resources, dependencies, operational feasibility
+
+DECISION PIPELINE
+-----------------
+Stage 1 - Intake: User submits decision with context, constraints, stakes
+Stage 2 - Advisor Analysis: All 5 advisors analyze in parallel
+Stage 3 - Peer Review: Blind cross-review between advisors
+Stage 4 - Chairman Verdict: Synthesis with alignment matrix and confidence score
+Stage 5 - Output: Recommendation, next steps, tradeoffs, key tensions
+
+CONFIDENCE SCORING
+------------------
+90-100%: Strong consensus across all advisors, high alignment
+70-89%: Majority agreement with minor dissent
+50-69%: Moderate confidence, significant divergence
+Below 50%: High uncertainty, recommend more information gathering
+
+API ENDPOINTS
+-------------
+POST /api/decisions         - Submit new decision for analysis
+GET  /api/decisions         - List all decisions with filters
+GET  /api/decisions/{id}    - Fetch complete decision with verdict
+POST /api/documents/upload  - Upload context file for RAG
+GET  /api/health            - Backend health check
+
+SAMPLE USE CASES
+----------------
+- Strategic pivot decisions (enter new market, change product direction)
+- Technology investment decisions (build vs buy, platform selection)
+- Hiring decisions (senior leadership, key technical roles)
+- Partnership and M&A evaluation
+- Risk mitigation strategy selection
+- Budget allocation under uncertainty

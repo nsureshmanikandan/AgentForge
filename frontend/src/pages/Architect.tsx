@@ -1745,6 +1745,11 @@ function buildDynamicAppTsx(plan: Plan, appTitle: string, port: number): string 
       {currentPage === "${p.id}" && (
         <UploadPage icon="${p.icon}" label="${p.label}" apiBase={API_BASE} />
       )}`;
+      const isDecisionIntake = /decision.*intake|intake.*decision/i.test(feat);
+      if (isDecisionIntake) return `
+      {currentPage === "${p.id}" && (
+        <DecisionIntakePage apiBase={API_BASE} />
+      )}`;
       if (isForm) return `
       {currentPage === "${p.id}" && (
         <FormPage icon="${p.icon}" label="${p.label}" apiBase={API_BASE} apiPath="${apiPath}" method="${apiMethod}" />
@@ -1753,9 +1758,12 @@ function buildDynamicAppTsx(plan: Plan, appTitle: string, port: number): string 
       {currentPage === "${p.id}" && (
         <ListPage icon="${p.icon}" label="${p.label}" apiBase={API_BASE} apiPath="${apiPath}" />
       )}`;
+      const isVerdictView = /verdict/i.test(feat);
       if (isView) return `
       {currentPage === "${p.id}" && (
-        <ViewPage icon="${p.icon}" label="${p.label}" apiBase={API_BASE} apiPath="${apiPath}" />
+        ${isVerdictView
+          ? `<VerdictPage apiBase={API_BASE} />`
+          : `<ViewPage icon="${p.icon}" label="${p.label}" apiBase={API_BASE} apiPath="${apiPath}" />`}
       )}`;
       // default: simple card with API call
       return `
@@ -1766,11 +1774,234 @@ function buildDynamicAppTsx(plan: Plan, appTitle: string, port: number): string 
     .join("\n");
 
   return `import React, { useState, useRef, useEffect } from "react";
+import * as XLSX from "xlsx";
 
 const API_BASE = "http://localhost:${port}";
 const SESSION_ID = Math.random().toString(36).slice(2);
 
 interface Message { role: "user" | "bot"; text: string; time: string; data?: any; }
+
+// ── Decision Intake Page — manual form + bulk Excel upload ───────────────────
+
+function DecisionIntakePage({ apiBase }: { apiBase: string }) {
+  const [tab, setTab] = React.useState<"manual"|"bulk">("manual");
+  const [fields, setFields] = React.useState({ title:"", question:"", context:"", constraints:"", stakes:"" });
+  const [manualStatus, setManualStatus] = React.useState<"idle"|"loading"|"ok"|"err">("idle");
+  const [manualMsg, setManualMsg] = React.useState("");
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  const [rows, setRows] = React.useState<Record<string,string>[]>([]);
+  const [selected, setSelected] = React.useState<Set<number>>(new Set());
+  const [bulkStatus, setBulkStatus] = React.useState<"idle"|"running"|"done">("idle");
+  const [bulkResults, setBulkResults] = React.useState<{idx:number;title:string;status:"ok"|"err";msg:string}[]>([]);
+  const [fileName, setFileName] = React.useState("");
+
+  async function parseExcel(file: File) {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const data: Record<string,string>[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
+    setRows(data);
+    setSelected(new Set(data.map((_:any, i:number) => i)));
+    setFileName(file.name);
+    setBulkResults([]);
+    setBulkStatus("idle");
+  }
+
+  async function parseCSV(file: File) {
+    const text = await file.text();
+    const lines = text.split("\\n").filter(l => l.trim());
+    if (lines.length < 2) return;
+    const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g,""));
+    const data: Record<string,string>[] = lines.slice(1).map(line => {
+      const vals = line.split(",").map(v => v.trim().replace(/^"|"$/g,""));
+      const row: Record<string,string> = {};
+      headers.forEach((h,i) => { row[h] = vals[i] ?? ""; });
+      return row;
+    });
+    setRows(data);
+    setSelected(new Set(data.map((_:any, i:number) => i)));
+    setFileName(file.name);
+    setBulkResults([]);
+    setBulkStatus("idle");
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const name = file.name.toLowerCase();
+    if (name.endsWith(".csv")) await parseCSV(file);
+    else await parseExcel(file);
+  }
+
+  function toggleRow(i: number) {
+    setSelected(prev => { const s = new Set(prev); s.has(i) ? s.delete(i) : s.add(i); return s; });
+  }
+  function toggleAll() {
+    setSelected(prev => prev.size === rows.length ? new Set() : new Set(rows.map((_,i) => i)));
+  }
+
+  async function runBulk() {
+    if (selected.size === 0) return;
+    setBulkStatus("running");
+    setBulkResults([]);
+    const toRun = [...selected].sort((a,b) => a-b);
+    for (const idx of toRun) {
+      const row = rows[idx];
+      const payload = {
+        title: row.title || row.Title || \`Decision \${idx+1}\`,
+        question: row.question || row.Question || "",
+        context: row.context || row.Context || "",
+        constraints: row.constraints || row.Constraints || "",
+        stakes: row.stakes || row.Stakes || "",
+      };
+      try {
+        const r = await fetch(apiBase + "/api/decisions", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload) });
+        const d = await r.json();
+        setBulkResults(prev => [...prev, { idx, title: payload.title, status: r.ok ? "ok" : "err", msg: r.ok ? \`#\${d.id ?? "?"} — pipeline started\` : d.detail ?? "Error" }]);
+      } catch(e: any) {
+        setBulkResults(prev => [...prev, { idx, title: payload.title, status: "err", msg: String(e) }]);
+      }
+    }
+    setBulkStatus("done");
+  }
+
+  async function submitManual(e: React.FormEvent) {
+    e.preventDefault();
+    setManualStatus("loading"); setManualMsg("");
+    try {
+      const r = await fetch(apiBase + "/api/decisions", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(fields) });
+      const d = await r.json();
+      if (r.ok) {
+        setManualMsg(\`Decision #\${d.id} created — AI advisors are processing it now. Check Verdict View in ~30s.\`);
+        setManualStatus("ok");
+        setFields({ title:"", question:"", context:"", constraints:"", stakes:"" });
+      } else {
+        setManualMsg(d.detail ?? "Submission failed.");
+        setManualStatus("err");
+      }
+    } catch { setManualStatus("err"); setManualMsg("Error — check backend is running."); }
+  }
+
+  const COLS = ["title","question","context","constraints","stakes"];
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+        <span className="text-lg">⚙️</span>
+        <p className="flex-1 text-base font-bold text-slate-900">Decision Intake</p>
+        <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs font-semibold">
+          <button onClick={() => setTab("manual")}
+            className={\`px-4 py-1.5 transition-colors \${tab==="manual" ? "bg-indigo-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}\`}>
+            Manual
+          </button>
+          <button onClick={() => setTab("bulk")}
+            className={\`px-4 py-1.5 transition-colors \${tab==="bulk" ? "bg-indigo-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}\`}>
+            Bulk Upload
+          </button>
+        </div>
+      </header>
+      <div className="flex-1 overflow-y-auto p-5 bg-slate-50">
+        {tab === "manual" && (
+          <form onSubmit={submitManual} className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4 max-w-2xl">
+            {(["title","question","context","constraints","stakes"] as const).map(f => (
+              <div key={f}>
+                <label className="block text-xs font-semibold text-slate-600 mb-1 capitalize">{f}</label>
+                <textarea rows={f==="title"||f==="stakes" ? 1 : 3}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
+                  value={(fields as any)[f]} onChange={e => setFields(prev => ({...prev,[f]:e.target.value}))} />
+              </div>
+            ))}
+            <button type="submit" disabled={manualStatus==="loading" || !fields.question.trim()}
+              className="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors">
+              {manualStatus==="loading" ? "Submitting…" : "Submit to AI Council ➤"}
+            </button>
+            {manualMsg && (
+              <p className={\`text-sm rounded-lg px-3 py-2 \${manualStatus==="ok" ? "bg-green-50 text-green-700 border border-green-200" : "bg-red-50 text-red-600 border border-red-200"}\`}>
+                {manualMsg}
+              </p>
+            )}
+          </form>
+        )}
+        {tab === "bulk" && (
+          <div className="space-y-4">
+            <label className="block bg-white rounded-xl border-2 border-dashed border-slate-300 p-8 text-center cursor-pointer hover:border-indigo-400 transition-colors max-w-2xl">
+              <p className="text-3xl mb-2">📊</p>
+              <p className="text-sm font-semibold text-slate-700">{fileName || "Click to upload Excel or CSV"}</p>
+              <p className="text-xs text-slate-400 mt-1">Columns: title · question · context · constraints · stakes</p>
+              <input ref={fileRef} type="file" className="hidden" accept=".xlsx,.csv" onChange={handleFileChange} />
+            </label>
+            {rows.length > 0 && (
+              <>
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden max-w-full">
+                  <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50">
+                    <div className="flex items-center gap-3">
+                      <input type="checkbox" checked={selected.size===rows.length} onChange={toggleAll}
+                        className="w-4 h-4 accent-indigo-600" />
+                      <span className="text-xs font-semibold text-slate-600">{selected.size} of {rows.length} selected</span>
+                    </div>
+                    <button onClick={runBulk} disabled={selected.size===0 || bulkStatus==="running"}
+                      className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors flex items-center gap-2">
+                      {bulkStatus==="running" ? "⏳ Processing…" : \`▶ Run \${selected.size} decision\${selected.size!==1?"s":""} through AI Council\`}
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-100 bg-slate-50">
+                          <th className="w-8 px-3 py-2"></th>
+                          <th className="w-6 px-2 py-2 text-slate-400 font-semibold text-left">#</th>
+                          {COLS.map(c => (
+                            <th key={c} className="px-3 py-2 text-left text-slate-500 font-semibold capitalize">{c}</th>
+                          ))}
+                          <th className="px-3 py-2 text-left text-slate-500 font-semibold">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((row, i) => {
+                          const res = bulkResults.find(r => r.idx === i);
+                          return (
+                            <tr key={i} className={\`border-b border-slate-50 transition-colors \${selected.has(i) ? "bg-indigo-50/40" : "bg-white"}\`}>
+                              <td className="px-3 py-2 text-center">
+                                <input type="checkbox" checked={selected.has(i)} onChange={() => toggleRow(i)}
+                                  className="w-4 h-4 accent-indigo-600" />
+                              </td>
+                              <td className="px-2 py-2 text-slate-400">{i+1}</td>
+                              {COLS.map(c => (
+                                <td key={c} className="px-3 py-2 text-slate-700 max-w-[180px]">
+                                  <p className="truncate">{(row as any)[c] || (row as any)[c.charAt(0).toUpperCase()+c.slice(1)] || ""}</p>
+                                </td>
+                              ))}
+                              <td className="px-3 py-2">
+                                {res ? (
+                                  <span className={\`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold \${res.status==="ok" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}\`}>
+                                    {res.status==="ok" ? "✓" : "✗"} {res.msg}
+                                  </span>
+                                ) : bulkStatus==="running" && selected.has(i) ? (
+                                  <span className="text-slate-400 animate-pulse">queued…</span>
+                                ) : (
+                                  <span className="text-slate-300">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                {bulkStatus==="done" && (
+                  <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700 font-medium max-w-2xl">
+                    {bulkResults.filter(r=>r.status==="ok").length} of {selected.size} decisions submitted — AI advisors are processing. Check Verdict View in ~30s.
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ── Reusable functional page components ──────────────────────────────────────
 
@@ -1962,6 +2193,287 @@ const SUGGESTIONS = [
 ${suggestionsCode}
 ];
 
+function parseMsg(m: Message) {
+  if (m.data) return m.data;
+  try { const p = JSON.parse(m.text); if (p && typeof p === "object" && p.answer) return p; } catch {}
+  return null;
+}
+
+const PERSONA_COLORS: Record<string, string> = {
+  Contrarian: "bg-red-50 border-red-200 text-red-700",
+  "First Principles": "bg-blue-50 border-blue-200 text-blue-700",
+  Expansionist: "bg-green-50 border-green-200 text-green-700",
+  Outsider: "bg-orange-50 border-orange-200 text-orange-700",
+  Executor: "bg-purple-50 border-purple-200 text-purple-700",
+};
+function personaColor(name: string) {
+  for (const k of Object.keys(PERSONA_COLORS)) if (name.includes(k)) return PERSONA_COLORS[k];
+  return "bg-slate-50 border-slate-200 text-slate-700";
+}
+
+function VerdictPage({ apiBase }: { apiBase: string }) {
+  const [decisions, setDecisions] = React.useState<any[]>([]);
+  const [listLoading, setListLoading] = React.useState(true);
+  const [listError, setListError] = React.useState("");
+  const [search, setSearch] = React.useState("");
+  const [statusFilter, setStatusFilter] = React.useState("all");
+  const [selected, setSelected] = React.useState<any>(null);
+  const [detail, setDetail] = React.useState<any>(null);
+  const [detailLoading, setDetailLoading] = React.useState(false);
+  const [expandedAdvisors, setExpandedAdvisors] = React.useState<Set<number>>(new Set());
+
+  React.useEffect(() => {
+    fetch(apiBase + "/api/decisions")
+      .then(r => r.json()).then(d => setDecisions(Array.isArray(d) ? d : d.decisions ?? d.data ?? []))
+      .catch(() => setListError("Could not load decisions.")).finally(() => setListLoading(false));
+  }, []);
+
+  async function loadDetail(dec: any) {
+    setSelected(dec); setDetail(null); setExpandedAdvisors(new Set()); setDetailLoading(true);
+    try { const r = await fetch(apiBase + "/api/decisions/" + dec.id); setDetail(await r.json()); }
+    catch { setDetail({ error: "Could not load." }); } finally { setDetailLoading(false); }
+  }
+
+  function toggleAdvisor(i: number) { setExpandedAdvisors(prev => { const s = new Set(prev); s.has(i) ? s.delete(i) : s.add(i); return s; }); }
+
+  const filtered = decisions.filter(d => {
+    const ms = !search || JSON.stringify(d).toLowerCase().includes(search.toLowerCase());
+    const mf = statusFilter === "all" || d.status === statusFilter;
+    return ms && mf;
+  });
+
+  const statusBadge = (s: string) => ({ completed: "bg-emerald-100 text-emerald-700", running: "bg-yellow-100 text-yellow-700", failed: "bg-red-100 text-red-700" }[s] ?? "bg-slate-100 text-slate-600");
+  const verdict = detail?.chairman_verdict;
+  const advisors: any[] = detail?.advisor_outputs ?? [];
+  const reviews: any[] = detail?.peer_reviews ?? [];
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0 flex-wrap gap-y-2">
+        <span className="text-lg">📋</span>
+        <p className="flex-1 text-base font-bold text-slate-900">Verdict View</p>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search decisions…"
+          className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 w-44" />
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+          className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300">
+          <option value="all">All Status</option>
+          <option value="completed">Completed</option>
+          <option value="running">Running</option>
+          <option value="failed">Failed</option>
+        </select>
+        <span className="text-xs text-slate-400">{filtered.length} record{filtered.length !== 1 ? "s" : ""}</span>
+      </header>
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        <div className="w-72 flex-shrink-0 border-r border-slate-200 overflow-y-auto bg-white">
+          {listLoading && <p className="p-4 text-sm text-slate-400">Loading…</p>}
+          {listError && <p className="p-4 text-sm text-red-500">{listError}</p>}
+          {!listLoading && !listError && filtered.length === 0 && <p className="p-4 text-sm text-slate-400">No decisions found. Submit one via Decision Intake form.</p>}
+          {filtered.map((dec) => (
+            <button key={dec.id} onClick={() => loadDetail(dec)}
+              className={\`w-full text-left px-4 py-3.5 border-b border-slate-100 hover:bg-slate-50 transition-colors \${selected?.id === dec.id ? "bg-indigo-50 border-l-2 border-l-indigo-500" : ""}\`}>
+              <div className="flex items-start justify-between gap-2 mb-1">
+                <p className="text-sm font-semibold text-slate-800 leading-snug line-clamp-2">{dec.title ?? "Untitled"}</p>
+                <span className="text-[10px] font-bold text-slate-400 flex-shrink-0">#{dec.id}</span>
+              </div>
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className={\`text-[10px] font-bold px-1.5 py-0.5 rounded-full capitalize \${statusBadge(dec.status)}\`}>{dec.status}</span>
+                {dec.confidence_score != null && (
+                  <span className={\`text-[10px] font-bold px-1.5 py-0.5 rounded-full \${dec.confidence_score >= 80 ? "bg-emerald-100 text-emerald-700" : dec.confidence_score >= 60 ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"}\`}>{dec.confidence_score}% conf</span>
+                )}
+              </div>
+              {dec.created_at && <p className="text-[10px] text-slate-400 mt-1">{new Date(dec.created_at).toLocaleString()}</p>}
+            </button>
+          ))}
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 bg-slate-50">
+          {!selected && <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-3"><span className="text-5xl">📋</span><p className="text-sm">Select a decision to view the full verdict</p></div>}
+          {detailLoading && <div className="flex items-center justify-center h-full"><div className="flex gap-1.5">{[0,1,2].map(d => <span key={d} className="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-bounce" style={{animationDelay: d*0.14+"s"}}/>)}</div></div>}
+          {detail && !detailLoading && (
+            <div className="space-y-4 max-w-3xl">
+              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-4 mb-3">
+                  <div><h2 className="text-lg font-bold text-slate-900">{detail.title}</h2><p className="text-xs text-slate-400 mt-0.5">Decision #{detail.id}</p></div>
+                  <span className={\`text-xs font-bold px-2.5 py-1 rounded-full capitalize flex-shrink-0 \${statusBadge(detail.status)}\`}>{detail.status}</span>
+                </div>
+                <p className="text-sm text-slate-700 mb-3">{detail.question}</p>
+                {detail.confidence_score != null && (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 mb-1">Overall Confidence</p>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div className={\`h-full rounded-full \${detail.confidence_score >= 80 ? "bg-emerald-500" : detail.confidence_score >= 60 ? "bg-yellow-400" : "bg-red-400"}\`} style={{width: detail.confidence_score+"%"}}/>
+                      </div>
+                      <span className="text-xs font-bold text-slate-600">{detail.confidence_score}%</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+              {verdict && (
+                <div className="bg-white rounded-xl border border-indigo-200 p-5 shadow-sm">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-lg">👑</span>
+                    <p className="font-bold text-slate-900 text-sm">Chairman Verdict</p>
+                    <span className={\`ml-auto text-xs font-bold px-2 py-0.5 rounded-full \${verdict.confidence_score >= 80 ? "bg-emerald-100 text-emerald-700" : verdict.confidence_score >= 60 ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"}\`}>{verdict.confidence_score}% confidence</span>
+                  </div>
+                  <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3 mb-3"><p className="text-sm font-semibold text-indigo-900">{verdict.recommendation}</p></div>
+                  {verdict.rationale && <div className="mb-3"><p className="text-xs font-semibold text-slate-500 mb-1">Rationale</p><p className="text-sm text-slate-700">{verdict.rationale}</p></div>}
+                  {verdict.key_tensions && <div className="mb-3"><p className="text-xs font-semibold text-slate-500 mb-1">Key Tensions</p><p className="text-sm text-slate-700">{verdict.key_tensions}</p></div>}
+                  {Array.isArray(verdict.next_steps_json) && verdict.next_steps_json.length > 0 && (
+                    <div><p className="text-xs font-semibold text-slate-500 mb-2">Next Steps</p>
+                      <ol className="space-y-1.5">{verdict.next_steps_json.map((step: string, i: number) => (
+                        <li key={i} className="flex items-start gap-2 text-sm text-slate-700">
+                          <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i+1}</span>{step}
+                        </li>
+                      ))}</ol>
+                    </div>
+                  )}
+                  {verdict.alignment_matrix_json && Object.keys(verdict.alignment_matrix_json).length > 0 && (
+                    <div className="mt-3"><p className="text-xs font-semibold text-slate-500 mb-2">Alignment Matrix</p>
+                      <div className="grid grid-cols-2 gap-2">{Object.entries(verdict.alignment_matrix_json).map(([adv, score]: [string, any]) => (
+                        <div key={adv} className="flex items-center gap-2">
+                          <span className="text-xs text-slate-600 w-24 truncate">{adv}</span>
+                          <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-indigo-400 rounded-full" style={{width: Number(score)+"%"}}/></div>
+                          <span className="text-[10px] text-slate-500">{score}%</span>
+                        </div>
+                      ))}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {advisors.length > 0 && (
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2"><span>🧠</span><p className="font-bold text-slate-900 text-sm">Advisor Analysis ({advisors.length})</p></div>
+                  <div className="divide-y divide-slate-100">{advisors.map((adv: any, i: number) => (
+                    <div key={i} className="p-4">
+                      <button onClick={() => toggleAdvisor(i)} className="w-full flex items-center gap-3 text-left">
+                        <span className={\`text-xs font-bold px-2 py-0.5 rounded-full border \${personaColor(adv.advisor_name ?? adv.persona ?? "")}\`}>{adv.advisor_name ?? adv.persona}</span>
+                        <span className="flex-1 text-xs text-slate-500 truncate">{adv.recommendation ?? ""}</span>
+                        <span className="text-slate-400 text-xs">{expandedAdvisors.has(i) ? "▲" : "▼"}</span>
+                      </button>
+                      {expandedAdvisors.has(i) && (
+                        <div className="mt-3 space-y-2 pl-1">
+                          {adv.reasoning && <div><p className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Reasoning</p><p className="text-sm text-slate-700">{adv.reasoning}</p></div>}
+                          {adv.key_insights && <div><p className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Key Insights</p><p className="text-sm text-slate-700">{adv.key_insights}</p></div>}
+                          {adv.risks && <div><p className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Risks</p><p className="text-sm text-slate-700">{adv.risks}</p></div>}
+                        </div>
+                      )}
+                    </div>
+                  ))}</div>
+                </div>
+              )}
+              {reviews.length > 0 && (
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2"><span>🔍</span><p className="font-bold text-slate-900 text-sm">Blind Peer Reviews ({reviews.length})</p></div>
+                  <div className="divide-y divide-slate-100">{reviews.map((rev: any, i: number) => (
+                    <div key={i} className="p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs text-slate-600 font-semibold">{rev.reviewer_name}</span>
+                        <span className="text-xs text-slate-400">→</span>
+                        <span className="text-xs text-slate-600">{rev.target_advisor_name}</span>
+                        <span className={\`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full \${rev.agreement_level >= 70 ? "bg-emerald-100 text-emerald-700" : rev.agreement_level >= 50 ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"}\`}>{rev.agreement_level}% agree</span>
+                      </div>
+                      <p className="text-sm text-slate-700">{rev.critique}</p>
+                    </div>
+                  ))}</div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AnalyticsPage({ apiBase, messages, msgCount }: { apiBase: string; messages: Message[]; msgCount: number }) {
+  const [decisions, setDecisions] = React.useState<any[]>([]);
+  React.useEffect(() => {
+    fetch(apiBase + "/api/decisions").then(r => r.json()).then(d => setDecisions(Array.isArray(d) ? d : [])).catch(() => {});
+  }, []);
+  const botMsgs = messages.filter(m => m.role === "bot" && m.data);
+  const avgConf = botMsgs.length ? Math.round(botMsgs.reduce((s, m) => s + (m.data?.confidence ?? 0), 0) / botMsgs.length) : 0;
+  const completed = decisions.filter(d => d.status === "completed");
+  const avgDecConf = completed.length ? Math.round(completed.reduce((s, d) => s + (d.confidence_score ?? 0), 0) / completed.length) : 0;
+  const bk = [
+    completed.filter(d => (d.confidence_score ?? 0) >= 90).length,
+    completed.filter(d => (d.confidence_score ?? 0) >= 70 && (d.confidence_score ?? 0) < 90).length,
+    completed.filter(d => (d.confidence_score ?? 0) >= 50 && (d.confidence_score ?? 0) < 70).length,
+    completed.filter(d => (d.confidence_score ?? 0) < 50).length,
+  ];
+  const maxBk = Math.max(...bk, 1);
+  const days: string[] = []; const dayCounts: number[] = [];
+  for (let i = 6; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); days.push(d.toLocaleDateString("en", { weekday: "short" })); dayCounts.push(decisions.filter(dec => dec.created_at && new Date(dec.created_at).toDateString() === d.toDateString()).length); }
+  const maxDay = Math.max(...dayCounts, 1);
+  const buckets = [{label:"90–100%",color:"bg-emerald-500"},{label:"70–89%",color:"bg-blue-500"},{label:"50–69%",color:"bg-yellow-400"},{label:"< 50%",color:"bg-red-400"}];
+  return (
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+        <span className="text-lg">📊</span><p className="flex-1 text-base font-bold text-slate-900">Analytics</p>
+        <button onClick={() => fetch(apiBase+"/api/decisions").then(r=>r.json()).then(d=>setDecisions(Array.isArray(d)?d:[])).catch(()=>{})} className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold px-3 py-1 bg-indigo-50 rounded-lg">↻ Refresh</button>
+      </header>
+      <div className="flex-1 overflow-y-auto p-5 bg-slate-50 space-y-5">
+        <div className="grid grid-cols-4 gap-4">
+          {[{label:"Total Decisions",value:decisions.length,color:"text-slate-900",icon:"📋"},{label:"Completed",value:completed.length,color:"text-emerald-600",icon:"✅"},{label:"Avg Confidence",value:avgDecConf?avgDecConf+"%":"—",color:"text-indigo-600",icon:"🎯"},{label:"Chat Messages",value:msgCount,color:"text-purple-600",icon:"💬"}].map(k => (
+            <div key={k.label} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+              <div className="flex items-center gap-2 mb-2"><span>{k.icon}</span><p className="text-xs text-slate-400">{k.label}</p></div>
+              <p className={\`text-2xl font-bold \${k.color}\`}>{String(k.value)}</p>
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-5">
+          <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+            <p className="text-sm font-bold text-slate-700 mb-4">Decisions Last 7 Days</p>
+            {decisions.length === 0 ? <p className="text-xs text-slate-400 text-center py-6">Submit a decision via Decision Intake form</p> : (
+              <div className="flex items-end gap-1.5 h-28">
+                {days.map((day, i) => (
+                  <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                    <span className="text-[9px] text-slate-500">{dayCounts[i] || ""}</span>
+                    <div className="w-full rounded-t bg-indigo-500" style={{height:(dayCounts[i]/maxDay*88)+"px",minHeight:dayCounts[i]>0?"4px":"0"}}/>
+                    <span className="text-[9px] text-slate-400">{day}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+            <p className="text-sm font-bold text-slate-700 mb-4">Confidence Distribution</p>
+            {completed.length === 0 ? <p className="text-xs text-slate-400 text-center py-6">No completed decisions yet</p> : (
+              <div className="space-y-3">{buckets.map((b, i) => (
+                <div key={i}>
+                  <div className="flex justify-between text-[10px] text-slate-500 mb-0.5"><span>{b.label}</span><span>{bk[i]}</span></div>
+                  <div className="h-3 bg-slate-100 rounded-full overflow-hidden"><div className={\`h-full rounded-full \${b.color}\`} style={{width:(bk[i]/maxBk*100)+"%"}}/></div>
+                </div>
+              ))}</div>
+            )}
+          </div>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+          <p className="text-sm font-bold text-slate-700 mb-4">AI Chat — Confidence per Response {avgConf ? <span className="text-xs font-normal text-slate-400 ml-2">avg {avgConf}%</span> : null}</p>
+          {botMsgs.length === 0 ? <p className="text-xs text-slate-400 text-center py-4">Send a message in AI Chat to see confidence trend</p> : (
+            <div className="flex items-end gap-2 h-24">{botMsgs.map((m, i) => { const conf = m.data?.confidence ?? 0; const col = conf >= 80 ? "bg-emerald-500" : conf >= 60 ? "bg-yellow-400" : "bg-red-400"; return (
+              <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                <span className="text-[9px] text-slate-500">{conf}%</span>
+                <div className={\`w-full rounded-t \${col}\`} style={{height:(conf/100*72)+"px",minHeight:"4px"}}/>
+                <span className="text-[9px] text-slate-400">#{i+1}</span>
+              </div>
+            ); })}</div>
+          )}
+        </div>
+        {decisions.length > 0 && (
+          <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+            <p className="text-sm font-bold text-slate-700 mb-3">Decision Status Breakdown</p>
+            <div className="flex gap-4">
+              {[{label:"Completed",count:completed.length,color:"bg-emerald-100 text-emerald-700"},{label:"Running",count:decisions.filter(d=>d.status==="running").length,color:"bg-yellow-100 text-yellow-700"},{label:"Failed",count:decisions.filter(d=>d.status==="failed").length,color:"bg-red-100 text-red-700"}].map(s => (
+                <div key={s.label} className={\`flex-1 rounded-xl p-3 \${s.color} text-center\`}><p className="text-xl font-bold">{s.count}</p><p className="text-xs font-semibold mt-0.5">{s.label}</p></div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [currentPage, setCurrentPage] = useState("chat");
   const [messages, setMessages] = useState<Message[]>([
@@ -1990,8 +2502,10 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: text, session_id: SESSION_ID }),
       });
-      const data = await r.json();
-      setMessages(m => [...m, { role: "bot", text: data.answer ?? JSON.stringify(data), data, time: new Date().toLocaleTimeString() }]);
+      const raw = await r.json();
+      const data = typeof raw === "string" ? (() => { try { return JSON.parse(raw); } catch { return { answer: raw }; } })() : raw;
+      const answerText = data.answer ?? data.detail ?? JSON.stringify(data);
+      setMessages(m => [...m, { role: "bot", text: answerText, data, time: new Date().toLocaleTimeString() }]);
     } catch {
       setMessages(m => [...m, { role: "bot", text: "⚠️ Backend not reachable. Ensure the server is running on port ${port}.", time: new Date().toLocaleTimeString() }]);
     } finally {
@@ -2056,13 +2570,13 @@ export default function App() {
                       </div>
                     ) : (
                       <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-xl">
-                        {m.data?.steps?.length > 0 || m.data?.confidence > 0 ? (
+                        {(() => { const d = parseMsg(m); return (d && d.answer) ? (
                           <div className="space-y-3">
-                            <p className="text-sm text-slate-800 leading-relaxed">{m.data.answer ?? m.text}</p>
-                            {m.data.steps?.length > 0 && (
+                            <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">{String(d.answer).replace(/\\\\n/g, "\\n")}</p>
+                            {d.steps?.length > 0 && (
                               <div className="bg-slate-50 rounded-xl p-3 space-y-1.5">
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Steps</p>
-                                {m.data.steps.map((s: string, si: number) => (
+                                {d.steps.map((s: string, si: number) => (
                                   <div key={si} className="flex items-start gap-2 text-xs text-slate-700">
                                     <span className="w-4 h-4 rounded-full bg-indigo-100 text-indigo-600 font-bold flex items-center justify-center flex-shrink-0 text-[9px] mt-0.5">{si+1}</span>
                                     <span>{s}</span>
@@ -2070,19 +2584,19 @@ export default function App() {
                                 ))}
                               </div>
                             )}
-                            {m.data.confidence > 0 && (
+                            {d.confidence > 0 && (
                               <div>
                                 <div className="flex justify-between text-[10px] text-slate-400 mb-1">
-                                  <span>Confidence</span><span className="font-bold text-indigo-600">{m.data.confidence}%</span>
+                                  <span>Confidence</span><span className="font-bold text-indigo-600">{d.confidence}%</span>
                                 </div>
                                 <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                  <div className="h-full bg-indigo-500 rounded-full transition-all" style={{width: m.data.confidence+"%"}}/>
+                                  <div className="h-full bg-indigo-500 rounded-full" style={{width: d.confidence+"%"}}/>
                                 </div>
                               </div>
                             )}
-                            {m.data.related?.length > 0 && (
+                            {d.related?.length > 0 && (
                               <div className="flex flex-wrap gap-1.5">
-                                {m.data.related.map((r: string, ri: number) => (
+                                {d.related.map((r: string, ri: number) => (
                                   <button key={ri} onClick={() => sendMessage(r)}
                                     className="text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full transition-colors">
                                     {r}
@@ -2091,9 +2605,7 @@ export default function App() {
                               </div>
                             )}
                           </div>
-                        ) : (
-                          <p className="text-sm text-slate-800 leading-relaxed">{m.text}</p>
-                        )}
+                        ) : <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">{String(m.text).replace(/\\\\n/g, "\\n")}</p>; })()}
                         <p className="text-[10px] text-slate-400 mt-2">{m.time}</p>
                       </div>
                     )}
@@ -2124,81 +2636,7 @@ export default function App() {
           </div>
         )}
 ${featurePageComponents}
-        {/* Analytics page */}
-        {currentPage === "analytics" && (() => {
-          const botMsgs = messages.filter(m => m.role === "bot" && m.data);
-          const avgConf = botMsgs.length ? Math.round(botMsgs.reduce((s,m) => s + (m.data?.confidence ?? 0), 0) / botMsgs.length) : 0;
-          const featureLabels = ${JSON.stringify(featureList.slice(0, 5).map(f => f.slice(0, 28)))};
-          const featureUsage = featureLabels.map((_: string, i: number) => Math.floor(Math.random() * 8) + 1);
-          const maxUsage = Math.max(...featureUsage, 1);
-          return (
-          <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-            <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-              <span className="text-lg">📊</span>
-              <p className="flex-1 text-base font-bold text-slate-900">Analytics</p>
-            </header>
-            <div className="flex-1 overflow-y-auto p-5 bg-slate-50">
-              {/* KPI cards */}
-              <div className="grid grid-cols-4 gap-4 mb-6">
-                {[
-                  {label:"Messages Sent", value: msgCount, color:"text-slate-900"},
-                  {label:"Features", value: ${featureList.length}, color:"text-indigo-600"},
-                  {label:"Avg Confidence", value: avgConf ? avgConf+"%" : "—", color:"text-emerald-600"},
-                  {label:"Session", value:"Live", color:"text-emerald-500"},
-                ].map(k => (
-                  <div key={k.label} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center">
-                    <p className="text-xs text-slate-400 mb-1">{k.label}</p>
-                    <p className={\`text-2xl font-bold \${k.color}\`}>{String(k.value)}</p>
-                  </div>
-                ))}
-              </div>
-              <div className="grid grid-cols-2 gap-5 mb-5">
-                {/* Confidence trend */}
-                <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-                  <p className="text-sm font-bold text-slate-700 mb-4">Confidence per Response</p>
-                  {botMsgs.length === 0 ? (
-                    <p className="text-xs text-slate-400 text-center py-6">Send a message to see data</p>
-                  ) : (
-                    <div className="flex items-end gap-2 h-28">
-                      {botMsgs.map((m, i) => (
-                        <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                          <span className="text-[9px] text-slate-500">{m.data?.confidence ?? 0}%</span>
-                          <div className="w-full rounded-t-md bg-indigo-500 transition-all" style={{height: ((m.data?.confidence ?? 0)/100*96)+"px", minHeight:"4px"}}/>
-                          <span className="text-[9px] text-slate-400">{i+1}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                {/* Feature usage bar chart */}
-                <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-                  <p className="text-sm font-bold text-slate-700 mb-4">Feature Coverage</p>
-                  <div className="space-y-2.5">
-                    {featureLabels.map((f: string, i: number) => (
-                      <div key={i}>
-                        <div className="flex justify-between text-[10px] text-slate-500 mb-0.5">
-                          <span className="truncate max-w-[160px]">{f}</span>
-                          <span>{featureUsage[i]}</span>
-                        </div>
-                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                          <div className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500" style={{width:(featureUsage[i]/maxUsage*100)+"%"}}/>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              {/* Quick Start */}
-              <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-                <p className="text-sm font-bold text-slate-700 mb-3">Quick Start</p>
-                <div className="grid grid-cols-2 gap-2">
-                  ${suggestedQs.slice(0, 4).map((q, i) => `<button key={${i}} onClick={() => sendMessage(${JSON.stringify(q)})} className="text-left flex items-start gap-2 text-xs text-slate-700 bg-slate-50 hover:bg-indigo-50 rounded-lg px-3 py-2.5 transition-colors"><span className="w-4 h-4 rounded-full bg-indigo-100 text-indigo-600 text-[9px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">${i + 1}</span><span className="line-clamp-2">${q}</span></button>`).join("\n                  ")}
-                </div>
-              </div>
-            </div>
-          </div>
-          );
-        })()}
+        {currentPage === "analytics" && <AnalyticsPage apiBase={API_BASE} messages={messages} msgCount={msgCount} />}
       </div>
 
       {/* Right panel */}
@@ -2282,6 +2720,30 @@ async function buildSourceZip(html: string, plan: Plan): Promise<Blob> {
       if (!out.startsWith("import io")) {
         out = "import io\n" + out;
       }
+    }
+    // Fix (c): agent files that use json.loads/json.dumps must import json
+    if ((out.includes("json.loads") || out.includes("json.dumps") || out.includes("json.loads")) && !/^import json/m.test(out)) {
+      out = "import json\n" + out;
+    }
+    // Fix (d): decisions.py — ensure tags= never receives a list directly; convert to comma-joined string
+    if (out.includes("tags=payload.tags")) {
+      out = out.replace(
+        /tags\s*=\s*payload\.tags/g,
+        'tags=", ".join(payload.tags) if payload.tags else ""'
+      );
+    }
+    // Fix (e): replace fitz/PyMuPDF with PyPDF2 for PDF extraction
+    if (out.includes("import fitz") || out.includes("fitz.open")) {
+      out = out.replace(/import fitz\n/g, "");
+      out = out.replace(
+        /fitz\.open\s*\([^)]*\)[^;]*?(?=\n)/g,
+        ""
+      );
+      // Replace fitz-based PDF extraction block with PyPDF2 equivalent
+      out = out.replace(
+        /doc\s*=\s*fitz\.open\s*\([\s\S]*?text\s*=\s*.*?\.get_text\(\)[\s\S]*?(?=\n\s*(?:elif|else|return|#|\w))/g,
+        `import PyPDF2\n    reader = PyPDF2.PdfReader(io.BytesIO(content))\n    text = "\\n".join(page.extract_text() or "" for page in reader.pages)\n`
+      );
     }
     return out;
   }
@@ -2905,12 +3367,14 @@ load_dotenv()
 
 from app.database import engine, Base
 from app.api import chat, documents, health
+from app.api.decisions import router as decisions_router
+from app.api.tags import router as tags_router
 
 app = FastAPI(title="${plan.summary.slice(0, 60)}", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173").split(","),
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -2919,6 +3383,8 @@ app.add_middleware(
 app.include_router(health.router, prefix="/api")
 app.include_router(chat.router, prefix="/api/chat")
 app.include_router(documents.router, prefix="/api/documents")
+app.include_router(decisions_router, prefix="/api")
+app.include_router(tags_router, prefix="/api")
 
 @app.on_event("startup")
 async def startup():
@@ -3190,23 +3656,52 @@ async def get_history(session_id: str, db: AsyncSession = Depends(get_db)):
 `;
 
   // ── backend/app/api/documents.py ──────────────────────────────────────────────
-  const documentsApiPy = `from fastapi import APIRouter, UploadFile, File, Depends
+  const documentsApiPy = `from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import get_db
 from app.models import Document
 from app import rag
+import io
 
 router = APIRouter()
+
+def _extract_text(filename: str, raw: bytes) -> str:
+    name = (filename or "").lower()
+    try:
+        if name.endswith(".pdf"):
+            import PyPDF2
+            reader = PyPDF2.PdfReader(io.BytesIO(raw))
+            return "\\n".join(p.extract_text() or "" for p in reader.pages)
+        if name.endswith(".docx"):
+            import docx
+            doc = docx.Document(io.BytesIO(raw))
+            return "\\n".join(p.text for p in doc.paragraphs if p.text.strip())
+        if name.endswith(".xlsx"):
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+            rows = []
+            for ws in wb.worksheets:
+                for row in ws.iter_rows(values_only=True):
+                    rows.append("\\t".join(str(c) if c is not None else "" for c in row))
+            return "\\n".join(rows)
+        if name.endswith(".csv"):
+            import csv
+            text = raw.decode("utf-8", errors="replace")
+            reader = csv.DictReader(io.StringIO(text))
+            return "\\n".join(str(row) for row in reader)
+        # .txt and everything else
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return raw.decode("latin-1", errors="replace")
+    except Exception as e:
+        return f"[Parse error: {e}]\\n" + raw.decode("utf-8", errors="replace")
 
 @router.post("/upload")
 async def upload_document(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
     raw = await file.read()
-    # Try UTF-8; fall back gracefully for binary formats
-    try:
-        content = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        content = raw.decode("latin-1", errors="replace")
+    content = _extract_text(file.filename or "", raw)
     doc = Document(name=file.filename or "unknown", content=content)
     db.add(doc)
     await db.commit()
