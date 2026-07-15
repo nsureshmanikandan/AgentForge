@@ -53,8 +53,6 @@ export default function WorkflowBuilder() {
 
   // Resizable left panel
   const [panelWidth, setPanelWidth] = useState(288);
-  const isResizing = useRef(false);
-
   const startResize = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     const startX = e.clientX;

@@ -8,6 +8,7 @@ interface Prompt {
   prompt: string;
   tools: string[];
   complexity: "Starter" | "Intermediate" | "Advanced";
+  sampleFile?: { name: string; url: string };
 }
 
 const PROMPTS: Prompt[] = [
@@ -15,10 +16,30 @@ const PROMPTS: Prompt[] = [
   {
     category: "General",
     title: "LLM Council",
-    description: "Pressure-test any decision with 5 AI advisors who challenge, expand, and peer-review each other before a chairman delivers a verdict.",
-    prompt: "Build 'The Council' — a decision-testing app where a user pastes a question and context, and 5 advisors (Contrarian, First Principles, Expansionist, Outsider, Executor) weigh in, peer-review each other blind, and a chairman returns a structured verdict with alignment matrix and recommendation.",
-    tools: ["Web Search", "Webhook"],
+    description: "Pressure-test any decision with 5 AI advisors who challenge, expand, and peer-review each other before a chairman delivers a structured verdict — with file upload, history dashboard, and Excel/PPT export.",
+    prompt: `Build 'The Council' — a decision intelligence app where a user submits a question and context, and 5 specialized advisors (Contrarian, First Principles, Expansionist, Outsider, Executor) weigh in, peer-review each other blind, and a chairman returns a structured verdict with alignment matrix and recommendation.
+
+AI agents:
+1. CouncilOrchestrator — Receives the decision input, fans out to all 5 advisor agents in parallel, collects responses, triggers blind peer-review pass, then calls ChairmanAgent to synthesize the final verdict.
+2. AdvisorAgent (x5 personas) — Each advisor analyzes the question from their unique lens and returns structured reasoning: key insights, risks, assumptions, and recommendation.
+3. PeerReviewAgent — Each advisor blindly critiques anonymized responses from the other 4 advisors: agreement level, critique, what was missed.
+4. ChairmanAgent — Synthesizes all advisor outputs and peer reviews into a final verdict: recommendation, alignment matrix, key tensions, tradeoffs, next steps, and confidence score (0–100).
+
+Pages:
+1. Decision Intake — Form with fields: Decision Title, Question (required), Context, Constraints, Stakes. Submit triggers the full advisor pipeline with live progress indicator (Intake → Advisor 1..5 → Peer Review → Chairman Verdict).
+2. Verdict View — Full structured results page: each advisor panel (expandable), peer review matrix, chairman verdict with alignment score chart, recommendation highlighted, next steps list.
+3. Decision History — Live list from the database (NOT hardcoded). Shows: title, question excerpt, confidence score badge, tags, date, status (running/completed). Searchable and filterable by tag.
+4. Comparison View — Select 2–3 past decisions side by side: alignment scores, recommendation summaries, advisor agreement patterns.
+5. Export Page — Export any completed decision verdict to Excel (.xlsx) with one sheet per advisor + a Summary sheet, or to PowerPoint (.pptx) with one slide per advisor + a Chairman Verdict slide. File downloads immediately in the browser.
+
+Upload: On the Decision Intake page, add an "Upload context file" button that accepts .xlsx, .csv, .pdf, .docx, and .txt. Parsed content pre-fills the Context field. For .xlsx/.csv with multiple rows (batch mode), show a row selector so the user can pick which row to run as a decision.
+
+UI: Slate-800 sidebar with nav icons. Rich results page with color-coded advisor cards (one color per persona). Alignment matrix as a visual grid. Chairman verdict in a prominent highlighted box. Progress stepper visible while the pipeline runs.
+
+Database: Persist every decision run with full advisor outputs, peer reviews, verdict, tags, confidence score, and timestamps. History page reads live from the DB.`,
+    tools: ["File Upload", "Excel Export", "PPT Export"],
     complexity: "Advanced",
+    sampleFile: { name: "council-sample-decisions.xlsx", url: "/council-sample-decisions.xlsx" },
   },
   {
     category: "General",
@@ -729,6 +750,21 @@ function PreviewModal({ prompt, onClose, onUse }: { prompt: Prompt; onClose: () 
           </div>
         </div>
 
+        {prompt.sampleFile && (
+          <div className="px-6 pb-2">
+            <a
+              href={prompt.sampleFile.url}
+              download={prompt.sampleFile.name}
+              className="flex items-center gap-2 w-full py-2 px-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700 hover:bg-emerald-100 transition-colors"
+            >
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span className="font-medium">Sample Data File</span>
+              <span className="text-emerald-500 text-xs ml-auto">{prompt.sampleFile.name}</span>
+            </a>
+          </div>
+        )}
         <div className="px-6 pb-6 flex gap-3">
           <button
             onClick={onClose}
@@ -761,9 +797,8 @@ export default function PromptLibrary() {
     return matchCat && matchSearch;
   });
 
-  const usePrompt = (prompt: string) => {
-    sessionStorage.setItem("architectPrompt", prompt);
-    navigate("/architect");
+  const usePrompt = (p: Prompt) => {
+    navigate("/architect", { state: { prompt: p.prompt, sampleFile: p.sampleFile } });
   };
 
   return (
@@ -840,13 +875,28 @@ export default function PromptLibrary() {
               <p className="text-sm text-gray-500 mb-3 flex-1">{p.description}</p>
 
               {/* Tool tags */}
-              <div className="flex flex-wrap gap-1.5 mb-4">
+              <div className="flex flex-wrap gap-1.5 mb-3">
                 {p.tools.map((t) => (
                   <span key={t} className="text-xs bg-gray-100 text-gray-500 rounded-full px-2 py-0.5">
                     {t}
                   </span>
                 ))}
               </div>
+
+              {/* Sample file chip */}
+              {p.sampleFile && (
+                <a
+                  href={p.sampleFile.url}
+                  download={p.sampleFile.name}
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1.5 mb-3 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1 hover:bg-emerald-100 transition-colors w-fit"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V19a2 2 0 002 2h14a2 2 0 002-2v-2" />
+                  </svg>
+                  Sample Data
+                </a>
+              )}
 
               <div className="flex gap-2">
                 <button
@@ -856,7 +906,7 @@ export default function PromptLibrary() {
                   Preview
                 </button>
                 <button
-                  onClick={() => usePrompt(p.prompt)}
+                  onClick={() => usePrompt(p)}
                   className="flex-1 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-700 transition-colors"
                 >
                   Use this prompt →
@@ -871,7 +921,7 @@ export default function PromptLibrary() {
         <PreviewModal
           prompt={preview}
           onClose={() => setPreview(null)}
-          onUse={() => { setPreview(null); usePrompt(preview.prompt); }}
+          onUse={() => { setPreview(null); usePrompt(preview); }}
         />
       )}
     </div>

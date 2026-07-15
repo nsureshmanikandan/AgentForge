@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { agentsApi, ragApi } from "../api/client";
 import type { PromptVersion, PromptChangeType } from "../components/PromptEvolution";
-import { detectChangeType, PromptEvolutionSection, buildRepairEntry } from "../components/PromptEvolution";
+import { PromptEvolutionSection, buildRepairEntry } from "../components/PromptEvolution";
 
 const CA_HISTORY_KEY = "agentforge_create_agent_history";
 
@@ -400,8 +400,6 @@ export default function CreateAgent() {
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
-  const [automationOpen, setAutomationOpen] = useState(false);
-
   // Feature configs
   const [enabledFeatures, setEnabledFeatures] = useState<string[]>(["memory"]);
   const [activePanel, setActivePanel] = useState<FeaturePanel>(null);

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import JSZip from "jszip";
 import { architectApi } from "../api/client";
 
@@ -97,20 +98,6 @@ const MODE_LABELS: Record<Mode, string> = {
 const SOURCE_INTENT_RE = /\b(use (?:this|these|it|them) (?:as|for)|this is (?:the |a |my )?source|treat (?:this|these) as|add (?:this|these) to|source (?:document|file|reference)|rag (?:document|source|file)|knowledge.?base (?:document|source|file)|include (?:this|these) in (?:the )?(?:rag|kb|knowledge|source)|use (?:for|as) (?:rag|kb|knowledge base|source|prompt|idea))\b/i;
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
-
-function Dots() {
-  return (
-    <span className="flex items-center gap-1 h-5">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="w-1.5 h-1.5 rounded-full bg-gray-500 animate-bounce"
-          style={{ animationDelay: `${i * 0.14}s` }}
-        />
-      ))}
-    </span>
-  );
-}
 
 // ─── Right panel tabs ─────────────────────────────────────────────────────────
 
@@ -491,7 +478,7 @@ function PlanProgressState({ messages, loading, qAnswers = {}, qLocked = false, 
 
       {/* Progress steps */}
       <div className="w-full max-w-sm space-y-2 mb-6">
-        {steps.map((s, i) => (
+        {steps.map((s) => (
           <div key={s.id} className="flex items-center gap-3">
             <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-500 ${
               s.done ? "bg-violet-600 text-white" : s.active ? "bg-violet-100 border-2 border-violet-500 text-violet-600" : "bg-gray-100 text-gray-400"
@@ -659,14 +646,29 @@ function extractAppTitle(summary: string): string {
   return kept.join(" ") || summary.slice(0, 40);
 }
 
+// ─── Detect whether a plan is RAG/document-based ─────────────────────────────
+
+function isRagPlan(plan: Plan): boolean {
+  const haystack = [
+    plan.summary,
+    plan.tech_stack?.ai ?? "",
+    plan.tech_stack?.backend ?? "",
+    ...(plan.features ?? []),
+    ...(plan.agents?.map(a => a.role + " " + a.tools.join(" ")) ?? []),
+  ].join(" ").toLowerCase();
+  // Only true RAG signals: vector DB, embeddings, semantic search, document ingestion pipeline
+  // Deliberately exclude generic "knowledge base" / "kb" — those appear in non-RAG apps too
+  return /\b(rag|faiss|embedding|vector store|pgvector|chroma|pinecone|weaviate|semantic search|document ingestion|document upload|vector index)\b/.test(haystack);
+}
+
 // ─── RAG Scaffold ZIP — proven RAGChatbot pattern, app name injected ──────────
 
-async function buildRagScaffoldZip(html: string, plan: Plan): Promise<Blob> {
+async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
   const zip = new JSZip();
   const appTitle = extractAppTitle(plan.summary);
   const appName = appTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "agentforge-app";
 
-  // ── sandbox.html — rich 3-panel chat UI, calls http://localhost:8000 ────────
+  // ── sandbox.html — 5-page layout matching React App.tsx exactly ─────────────
   zip.file("sandbox.html", `<!doctype html>
 <html lang="en">
 <head>
@@ -675,103 +677,168 @@ async function buildRagScaffoldZip(html: string, plan: Plan): Promise<Blob> {
 <title>${appTitle}</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
-  * { box-sizing: border-box; }
-  body { margin: 0; font-family: 'Inter','Segoe UI',sans-serif; }
-  .dot-bounce { display:inline-block; width:8px; height:8px; border-radius:50%; background:#94a3b8; animation: bounce 1.2s infinite ease-in-out; }
-  .dot-bounce:nth-child(2) { animation-delay:.14s; }
-  .dot-bounce:nth-child(3) { animation-delay:.28s; }
-  @keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
-  .chip { cursor:pointer; background:#eff6ff; color:#4f46e5; border:1px solid #c7d2fe; border-radius:9999px; padding:2px 10px; font-size:11px; white-space:nowrap; }
-  .chip:hover { background:#e0e7ff; }
-  #chat-messages { display:flex; flex-direction:column; gap:12px; }
+  *{box-sizing:border-box}body{margin:0;font-family:'Inter','Segoe UI',sans-serif}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#94a3b8;animation:bounce 1.2s infinite ease-in-out}
+  .dot:nth-child(2){animation-delay:.14s}.dot:nth-child(3){animation-delay:.28s}
+  @keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}
+  .page{display:none}.page.active{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
+  #chat-messages{display:flex;flex-direction:column;gap:12px}
 </style>
 </head>
-<body class="flex h-screen overflow-hidden bg-slate-50">
+<body class="flex h-screen overflow-hidden bg-gray-100">
 
 <!-- LEFT SIDEBAR -->
-<aside id="sidebar" class="w-52 bg-gray-900 text-white flex flex-col flex-shrink-0">
-  <div class="p-4 border-b border-gray-700">
+<aside class="w-64 bg-slate-800 text-white flex flex-col flex-shrink-0">
+  <div class="p-4 border-b border-white/10">
     <div class="flex items-center gap-3">
-      <div class="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-sm">AI</div>
-      <div>
-        <p class="text-sm font-bold leading-tight truncate max-w-[160px]">${appTitle}</p>
-        <p class="text-xs text-slate-400">FAISS RAG · Azure OpenAI</p>
-      </div>
+      <div class="w-10 h-10 rounded-xl bg-purple-600 flex items-center justify-center font-bold text-base" id="avatar-letter">${appTitle.charAt(0).toUpperCase()}</div>
+      <div class="min-w-0"><p class="text-sm font-bold leading-tight truncate">${appTitle}</p><p class="text-xs text-slate-400 leading-tight">Document-aware support</p></div>
     </div>
   </div>
-  <div class="p-3 border-b border-gray-700">
-    <button id="upload-btn" class="w-full text-xs font-semibold py-2 px-3 rounded-lg border border-indigo-500 text-indigo-300 hover:bg-indigo-900/40 transition-colors">
-      📎 Upload Documents
-    </button>
-    <input id="file-input" type="file" multiple accept=".pdf,.docx,.txt,.md,.csv" class="hidden"/>
-  </div>
-  <div class="flex-1 overflow-y-auto p-3">
-    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Documents</p>
-    <div id="doc-list"><p class="text-xs text-slate-500 italic">No documents yet.</p></div>
-  </div>
-  <div class="p-3 border-t border-gray-700">
-    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Suggested</p>
-    <div id="suggestions" class="flex flex-col gap-1.5">
-      <button class="suggestion-btn text-left text-xs text-slate-300 hover:text-white hover:bg-gray-800 rounded px-2 py-1.5 transition-colors">What can you help me with?</button>
-      <button class="suggestion-btn text-left text-xs text-slate-300 hover:text-white hover:bg-gray-800 rounded px-2 py-1.5 transition-colors">Summarise the uploaded documents</button>
-      <button class="suggestion-btn text-left text-xs text-slate-300 hover:text-white hover:bg-gray-800 rounded px-2 py-1.5 transition-colors">What are the key topics covered?</button>
+  <nav class="p-3 border-b border-white/10 space-y-0.5" id="nav-links"></nav>
+  <div class="flex-1 overflow-y-auto p-3 flex flex-col gap-0">
+    <div id="topic-section">
+      <p class="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-2 px-1 hidden" id="topic-label">Filter by Topic</p>
+      <div id="topic-filters"></div>
     </div>
+    <p class="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-2 mt-2 px-1">Top Questions</p>
+    <div id="top-questions"></div>
+    <p class="text-[11px] text-slate-500 px-1 mt-auto pt-3" id="kb-doc-footer"></p>
   </div>
 </aside>
 
-<!-- MAIN CHAT -->
+<!-- MAIN CONTENT -->
 <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-  <header class="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-    <p class="flex-1 text-base font-bold text-slate-900">${appTitle}</p>
-    <span class="text-xs font-semibold bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0">● AI Active</span>
-    <span class="text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0">● KB Connected</span>
-    <span class="text-xs font-semibold bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0">85–97% Accuracy</span>
-  </header>
-  <div id="chat-scroll" class="flex-1 overflow-y-auto p-5">
-    <div id="chat-messages">
-      <div class="flex justify-start">
-        <div class="bg-white border border-slate-200 rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-xl">
-          <p class="text-sm text-slate-800 leading-relaxed">Hello! I am your AI assistant for <strong>${appTitle}</strong>. Upload documents and ask me anything.</p>
-          <p class="text-[10px] text-slate-400 mt-1">System</p>
+
+  <!-- CHAT PAGE -->
+  <div class="page active" id="page-chat">
+    <header class="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+      <span class="text-lg">💬</span><p class="flex-1 text-base font-bold text-slate-900">Support Chat</p>
+      <span class="text-xs font-semibold bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full">● AI Active</span>
+      <span class="text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full">● KB Connected</span>
+      <span class="text-xs font-semibold bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full">FAISS RAG · Azure OpenAI</span>
+    </header>
+    <div class="flex-1 overflow-y-auto p-5 bg-slate-50" id="chat-scroll">
+      <div id="chat-messages">
+        <div class="flex justify-start">
+          <div class="bg-white border border-slate-200 rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-xl">
+            <p class="text-sm text-slate-800 leading-relaxed">Hello! I'm your AI assistant for <strong>${appTitle}</strong>. Upload documents and ask me anything.</p>
+            <p class="text-[10px] text-slate-400 mt-1">System</p>
+          </div>
         </div>
       </div>
     </div>
-  </div>
-  <div id="typing-indicator" class="hidden px-5 pb-2">
-    <div class="bg-white border border-slate-200 rounded-2xl px-4 py-3 inline-flex gap-1.5 shadow-sm">
-      <span class="dot-bounce"></span><span class="dot-bounce"></span><span class="dot-bounce"></span>
+    <div id="typing-ind" class="hidden px-5 pb-1"><div class="bg-white border border-slate-200 rounded-2xl px-4 py-3 inline-flex gap-1.5 shadow-sm"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div>
+    <div class="bg-white border-t border-slate-200 p-3.5 flex-shrink-0">
+      <div class="flex gap-2.5 items-end mb-2">
+        <textarea id="msg-input" rows="2" placeholder="Ask a question…" class="flex-1 resize-none border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400"></textarea>
+        <button id="send-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-5 py-2.5 text-sm font-semibold h-[44px] transition-colors">Send ➤</button>
+      </div>
+      <div id="quick-suggestions" class="flex flex-wrap gap-1.5 mb-2"></div>
+      <p class="text-xs text-slate-400 text-center">Powered by Knowledge Base · FAISS RAG · Azure OpenAI</p>
     </div>
   </div>
-  <footer class="bg-white border-t border-slate-200 p-3.5 flex-shrink-0">
-    <div class="flex gap-2.5 items-end">
-      <textarea id="msg-input" rows="2" placeholder="Ask a question…"
-        class="flex-1 resize-none border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400"></textarea>
-      <button id="send-btn" class="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white rounded-xl px-5 py-2.5 text-sm font-semibold h-[44px] whitespace-nowrap transition-colors">Send ➤</button>
+
+  <!-- SUGGESTED QUESTIONS PAGE -->
+  <div class="page" id="page-questions">
+    <header class="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+      <span class="text-lg">💡</span><p class="flex-1 text-base font-bold text-slate-900">Suggested Questions</p>
+      <span class="text-xs text-slate-500" id="q-doc-count">0 documents indexed</span>
+    </header>
+    <div class="flex-1 overflow-y-auto p-5" id="questions-content">
+      <div class="text-center py-20 text-slate-400"><p class="text-4xl mb-3">💡</p><p class="font-semibold">No documents uploaded yet</p></div>
     </div>
-    <p class="text-xs text-slate-400 text-center mt-2">Powered by Knowledge Base · FAISS RAG · Azure OpenAI</p>
-  </footer>
+  </div>
+
+  <!-- ADMIN UPLOADS PAGE -->
+  <div class="page" id="page-uploads">
+    <header class="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+      <span class="text-lg">📁</span><p class="flex-1 text-base font-bold text-slate-900">Admin Uploads</p>
+      <button id="upload-btn-header" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-4 py-2 rounded-lg">📎 Upload Documents</button>
+      <input id="file-input" type="file" multiple accept=".pdf,.docx,.txt,.md,.csv" class="hidden"/>
+    </header>
+    <div class="flex-1 overflow-y-auto p-5">
+      <div id="drop-zone" class="border-2 border-dashed border-indigo-300 rounded-xl p-10 text-center mb-6 cursor-pointer hover:bg-indigo-50">
+        <p class="text-4xl mb-2">📎</p><p class="text-sm font-semibold text-slate-700">Click to upload documents</p>
+        <p class="text-xs text-slate-400 mt-1">PDF, DOCX, TXT, MD, CSV — multiple files</p>
+      </div>
+      <div id="uploads-grid" class="grid grid-cols-2 gap-3"></div>
+    </div>
+  </div>
+
+  <!-- ANALYTICS PAGE -->
+  <div class="page" id="page-analytics">
+    <header class="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+      <span class="text-lg">📊</span><p class="flex-1 text-base font-bold text-slate-900">Conversation Analytics</p>
+    </header>
+    <div class="flex-1 overflow-y-auto p-5">
+      <div class="grid grid-cols-3 gap-4 mb-6">
+        <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center"><p class="text-xs text-slate-400 mb-1">Messages</p><p class="text-2xl font-bold text-slate-900" id="stat-msgs">0</p></div>
+        <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center"><p class="text-xs text-slate-400 mb-1">Documents</p><p class="text-2xl font-bold text-indigo-600" id="stat-docs">0</p></div>
+        <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center"><p class="text-xs text-slate-400 mb-1">Session</p><p class="text-2xl font-bold text-emerald-600">Live</p></div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm mb-4">
+        <p class="text-sm font-bold text-slate-700 mb-4">Message Volume</p>
+        <div id="msg-bars" class="h-32 flex items-end gap-1"><div class="flex-1 flex items-center justify-center text-slate-400 text-sm h-full">No messages yet</div></div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+        <p class="text-sm font-bold text-slate-700 mb-3">Session Log</p>
+        <p class="text-sm text-emerald-600 bg-emerald-50 rounded-lg px-3 py-2" id="session-log">No queries yet in this session.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- TICKET HANDOFF PAGE -->
+  <div class="page" id="page-handoff">
+    <header class="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+      <span class="text-lg">📞</span><p class="flex-1 text-base font-bold text-slate-900">Ticket Handoff</p>
+    </header>
+    <div class="flex-1 overflow-y-auto p-5">
+      <div class="max-w-lg mx-auto bg-white border border-slate-200 rounded-xl p-6 shadow-sm" id="ticket-form-wrap">
+        <p class="text-sm font-bold text-slate-700 mb-4">Log a Support Ticket</p>
+        <div class="space-y-4">
+          <div><label class="text-xs font-semibold text-slate-600 block mb-1">Issue Category</label>
+            <select id="t-issue" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+              <option value="">Select category…</option><option>General Query</option><option>Technical Issue</option><option>Account Support</option><option>Billing</option><option>Other</option>
+            </select></div>
+          <div><label class="text-xs font-semibold text-slate-600 block mb-1">Your Name</label>
+            <input id="t-name" placeholder="Enter your name" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"/></div>
+          <div><label class="text-xs font-semibold text-slate-600 block mb-1">Priority</label>
+            <div class="flex gap-2" id="priority-btns">
+              <button onclick="setPriority(this,'Low')" data-p="Low" class="flex-1 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50">Low</button>
+              <button onclick="setPriority(this,'Medium')" data-p="Medium" class="flex-1 py-1.5 text-xs font-semibold rounded-lg border bg-yellow-400 text-white border-yellow-400">Medium</button>
+              <button onclick="setPriority(this,'High')" data-p="High" class="flex-1 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50">High</button>
+              <button onclick="setPriority(this,'Critical')" data-p="Critical" class="flex-1 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50">Critical</button>
+            </div></div>
+          <div><label class="text-xs font-semibold text-slate-600 block mb-1">Details</label>
+            <textarea id="t-details" rows="4" placeholder="Describe the issue…" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400"></textarea></div>
+          <button onclick="submitTicket()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 rounded-lg">Submit Ticket</button>
+        </div>
+      </div>
+      <div class="hidden max-w-md mx-auto text-center py-20" id="ticket-success">
+        <p class="text-5xl mb-4">✅</p><p class="text-lg font-bold text-slate-800">Ticket Submitted</p>
+        <p class="text-sm text-slate-500 mt-2">Support will follow up shortly.</p>
+        <button onclick="resetTicket()" class="mt-6 bg-indigo-600 text-white text-sm font-semibold px-6 py-2.5 rounded-lg">Submit Another</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- RIGHT PANEL -->
-<aside class="w-52 border-l bg-white p-4 flex flex-col gap-5 flex-shrink-0 overflow-y-auto">
-  <div>
-    <p class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Knowledge Base</p>
-    <div class="bg-slate-50 rounded-xl p-3">
-      <p class="text-2xl font-bold text-indigo-600" id="kb-doc-count">0</p>
-      <p class="text-xs text-slate-500 mt-0.5">Documents indexed</p>
+<aside class="w-64 border-l bg-white flex flex-col flex-shrink-0">
+  <div class="px-4 py-3 border-b border-slate-200">
+    <div class="flex items-center justify-between">
+      <p class="text-sm font-bold text-slate-800">Knowledge Base</p>
+      <span class="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[24px] text-center" id="kb-badge">0</span>
     </div>
+    <p class="text-[11px] text-slate-400 mt-0.5" id="kb-subtitle">No documents yet</p>
   </div>
-  <div>
-    <p class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Session</p>
-    <div class="bg-slate-50 rounded-xl p-3">
-      <p class="text-2xl font-bold text-emerald-600" id="msg-count">0</p>
-      <p class="text-xs text-slate-500 mt-0.5">Messages sent</p>
-    </div>
-  </div>
-  <div>
-    <p class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Filter by Topic</p>
-    <div class="flex flex-wrap gap-1.5" id="topic-chips">
-      <p class="text-xs text-slate-400 italic">Upload docs to see topics</p>
+  <div class="flex-1 overflow-y-auto p-3" id="kb-doc-cards"><p class="text-xs text-slate-400 italic p-2">No documents yet.</p></div>
+  <div class="border-t border-slate-200 p-4">
+    <p class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">Session Stats</p>
+    <div class="space-y-2 text-xs text-slate-600">
+      <div class="flex justify-between"><span>Messages</span><span class="font-bold text-slate-800" id="sess-msgs">0</span></div>
+      <div class="flex justify-between"><span>Avg Accuracy</span><span class="font-bold text-emerald-600" id="sess-accuracy">--</span></div>
     </div>
   </div>
 </aside>
@@ -779,115 +846,226 @@ async function buildRagScaffoldZip(html: string, plan: Plan): Promise<Blob> {
 <script>
 (function(){
   const API = "http://localhost:8000";
-  const SESSION_ID = Math.random().toString(36).slice(2);
-  let msgCount = 0;
-  let activeTopic = null;
+  let docs = [], msgCount = 0, currentPage = "chat", selectedTopic = null, accuracySum = 0, accuracyCount = 0;
 
-  const chatMessages = document.getElementById("chat-messages");
-  const chatScroll   = document.getElementById("chat-scroll");
-  const msgInput     = document.getElementById("msg-input");
-  const sendBtn      = document.getElementById("send-btn");
-  const typingInd    = document.getElementById("typing-indicator");
-  const docList      = document.getElementById("doc-list");
-  const kbCount      = document.getElementById("kb-doc-count");
-  const msgCountEl   = document.getElementById("msg-count");
+  function getTopicName(fn){ return (fn||"").replace(/\\.[^.]+$/,"").replace(/[-_]/g," ").replace(/\\b\\w/g,c=>c.toUpperCase()); }
+  function docConfidence(fn){ let h=0; for(const c of (fn||"")) h=((h<<5)-h)+c.charCodeAt(0); return 80+Math.abs(h%18); }
 
-  function scrollBottom(){ chatScroll.scrollTop = chatScroll.scrollHeight; }
+  const NAV = [
+    {id:"chat",     icon:"💬", label:"Support Chat"},
+    {id:"questions",icon:"💡", label:"Suggested Questions"},
+    {id:"uploads",  icon:"📁", label:"Admin Uploads"},
+    {id:"analytics",icon:"📊", label:"Conversation Analytics"},
+    {id:"handoff",  icon:"📞", label:"Ticket Handoff"},
+  ];
 
-  function addMessage(role, text, ts){
-    const wrap = document.createElement("div");
-    wrap.className = "flex " + (role==="user" ? "justify-end" : "justify-start");
-    const time = ts || new Date().toLocaleTimeString();
-    if(role==="user"){
-      wrap.innerHTML = \`<div><div class="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm max-w-md leading-relaxed">\${escHtml(text)}</div><p class="text-[10px] text-slate-400 text-right mt-1">\${time}</p></div>\`;
-    } else {
-      wrap.innerHTML = \`<div class="bg-white border border-slate-200 rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-xl"><p class="text-sm text-slate-800 leading-relaxed">\${escHtml(text)}</p><div class="flex items-center gap-3 mt-2 pt-2 border-t border-slate-100"><p class="text-[10px] text-slate-400">\${time}</p><div class="ml-auto flex items-center gap-1.5"><p class="text-[10px] text-slate-400">Helpful?</p><button onclick="this.style.color='#16a34a'" class="text-slate-400 hover:text-green-600 text-sm transition-colors" title="Helpful">👍</button><button onclick="this.style.color='#dc2626'" class="text-slate-400 hover:text-red-500 text-sm transition-colors" title="Not helpful">👎</button></div></div></div>\`;
-    }
-    chatMessages.appendChild(wrap);
-    scrollBottom();
+  function buildNav(){
+    document.getElementById("nav-links").innerHTML = NAV.map(n =>
+      \`<button onclick="switchPage('\${n.id}')" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left \${n.id===currentPage?"bg-indigo-600 text-white":"text-slate-300 hover:bg-white/10"}">\${n.icon} \${n.label}</button>\`
+    ).join("");
   }
+
+  window.switchPage = function(id){
+    currentPage = id;
+    document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+    document.getElementById("page-"+id)?.classList.add("active");
+    buildNav();
+    if(id==="questions") renderQuestionsPage();
+    if(id==="uploads")   renderUploadsGrid();
+    if(id==="analytics") renderAnalytics();
+  };
 
   function escHtml(s){ const d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
+  function renderMd(s){
+    return escHtml(s)
+      .replace(/### (.+)/g, '<p class="font-bold text-slate-800 mt-3 mb-1">$1</p>')
+      .replace(/## (.+)/g,  '<p class="font-bold text-slate-900 text-base mt-3 mb-1">$1</p>')
+      .replace(/# (.+)/g,   '<p class="font-bold text-slate-900 text-lg mt-3 mb-1">$1</p>')
+      .replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>')
+      .replace(/\\*(.+?)\\*/g, '<em>$1</em>')
+      .replace(/^- (.+)/gm, '<li class="ml-4 list-disc">$1</li>')
+      .replace(/\\n/g, '<br/>');
+  }
+  function getExt(fn){ return (fn.split(".").pop()||"DOC").toUpperCase(); }
 
-  function buildTopicChips(docs){
-    const container = document.getElementById("topic-chips");
-    if(!docs.length){ container.innerHTML='<p class="text-xs text-slate-400 italic">Upload docs to see topics</p>'; return; }
-    container.innerHTML = docs.map(d=>{ const name=(d.filename||d.name||"File").replace(/\.[^.]+$/,""); return \`<span class="chip" data-topic="\${escHtml(name)}">\${escHtml(name)}</span>\`; }).join("");
-    container.querySelectorAll(".chip").forEach(chip=>{
-      chip.addEventListener("click",()=>{
-        const topic=chip.dataset.topic;
-        if(activeTopic===topic){ activeTopic=null; chip.style.background=""; chip.style.fontWeight=""; }
-        else { activeTopic=topic; container.querySelectorAll(".chip").forEach(c=>{ c.style.background=""; c.style.fontWeight=""; }); chip.style.background="#c7d2fe"; chip.style.fontWeight="700"; sendMessage("Tell me about "+topic); }
-      });
-    });
+  function buildTopicFilters(){
+    const lbl = document.getElementById("topic-label");
+    const el = document.getElementById("topic-filters");
+    if(!docs.length){ lbl.classList.add("hidden"); el.innerHTML=""; return; }
+    lbl.classList.remove("hidden");
+    el.innerHTML = docs.map(d=>{
+      const fn=d.filename||d.name||"Doc";
+      const active=selectedTopic===fn;
+      return \`<button data-topic="\${escHtml(fn)}" class="w-full flex items-center justify-between text-left text-xs px-2 py-2 rounded-lg transition-colors mb-0.5 \${active?"bg-indigo-600 text-white":"text-slate-300 hover:bg-white/10"}"><span class="truncate">\${escHtml(getTopicName(fn))}</span><span class="ml-2 text-[10px] font-bold bg-white/10 rounded-full px-1.5 py-0.5 flex-shrink-0">10</span></button>\`;
+    }).join("");
+    document.getElementById("kb-doc-footer").textContent = docs.length+" knowledge base document"+(docs.length!==1?"s":"")+" indexed";
   }
 
-  function buildSuggestionsList(docs){
-    const container = document.getElementById("suggestions");
-    let qs;
-    if(!docs.length){ qs=["What can you help me with?","Summarise the uploaded documents","What are the key topics covered?"]; }
-    else { qs=[]; docs.forEach(d=>{ const n=(d.filename||d.name||"File").replace(/\.[^.]+$/,""); qs.push(\`What does \${n} cover?\`); qs.push(\`Summarise \${n}\`); qs.push(\`Common issues in \${n}?\`); }); qs=qs.slice(0,6); }
-    container.innerHTML = qs.map(q=>\`<button class="suggestion-btn text-left text-xs text-slate-300 hover:text-white hover:bg-gray-800 rounded px-2 py-1.5 transition-colors">\${escHtml(q)}</button>\`).join("");
-    container.querySelectorAll(".suggestion-btn").forEach(btn=>{ btn.addEventListener("click",()=>{ sendMessage(btn.textContent.trim()); }); });
+  function buildTopQuestions(){
+    const el = document.getElementById("top-questions");
+    const filtered = selectedTopic ? docs.filter(d=>(d.filename||d.name)===selectedTopic) : docs;
+    const qs = filtered.length === 0
+      ? ["What issue is being reported?","How do I troubleshoot this?","Who do I contact for support?","What are the main topics covered?","How can I escalate an issue?"]
+      : filtered.flatMap(d=>{ const n=(d.filename||d.name||"Doc").replace(/\\.[^.]+$/,""); return [\`What does \${n} cover?\`,\`How to resolve a \${n} error?\`,\`What are common \${n} issues?\`,\`How to escalate \${n} problems?\`,\`Who to contact for \${n} support?\`]; }).slice(0,10);
+    el.innerHTML = qs.map((q,i) =>
+      \`<button data-q="\${escHtml(q)}" class="w-full flex items-start gap-2.5 text-left text-xs text-slate-300 hover:text-white hover:bg-white/10 rounded-lg px-2 py-2 transition-colors mb-1"><span class="w-5 h-5 rounded-full bg-indigo-600/60 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">\${i+1}</span><span class="leading-snug">\${escHtml(q)}</span></button>\`
+    ).join("");
+  }
+
+  function buildQuickSuggestions(){
+    const el = document.getElementById("quick-suggestions");
+    const qs = docs.length === 0
+      ? ["What can you help me with?","Summarise the uploaded documents","What are the key topics?"]
+      : docs.flatMap(d=>{ const n=(d.filename||d.name||"Doc").replace(/\\.[^.]+$/,""); return [\`What does \${n} cover?\`,\`Summarise \${n}\`]; }).slice(0,4);
+    el.innerHTML = qs.map(q =>
+      \`<button data-q="\${escHtml(q)}" class="text-[11px] bg-slate-100 text-slate-600 border border-slate-200 rounded-full px-2.5 py-0.5 hover:bg-indigo-50 hover:text-indigo-600">\${escHtml(q)}</button>\`
+    ).join("");
+  }
+
+  function renderKbCards(){
+    const el = document.getElementById("kb-doc-cards");
+    document.getElementById("kb-badge").textContent = docs.length;
+    document.getElementById("stat-docs").textContent = docs.length;
+    if(!docs.length){ el.innerHTML='<p class="text-xs text-slate-400 italic p-2">No documents yet.</p>'; document.getElementById("kb-subtitle").textContent="No documents yet"; return; }
+    document.getElementById("kb-subtitle").textContent="All documents indexed & ready";
+    el.innerHTML = docs.map(d=>{ const fn=d.filename||d.name||"File"; const conf=docConfidence(fn); const topic=getTopicName(fn); return (
+      \`<div data-q="Summarise \${escHtml(fn)}" class="border border-slate-200 rounded-xl p-3 mb-2 cursor-pointer hover:border-indigo-300"><div class="flex items-center gap-1.5 mb-1.5"><span class="text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded">\${escHtml(getExt(fn))}</span><span class="text-[10px] font-bold text-emerald-600">✓ \${conf}%</span></div><p class="text-sm font-semibold text-slate-800 truncate">\${escHtml(fn)}</p><p class="text-[11px] text-slate-500 mt-0.5 truncate">\${escHtml(topic)}</p></div>\`
+    ); }).join("");
+    buildTopicFilters();
+    buildTopQuestions();
+  }
+
+  function renderQuestionsPage(){
+    const el = document.getElementById("questions-content");
+    document.getElementById("q-doc-count").textContent = docs.length + " document" + (docs.length!==1?"s":"") + " indexed";
+    if(!docs.length){ el.innerHTML='<div class="text-center py-20 text-slate-400"><p class="text-4xl mb-3">💡</p><p class="font-semibold">No documents uploaded yet</p></div>'; return; }
+    el.innerHTML = docs.map(d=>{
+      const fn=(d.filename||d.name||"Document").replace(/\\.[^.]+$/,"");
+      const ext=getExt(d.filename||d.name||"DOC");
+      const qs=[\`What does \${fn} cover?\`,\`Summarise \${fn}\`,\`Common issues in \${fn}?\`,\`How to resolve a \${fn} error?\`,\`Who to contact for \${fn} support?\`];
+      return \`<div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4 overflow-hidden"><div class="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center gap-2"><span class="text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded">\${ext}</span><p class="text-sm font-bold text-slate-800 truncate">\${escHtml(d.filename||d.name)}</p><span class="ml-auto text-[11px] text-emerald-600 font-semibold">✓ Indexed</span></div><div class="divide-y divide-slate-100">\${qs.map((q,i)=>\`<button data-q="\${escHtml(q)}" class="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700"><span class="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">\${i+1}</span>\${escHtml(q)}<span class="ml-auto text-slate-300 text-xs">→</span></button>\`).join("")}</div></div>\`;
+    }).join("");
+  }
+
+  function renderUploadsGrid(){
+    const el = document.getElementById("uploads-grid");
+    if(!docs.length){ el.innerHTML=''; return; }
+    el.innerHTML = docs.map(d=>{ const fn=d.filename||d.name||"File"; return (
+      \`<div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm"><div class="flex items-start gap-3"><div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0"><span class="text-[10px] font-bold text-blue-700">\${escHtml(getExt(fn))}</span></div><div class="min-w-0"><p class="text-sm font-semibold text-slate-800 truncate">\${escHtml(fn)}</p><p class="text-[11px] font-semibold mt-0.5 \${d.indexed?"text-emerald-600":"text-amber-500"}">\${d.indexed?"✓ Indexed":"⏳ Pending"}</p></div></div></div>\`
+    ); }).join("");
+  }
+
+  function renderAnalytics(){
+    document.getElementById("stat-msgs").textContent = msgCount;
+    const bars = document.getElementById("msg-bars");
+    if(msgCount===0){ bars.innerHTML='<div class="flex-1 flex items-center justify-center text-slate-400 text-sm h-full">No messages yet</div>'; return; }
+    bars.innerHTML = Array.from({length:msgCount},(_,i)=>\`<div class="flex-1 bg-indigo-400 rounded-t" style="height:\${Math.min(100,30+i*8)}%"></div>\`).join("");
+  }
+
+  function addMsg(role, text, meta){
+    const wrap = document.createElement("div");
+    wrap.className = "flex " + (role==="user"?"justify-end":"justify-start");
+    const t = new Date().toLocaleTimeString();
+    if(role==="user"){
+      wrap.innerHTML = \`<div><div class="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm max-w-md leading-relaxed">\${escHtml(text)}</div><p class="text-[10px] text-slate-400 text-right mt-1">\${t}</p></div>\`;
+    } else {
+      const conf = meta?.confidence || null;
+      const src = meta?.source_doc || null;
+      const followups = meta?.suggested_followups || [];
+      const confBadge = conf ? \`<span class="inline-flex items-center gap-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-2 py-0.5">✓ \${conf}% accuracy</span>\` : "";
+      const srcBadge = src ? \`<span class="inline-flex items-center gap-1 text-[11px] text-slate-500"><span>📄</span>\${escHtml(src)}</span>\` : "";
+      const badgeRow = (confBadge||srcBadge) ? \`<div class="flex flex-wrap items-center gap-2 mt-2">\${srcBadge}\${confBadge}</div>\` : "";
+      const followupHtml = followups.length ? \`<div class="mt-2 pt-2 border-t border-slate-100"><p class="text-[10px] text-slate-400 mb-1.5">Suggested follow-ups</p><div class="flex flex-col gap-1">\${followups.map(q=>\`<button data-q="\${escHtml(q)}" class="text-left text-[12px] bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-lg px-3 py-1.5 hover:bg-indigo-100">\${escHtml(q)}</button>\`).join("")}</div></div>\` : "";
+      wrap.innerHTML = \`<div class="bg-white border border-slate-200 rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-xl"><div class="text-sm text-slate-800 leading-relaxed">\${renderMd(text)}</div>\${badgeRow}\${followupHtml}<div class="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100"><span class="text-[10px] text-slate-400">\${t}</span><p class="text-[10px] text-slate-400 ml-1">Helpful?</p><div class="ml-auto flex gap-1.5"><button onclick="this.textContent='👍'" class="text-slate-400 text-sm">👍</button><button onclick="this.textContent='👎'" class="text-slate-400 text-sm">👎</button></div></div></div>\`;
+    }
+    document.getElementById("chat-messages").appendChild(wrap);
+    document.getElementById("chat-scroll").scrollTop = 99999;
+  }
+
+  window.sendMsg = async function(text){
+    if(!text||!text.trim()) return;
+    if(currentPage!=="chat") switchPage("chat");
+    addMsg("user", text);
+    msgCount++;
+    document.getElementById("sess-msgs").textContent = msgCount;
+    document.getElementById("stat-msgs").textContent = msgCount;
+    const ind = document.getElementById("typing-ind");
+    ind.classList.remove("hidden");
+    try{
+      const r = await fetch(API+"/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({question:text,workspace_id:1})});
+      ind.classList.add("hidden");
+      if(!r.ok) throw new Error("HTTP "+r.status);
+      const d = await r.json();
+      if(d.confidence){ accuracySum+=d.confidence; accuracyCount++; document.getElementById("sess-accuracy").textContent=Math.round(accuracySum/accuracyCount)+"%"; }
+      addMsg("bot", d.answer || JSON.stringify(d), {confidence:d.confidence, source_doc:d.source_doc, suggested_followups:d.suggested_followups||[]});
+    }catch(e){
+      ind.classList.add("hidden");
+      addMsg("bot","⚠️ Backend not reachable. Ensure FastAPI is running on port 8000.");
+    }
+  };
+
+  async function doUpload(files){
+    const btn = document.getElementById("upload-btn-header");
+    btn.textContent="⏳ Indexing…"; btn.disabled=true;
+    for(const f of Array.from(files)){
+      const fd=new FormData(); fd.append("file",f);
+      try{ await fetch(API+"/api/documents/upload",{method:"POST",body:fd}); }catch(e){}
+    }
+    btn.textContent="📎 Upload Documents"; btn.disabled=false;
+    await loadDocs();
+    if(currentPage==="uploads") renderUploadsGrid();
+    if(currentPage==="questions") renderQuestionsPage();
   }
 
   async function loadDocs(){
-    try {
-      const r = await fetch(API+"/api/documents");
+    try{
+      const r=await fetch(API+"/api/documents");
       if(!r.ok) return;
-      const docs = await r.json();
-      kbCount.textContent = docs.length;
-      if(docs.length===0){ docList.innerHTML='<p class="text-xs text-slate-500 italic">No documents yet.</p>'; buildTopicChips([]); buildSuggestionsList([]); return; }
-      docList.innerHTML = docs.map(d=>{ const fn=d.filename||d.name||"File"; return \`<div class="bg-slate-700/50 rounded-lg p-2.5 mb-2 cursor-pointer hover:bg-slate-600/50 transition-colors" onclick="sendMessage('Summarise '+\${JSON.stringify(fn)})"><p class="text-xs font-medium text-slate-200 truncate">\${escHtml(fn)}</p><span class="text-[10px] font-semibold mt-1 inline-block \${d.indexed?"text-emerald-400":"text-amber-400"}">\${d.indexed?"✓ Indexed — click to explore":"⏳ Pending"}</span></div>\`; }).join("");
-      buildTopicChips(docs);
-      buildSuggestionsList(docs);
-    } catch(e){ /* backend not running yet */ }
+      docs=await r.json();
+    }catch(e){ return; }
+    renderKbCards();
+    buildTopQuestions();
+    buildQuickSuggestions();
   }
 
-  async function sendMessage(text){
-    if(!text.trim()) return;
-    addMessage("user", text);
-    msgCount++; msgCountEl.textContent = msgCount;
-    typingInd.classList.remove("hidden");
-    scrollBottom();
-    try {
-      const r = await fetch(API+"/api/chat", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({message:text, session_id:SESSION_ID}) });
-      typingInd.classList.add("hidden");
-      if(!r.ok) throw new Error("HTTP "+r.status);
-      const data = await r.json();
-      addMessage("bot", data.answer || JSON.stringify(data));
-    } catch(e){
-      typingInd.classList.add("hidden");
-      addMessage("bot", "⚠️ Backend not reachable. Start FastAPI on port 8000 to get real answers.");
-    }
-  }
+  window.setPriority = function(btn, p){
+    document.querySelectorAll("#priority-btns button").forEach(b=>{
+      const bp=b.dataset.p;
+      if(bp===p){
+        const cls=p==="Critical"?"bg-red-600 text-white border-red-600":p==="High"?"bg-amber-500 text-white border-amber-500":p==="Medium"?"bg-yellow-400 text-white border-yellow-400":"bg-green-500 text-white border-green-500";
+        b.className=\`flex-1 py-1.5 text-xs font-semibold rounded-lg border \${cls}\`;
+      } else {
+        b.className="flex-1 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50";
+      }
+    });
+  };
+  window.submitTicket = function(){
+    if(!document.getElementById("t-issue").value||!document.getElementById("t-name").value){ alert("Please fill in Issue Category and Name."); return; }
+    document.getElementById("ticket-form-wrap").classList.add("hidden");
+    document.getElementById("ticket-success").classList.remove("hidden");
+  };
+  window.resetTicket = function(){
+    document.getElementById("t-issue").value="";
+    document.getElementById("t-name").value="";
+    document.getElementById("t-details").value="";
+    document.getElementById("ticket-form-wrap").classList.remove("hidden");
+    document.getElementById("ticket-success").classList.add("hidden");
+  };
 
-  sendBtn.addEventListener("click", ()=>{ const t=msgInput.value.trim(); if(t){ msgInput.value=""; sendMessage(t); } });
-  msgInput.addEventListener("keydown", e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendBtn.click(); } });
-
-  // suggestions + chips are wired dynamically in buildSuggestionsList / buildTopicChips
-
-  // Upload
-  const uploadBtn = document.getElementById("upload-btn");
-  const fileInput = document.getElementById("file-input");
-  uploadBtn.addEventListener("click", ()=> fileInput.click());
-  fileInput.addEventListener("change", async ()=>{
-    const files = fileInput.files;
-    if(!files||!files.length) return;
-    uploadBtn.textContent = "⏳ Indexing…";
-    uploadBtn.disabled = true;
-    for(const f of Array.from(files)){
-      const fd = new FormData(); fd.append("file", f);
-      try { await fetch(API+"/api/documents/upload", {method:"POST",body:fd}); } catch(e){}
-    }
-    fileInput.value="";
-    uploadBtn.textContent = "📎 Upload Documents";
-    uploadBtn.disabled = false;
-    loadDocs();
+  document.getElementById("send-btn").addEventListener("click",()=>{ const t=document.getElementById("msg-input").value.trim(); if(t){ document.getElementById("msg-input").value=""; sendMsg(t); } });
+  document.getElementById("msg-input").addEventListener("keydown",e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); document.getElementById("send-btn").click(); } });
+  document.getElementById("upload-btn-header").addEventListener("click",()=>document.getElementById("file-input").click());
+  document.getElementById("drop-zone").addEventListener("click",()=>document.getElementById("file-input").click());
+  document.getElementById("file-input").addEventListener("change",e=>{ if(e.target.files?.length) doUpload(e.target.files); e.target.value=""; });
+  document.body.addEventListener("click",e=>{
+    const tBtn=e.target.closest("[data-topic]");
+    if(tBtn){ const t=tBtn.getAttribute("data-topic"); selectedTopic=(selectedTopic===t?null:t); buildTopicFilters(); buildTopQuestions(); return; }
+    const qBtn=e.target.closest("[data-q]"); if(qBtn){ const q=qBtn.getAttribute("data-q"); if(q) sendMsg(q); }
   });
 
-  buildSuggestionsList([]);
-  buildTopicChips([]);
+  buildNav();
+  buildTopQuestions();
+  buildQuickSuggestions();
   loadDocs();
   setInterval(loadDocs, 15000);
 })();
@@ -1271,7 +1449,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(<React.StrictMode><
   }, null, 2));
 
   // ── frontend/vite.config.ts ───────────────────────────────────────────────
-  zip.file("frontend/vite.config.ts", `import { defineConfig } from "vite";\nimport react from "@vitejs/plugin-react";\nexport default defineConfig({ plugins: [react()], server: { proxy: { "/api": { target: "http://localhost:8001", changeOrigin: true } } } });\n`);
+  zip.file("frontend/vite.config.ts", `import { defineConfig } from "vite";\nimport react from "@vitejs/plugin-react";\nexport default defineConfig({ plugins: [react()], server: { proxy: { "/api": { target: "http://localhost:8000", changeOrigin: true } } } });\n`);
 
   // ── frontend/tsconfig.json ────────────────────────────────────────────────
   zip.file("frontend/tsconfig.json", JSON.stringify({ compilerOptions: { target: "ES2020", useDefineForClassFields: true, lib: ["ES2020","DOM","DOM.Iterable"], module: "ESNext", skipLibCheck: true, moduleResolution: "bundler", allowImportingTsExtensions: true, resolveJsonModule: true, isolatedModules: true, noEmit: true, jsx: "react-jsx", strict: true, noUnusedLocals: true, noUnusedParameters: true, noFallthroughCasesInSwitch: true }, include: ["src"], references: [{ path: "./tsconfig.node.json" }] }, null, 2));
@@ -1280,7 +1458,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(<React.StrictMode><
   zip.file("frontend/postcss.config.js", `export default { plugins: { tailwindcss: {}, autoprefixer: {} } };\n`);
 
   // ── backend/app/rag.py — proven RAGChatbot pattern ────────────────────────
-  zip.file("backend/app/rag.py", `import os, faiss, pickle, numpy as np
+  zip.file("backend/app/rag.py", `import os, faiss, pickle, json, re, numpy as np
 from pathlib import Path
 from openai import AzureOpenAI
 
@@ -1291,51 +1469,84 @@ CHAT_DEPLOYMENT  = os.environ.get("AZURE_CHAT_DEPLOYMENT", "gpt-4o")
 
 SYSTEM_PROMPT = """You are a helpful ${appTitle} assistant. \\
 Answer questions based on the provided context. \\
-If you cannot find the answer in the context, say so clearly."""
+If you cannot find the answer in the context, say so clearly.
+At the end of your answer, on a new line, output exactly:
+FOLLOWUPS: ["<follow-up question 1>", "<follow-up question 2>"]
+These should be 2 natural follow-up questions related to the answer."""
 
 INDEX_PATH   = Path("faiss_index.pkl")
 client       = AzureOpenAI(azure_endpoint=AZURE_ENDPOINT, api_key=AZURE_API_KEY, api_version="2024-02-01")
 _index: faiss.IndexFlatL2 | None = None
 _chunks: list[str] = []
+_chunk_sources: list[str] = []
 
-def _embed(texts: list[str]) -> np.ndarray:
-    resp = client.embeddings.create(input=texts, model=EMBED_DEPLOYMENT)
-    return np.array([e.embedding for e in resp.data], dtype="float32")
+def _chunk_text(text: str, max_words: int = 150) -> list[str]:
+    words = text.split()
+    chunks, current = [], []
+    for word in words:
+        current.append(word)
+        if len(current) >= max_words:
+            chunks.append(" ".join(current))
+            current = []
+    if current:
+        chunks.append(" ".join(current))
+    return [c for c in chunks if c.strip()]
 
-def add_document(text: str) -> None:
-    global _index, _chunks
-    sentences = [s.strip() for s in text.replace("\\n", " ").split(". ") if s.strip()]
+def _embed_batched(texts: list[str], batch_size: int = 16) -> np.ndarray:
+    all_vecs = []
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i + batch_size]
+        resp = client.embeddings.create(input=batch, model=EMBED_DEPLOYMENT)
+        all_vecs.extend([e.embedding for e in resp.data])
+    return np.array(all_vecs, dtype="float32")
+
+def add_document(text: str, source_name: str = "") -> None:
+    global _index, _chunks, _chunk_sources
+    sentences = _chunk_text(text, max_words=150)
     if not sentences:
         return
-    vecs = _embed(sentences)
+    vecs = _embed_batched(sentences)
     if _index is None:
         _index = faiss.IndexFlatL2(vecs.shape[1])
     _index.add(vecs)
     _chunks.extend(sentences)
+    _chunk_sources.extend([source_name] * len(sentences))
     with open(INDEX_PATH, "wb") as f:
-        pickle.dump({"index": faiss.serialize_index(_index), "chunks": _chunks}, f)
+        pickle.dump({"index": faiss.serialize_index(_index), "chunks": _chunks, "sources": _chunk_sources}, f)
 
 def _load_index() -> None:
-    global _index, _chunks
+    global _index, _chunks, _chunk_sources
     if INDEX_PATH.exists() and _index is None:
         with open(INDEX_PATH, "rb") as f:
             data = pickle.load(f)
         _index = faiss.deserialize_index(data["index"])
         _chunks = data["chunks"]
+        _chunk_sources = data.get("sources", [""] * len(_chunks))
 
 def answer(question: str, top_k: int = 5) -> dict:
     _load_index()
-    context = ""
+    context, source_doc = "", ""
     if _index is not None and _chunks:
-        q_vec = _embed([question])
+        q_vec = _embed_batched([question])
         _, idxs = _index.search(q_vec, min(top_k, len(_chunks)))
-        context = "\\n".join(_chunks[i] for i in idxs[0] if i < len(_chunks))
+        valid = [i for i in idxs[0] if i < len(_chunks)]
+        context = "\\n".join(_chunks[i] for i in valid)
+        if valid and _chunk_sources:
+            source_doc = _chunk_sources[valid[0]]
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"Context:\\n{context}\\n\\nQuestion: {question}"},
     ]
-    response = client.chat.completions.create(model=CHAT_DEPLOYMENT, messages=messages, temperature=0.3, max_tokens=800)
-    return {"answer": response.choices[0].message.content, "source": "FAISS RAG", "confidence": 85}
+    response = client.chat.completions.create(model=CHAT_DEPLOYMENT, messages=messages, temperature=0.3, max_completion_tokens=900)
+    raw = response.choices[0].message.content or ""
+    followups = []
+    answer_text = raw
+    m = re.search(r"FOLLOWUPS:\\s*(\\[.*?\\])", raw, re.DOTALL)
+    if m:
+        answer_text = raw[:m.start()].strip()
+        try: followups = json.loads(m.group(1))
+        except: pass
+    return {"answer": answer_text, "source": "FAISS RAG", "source_doc": source_doc, "confidence": 85, "suggested_followups": followups}
 `);
 
   // ── backend/app/api/chat.py ───────────────────────────────────────────────
@@ -1346,27 +1557,53 @@ from app import rag
 router = APIRouter()
 
 class ChatRequest(BaseModel):
-    message: str
+    question: str = ""
+    message: str = ""   # legacy alias
+    workspace_id: int = 1
     session_id: str = ""
 
 @router.post("/chat")
 async def chat(req: ChatRequest):
-    result = rag.answer(req.message)
+    text = req.question or req.message
+    if not text:
+        return {"answer": "Please provide a question.", "source": "N/A", "confidence": 0}
+    result = rag.answer(text)
     return result
 `);
 
   // ── backend/app/api/documents.py ─────────────────────────────────────────
-  zip.file("backend/app/api/documents.py", `from fastapi import APIRouter, UploadFile
+  zip.file("backend/app/api/documents.py", `import io
+from fastapi import APIRouter, UploadFile
 from app import rag
 
 router = APIRouter()
 _docs: list[dict] = []
 
+def extract_text(filename: str, data: bytes) -> str:
+    ext = (filename or "").lower().rsplit(".", 1)[-1]
+    if ext == "docx":
+        try:
+            from docx import Document
+            doc = Document(io.BytesIO(data))
+            return "\\n".join(p.text for p in doc.paragraphs if p.text.strip())
+        except Exception as e:
+            return f"[docx parse error: {e}]"
+    elif ext == "pdf":
+        try:
+            import pdfplumber
+            with pdfplumber.open(io.BytesIO(data)) as pdf:
+                return "\\n".join(page.extract_text() or "" for page in pdf.pages)
+        except Exception as e:
+            return f"[pdf parse error: {e}]"
+    else:
+        return data.decode("utf-8", errors="replace")
+
 @router.post("/documents/upload")
 async def upload(file: UploadFile):
-    content = (await file.read()).decode("utf-8", errors="replace")
-    rag.add_document(content)
-    doc = {"id": str(len(_docs) + 1), "name": file.filename or "Untitled", "indexed": True}
+    data = await file.read()
+    content = extract_text(file.filename or "", data)
+    rag.add_document(content, source_name=file.filename or "")
+    doc = {"id": str(len(_docs) + 1), "filename": file.filename or "Untitled", "name": file.filename or "Untitled", "indexed": True}
     _docs.append(doc)
     return doc
 
@@ -1382,7 +1619,18 @@ from app.api.chat import router as chat_router
 from app.api.documents import router as docs_router
 
 app = FastAPI(title="${appTitle}")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+@app.middleware("http")
+async def cors_middleware(request, call_next):
+    if request.method == "OPTIONS":
+        from fastapi.responses import Response
+        return Response(status_code=200, headers={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"*","Access-Control-Allow-Headers":"*"})
+    response = await call_next(request)
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
+
 app.include_router(chat_router, prefix="/api")
 app.include_router(docs_router, prefix="/api")
 
@@ -1398,6 +1646,7 @@ openai>=1.30.0
 faiss-cpu>=1.8.0
 numpy>=1.26.0
 python-multipart>=0.0.9
+python-docx>=1.1.0
 `);
 
   // ── backend/.env.example ─────────────────────────────────────────────────
@@ -1443,6 +1692,280 @@ npm run dev            # opens http://localhost:5173
   return zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
 }
 
+// ─── Dynamic App.tsx builder — plan-specific UI for non-RAG Custom Code plans ─
+
+function buildDynamicAppTsx(plan: Plan, appTitle: string, port: number): string {
+  const badge = plan.tech_stack?.ai ?? plan.tech_stack?.backend ?? "Azure OpenAI";
+  const featureList = (plan.features ?? []).slice(0, 8);
+  const apiList = (plan.api_endpoints ?? []).slice(0, 6);
+
+  // Build nav pages from features (max 5 total including Chat + Analytics)
+  const featurePages = featureList.slice(0, 3).map((f, i) => ({
+    id: `feature${i}`,
+    icon: ["⚙️", "🔧", "📋"][i] ?? "📌",
+    label: f.length > 20 ? f.slice(0, 20) + "…" : f,
+  }));
+
+  const allPages = [
+    { id: "chat", icon: "💬", label: "AI Chat" },
+    ...featurePages,
+    { id: "analytics", icon: "📊", label: "Analytics" },
+  ];
+
+  const navItems = allPages
+    .map(
+      (p) =>
+        `    { id: "${p.id}", icon: "${p.icon}", label: ${JSON.stringify(p.label)} },`
+    )
+    .join("\n");
+
+  const suggestedQs = featureList
+    .slice(0, 5)
+    .map((f) => `How does the ${f} feature work?`);
+  if (!suggestedQs.length) suggestedQs.push("What can you help me with?", "How do I get started?");
+
+  const suggestionsCode = suggestedQs
+    .map((q) => `    "${q}",`)
+    .join("\n");
+
+  const featurePageComponents = featurePages
+    .map(
+      (p, i) => `
+      {currentPage === "${p.id}" && (
+        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+            <span className="text-lg">${p.icon}</span>
+            <p className="flex-1 text-base font-bold text-slate-900">${p.label}</p>
+          </header>
+          <div className="flex-1 overflow-y-auto p-5 bg-slate-50">
+            <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+              <h2 className="text-lg font-bold text-slate-800 mb-2">${featureList[i] ?? p.label}</h2>
+              <p className="text-sm text-slate-500 mb-4">This section handles: <strong>${featureList[i] ?? p.label}</strong></p>
+              ${
+                apiList[i]
+                  ? `<div className="bg-slate-50 rounded-lg p-3 font-mono text-xs text-slate-600">API: ${apiList[i]}</div>`
+                  : ""
+              }
+            </div>
+          </div>
+        </div>
+      )}`
+    )
+    .join("\n");
+
+  return `import React, { useState, useRef, useEffect } from "react";
+
+const API_BASE = "http://localhost:${port}";
+const SESSION_ID = Math.random().toString(36).slice(2);
+
+interface Message { role: "user" | "bot"; text: string; time: string; }
+
+const NAV = [
+${navItems}
+];
+
+const SUGGESTIONS = [
+${suggestionsCode}
+];
+
+export default function App() {
+  const [currentPage, setCurrentPage] = useState("chat");
+  const [messages, setMessages] = useState<Message[]>([
+    { role: "bot", text: "Hello! I'm your AI assistant for ${appTitle}. How can I help you?", time: new Date().toLocaleTimeString() },
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [msgCount, setMsgCount] = useState(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages, loading]);
+
+  async function sendMessage(text: string) {
+    if (!text.trim()) return;
+    const t = new Date().toLocaleTimeString();
+    setMessages(m => [...m, { role: "user", text, time: t }]);
+    setMsgCount(c => c + 1);
+    setInput("");
+    setLoading(true);
+    if (currentPage !== "chat") setCurrentPage("chat");
+    try {
+      const r = await fetch(API_BASE + "/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: text, session_id: SESSION_ID }),
+      });
+      const data = await r.json();
+      setMessages(m => [...m, { role: "bot", text: data.answer ?? JSON.stringify(data), time: new Date().toLocaleTimeString() }]);
+    } catch {
+      setMessages(m => [...m, { role: "bot", text: "⚠️ Backend not reachable. Ensure the server is running on port ${port}.", time: new Date().toLocaleTimeString() }]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-gray-100">
+      {/* Sidebar */}
+      <aside className="w-64 bg-slate-800 text-white flex flex-col flex-shrink-0">
+        <div className="p-4 border-b border-white/10">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-purple-600 flex items-center justify-center font-bold text-base">
+              {${JSON.stringify(appTitle.charAt(0).toUpperCase())}}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-bold leading-tight truncate">${appTitle}</p>
+              <p className="text-xs text-slate-400 leading-tight">${badge}</p>
+            </div>
+          </div>
+        </div>
+        <nav className="p-3 border-b border-white/10 space-y-0.5">
+          {NAV.map(n => (
+            <button key={n.id} onClick={() => setCurrentPage(n.id)}
+              className={\`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left \${currentPage === n.id ? "bg-indigo-600 text-white" : "text-slate-300 hover:bg-white/10"}\`}>
+              {n.icon} {n.label}
+            </button>
+          ))}
+        </nav>
+        <div className="flex-1 overflow-y-auto p-3">
+          <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-2 px-1">Quick Start</p>
+          {SUGGESTIONS.map((q, i) => (
+            <button key={i} onClick={() => sendMessage(q)}
+              className="w-full flex items-start gap-2.5 text-left text-xs text-slate-300 hover:text-white hover:bg-white/10 rounded-lg px-2 py-2 transition-colors mb-1">
+              <span className="w-5 h-5 rounded-full bg-indigo-600/60 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i+1}</span>
+              <span className="leading-snug">{q}</span>
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      {/* Main */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Chat page */}
+        {currentPage === "chat" && (
+          <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+            <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+              <span className="text-lg">💬</span>
+              <p className="flex-1 text-base font-bold text-slate-900">AI Chat</p>
+              <span className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full">● AI Active</span>
+              <span className="text-xs font-semibold bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full">Custom Code · ${badge}</span>
+            </header>
+            <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 bg-slate-50">
+              <div className="flex flex-col gap-3">
+                {messages.map((m, i) => (
+                  <div key={i} className={\`flex \${m.role === "user" ? "justify-end" : "justify-start"}\`}>
+                    {m.role === "user" ? (
+                      <div>
+                        <div className="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm max-w-md leading-relaxed">{m.text}</div>
+                        <p className="text-[10px] text-slate-400 text-right mt-1">{m.time}</p>
+                      </div>
+                    ) : (
+                      <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm p-4 shadow-sm max-w-xl">
+                        <p className="text-sm text-slate-800 leading-relaxed">{m.text}</p>
+                        <p className="text-[10px] text-slate-400 mt-2">{m.time}</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {loading && (
+                  <div className="flex justify-start">
+                    <div className="bg-white border border-slate-200 rounded-2xl px-4 py-3 inline-flex gap-1.5 shadow-sm">
+                      {[0,1,2].map(d => <span key={d} className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" style={{animationDelay: d*0.14+"s"}}/>)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="bg-white border-t border-slate-200 p-3.5 flex-shrink-0">
+              <div className="flex gap-2.5 items-end mb-2">
+                <textarea rows={2} value={input} onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
+                  placeholder="Ask a question…"
+                  className="flex-1 resize-none border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400"/>
+                <button onClick={() => sendMessage(input)} disabled={loading || !input.trim()}
+                  className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white rounded-xl px-5 py-2.5 text-sm font-semibold h-[44px] transition-colors">
+                  Send ➤
+                </button>
+              </div>
+              <p className="text-xs text-slate-400 text-center">Powered by ${badge} · Custom Code Scaffold</p>
+            </div>
+          </div>
+        )}
+${featurePageComponents}
+        {/* Analytics page */}
+        {currentPage === "analytics" && (
+          <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+            <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
+              <span className="text-lg">📊</span>
+              <p className="flex-1 text-base font-bold text-slate-900">Analytics</p>
+            </header>
+            <div className="flex-1 overflow-y-auto p-5">
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center">
+                  <p className="text-xs text-slate-400 mb-1">Messages Sent</p>
+                  <p className="text-2xl font-bold text-slate-900">{msgCount}</p>
+                </div>
+                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center">
+                  <p className="text-xs text-slate-400 mb-1">Features</p>
+                  <p className="text-2xl font-bold text-indigo-600">${featureList.length}</p>
+                </div>
+                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center">
+                  <p className="text-xs text-slate-400 mb-1">Session</p>
+                  <p className="text-2xl font-bold text-emerald-600">Live</p>
+                </div>
+              </div>
+              <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                <p className="text-sm font-bold text-slate-700 mb-3">Plan Features</p>
+                <div className="space-y-2">
+                  {${JSON.stringify(featureList)}.map((f: string, i: number) => (
+                    <div key={i} className="flex items-center gap-3 text-sm text-slate-700 bg-slate-50 rounded-lg px-3 py-2">
+                      <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{i+1}</span>
+                      {f}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Right panel */}
+      <aside className="w-64 border-l bg-white flex flex-col flex-shrink-0">
+        <div className="px-4 py-3.5 border-b border-slate-200">
+          <p className="text-sm font-bold text-slate-800">App Info</p>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="space-y-3">
+            <div className="bg-slate-50 rounded-xl p-3">
+              <p className="text-[10px] text-slate-400 uppercase font-bold mb-1">Tech Stack</p>
+              <p className="text-xs text-slate-700">${badge}</p>
+            </div>
+            <div className="bg-slate-50 rounded-xl p-3">
+              <p className="text-[10px] text-slate-400 uppercase font-bold mb-1">API Endpoints</p>
+              ${
+                apiList.length
+                  ? `{${JSON.stringify(apiList)}.map((ep: string, i: number) => <p key={i} className="text-xs font-mono text-indigo-700 truncate">{ep}</p>)}`
+                  : `<p className="text-xs text-slate-400 italic">None specified</p>`
+              }
+            </div>
+          </div>
+        </div>
+        <div className="border-t border-slate-200 p-4">
+          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">Session</p>
+          <div className="space-y-2 text-xs text-slate-600">
+            <div className="flex justify-between"><span>Messages</span><span className="font-bold text-slate-800">{msgCount}</span></div>
+            <div className="flex justify-between"><span>Status</span><span className="font-bold text-emerald-600">Active</span></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  );
+}
+`;
+}
+
 // ─── Source ZIP builder — calls GPT-4o via /api/architect/generate-project ───
 
 async function buildSourceZip(html: string, plan: Plan): Promise<Blob> {
@@ -1468,23 +1991,80 @@ async function buildSourceZip(html: string, plan: Plan): Promise<Blob> {
     // Fall through to static scaffold below
   }
 
-  // ── Step 2: Add GPT-4o generated files to ZIP ─────────────────────────────
-  // Strip leading "frontend/" prefix so paths match the project root layout
+  // ── Step 2: Post-process + add GPT-4o generated files to ZIP ────────────────
+  // The AI reliably produces two classes of Python bugs that break startup:
+  //   (a) sync `def fn():` that contains `await` → must be `async def fn():`
+  //   (b) `import io` placed after the function that calls `io.BytesIO` → hoist it
+  // We also normalise the `frontend/` path prefix.
+  function fixPythonFile(src: string): string {
+    // Fix (a): any def whose body contains await must be async
+    let out = src.replace(/^(\s*)(def\s+\w+\s*\([^)]*\)\s*:)([\s\S]*?)(?=\n\s*(?:def |async def |class |@|\Z))/gm,
+      (match, indent, sig, body) => {
+        if (body.includes("await ") && !sig.startsWith("async ")) {
+          return `${indent}async ${sig}${body}`;
+        }
+        return match;
+      }
+    );
+    // Fix (b): hoist `import io` to top if it appears after a `def` that uses `io.`
+    if (out.includes("io.BytesIO") || out.includes("io.StringIO")) {
+      out = out.replace(/\nimport io\n/g, "\n");
+      if (!out.startsWith("import io")) {
+        out = "import io\n" + out;
+      }
+    }
+    return out;
+  }
+
   for (const [filePath, content] of Object.entries(aiFiles)) {
     const normalizedPath = filePath.startsWith("frontend/") ? filePath.slice("frontend/".length) : filePath;
-    zip.file(normalizedPath, content as string);
+    const fixed = normalizedPath.endsWith(".py") ? fixPythonFile(content as string) : content as string;
+    zip.file(normalizedPath, fixed);
   }
 
   // ── Step 3: Always include sandbox.html (the working iframe preview) ──────
+  // Post-process: fix garbled APP_TITLE / WELCOME_MSG that the AI emits when it
+  // copies the raw plan.summary into those constants.
+  function fixSandboxHtml(src: string): string {
+    const clean = appTitle;
+    // Replace garbled APP_TITLE string constant (anything after the = up to ;)
+    let out = src.replace(/(const APP_TITLE\s*=\s*")[^"]{40,}(")/g, `$1${clean}$2`);
+    // Replace garbled WELCOME_MSG
+    out = out.replace(/(const WELCOME_MSG\s*=\s*")[^"]{120,}(")/g,
+      `$1Hello! I'm ${clean}, your AI-powered assistant. Ask me anything or click a question from the sidebar.$2`);
+    // Replace garbled OUT_CONTACT
+    out = out.replace(/(const OUT_CONTACT\s*=\s*")[^"]{80,}(")/g,
+      `$1contact ${clean} support directly for assistance.$2`);
+    // Fix page <title> if it contains raw plan summary
+    out = out.replace(/(<title>)[^<]{60,}(<\/title>)/, `$1${clean}$2`);
+    // Inject renderMarkdown helper before React destructure if missing
+    if (!out.includes("renderMarkdown") && !out.includes("renderMd")) {
+      const marker = "const { useState";
+      const inject = `function renderMarkdown(text) {
+  if (!text) return null;
+  return text.split('\\n').map((line, i) => {
+    if (!line.trim()) return React.createElement('div', {key:i, className:'h-1'});
+    const segs = line.split(/\\*\\*(.*?)\\*\\*/g);
+    const parts = segs.map((s, j) => j%2===1 ? React.createElement('strong',{key:j},s) : s).filter(Boolean);
+    return React.createElement('p', {key:i, className:'text-sm text-gray-800 leading-relaxed'+((/^(\\d+\\.|-) /.test(line))?' pl-3':'')}, ...parts);
+  });
+}
+${marker}`;
+      out = out.replace(marker, inject);
+      // Also replace plain text bot answer rendering with renderMarkdown
+      out = out.replace(/<p className="text-sm text-gray-800 leading-relaxed">\{msg\.answer\}<\/p>/g,
+        '<div className="text-sm text-gray-800 leading-relaxed">{renderMarkdown(msg.answer)}</div>');
+    }
+    return out;
+  }
   const sandboxHtml = `<!--
   AgentForge Architect sandbox preview — open directly in a browser (no build needed)
   Generated: ${new Date().toISOString()}
--->\n${html}`;
+-->\n${fixSandboxHtml(html)}`;
   zip.file("sandbox.html", sandboxHtml);
 
-  // ── Step 4: Always inject the hardcoded 3-panel App.tsx (overrides any GPT frontend) ────
+  // ── Step 4: Inject App.tsx — RAG plan uses ragAppTsx template; non-RAG uses plan-specific dynamic UI ────
   // GPT-4o generates backend files well but produces inconsistent React UIs.
-  // Our template exactly matches the CC sandbox HTML layout.
 
   // ── src/App.tsx — matches CC sandbox HTML layout exactly ─────────────────────
   const appTsx = `import React, { useState, useRef, useEffect } from "react";
@@ -2002,53 +2582,6 @@ dist-ssr
 `;
 
   // ── README.md ────────────────────────────────────────────────────────────────
-  const readme = `# ${plan.summary.slice(0, 80)}
-
-> Generated by **AgentForge Planning Architect** · ${new Date().toLocaleDateString()}
-
-## Tech Stack
-- **Frontend**: ${plan.tech_stack.frontend}
-- **Backend**: ${plan.tech_stack.backend}
-- **Database**: ${plan.tech_stack.database}
-- **AI / LLM**: ${plan.tech_stack.ai}
-${(plan.tech_stack.other ?? []).length > 0 ? `- **Other**: ${plan.tech_stack.other!.join(", ")}` : ""}
-
-## Features
-${plan.features.map((f) => `- ${f}`).join("\n")}
-
-## Getting Started
-
-### Prerequisites
-- Node.js 18+ and npm
-
-### Run Locally
-
-\`\`\`bash
-npm install
-npm run dev
-\`\`\`
-
-Open [http://localhost:5173](http://localhost:5173) in your browser.
-
-### Build for Production
-
-\`\`\`bash
-npm run build
-npm run preview
-\`\`\`
-
-## Architecture
-
-${plan.architecture}
-
-## Build Phases
-${plan.phases.map((ph) => `\n### Phase ${ph.phase}: ${ph.name}\n${ph.tasks.map((t) => `- ${t}`).join("\n")}`).join("")}
-
----
-
-*Scaffolded by [AgentForge](https://github.com/agentforge) · Powered by Azure OpenAI GPT-4o*
-`;
-
   // sandbox.html was already added above (Step 3)
 
   // ── backend/.env.example ─────────────────────────────────────────────────────
@@ -2345,7 +2878,7 @@ router = APIRouter()
 
 class ChatRequest(BaseModel):
     session_id: str = ""
-    message: str
+    question: str
     history: list[dict] = []
 
 class ChatResponse(BaseModel):
@@ -2361,11 +2894,11 @@ class ChatResponse(BaseModel):
 async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
     session_id = req.session_id or str(uuid.uuid4())
     try:
-        result = rag.answer(req.message, req.history)
+        result = rag.answer(req.question, req.history)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    db.add(ChatMessage(session_id=session_id, role="user", content=req.message))
+    db.add(ChatMessage(session_id=session_id, role="user", content=req.question))
     db.add(ChatMessage(session_id=session_id, role="assistant", content=result["answer"]))
     await db.commit()
     return ChatResponse(session_id=session_id, **result)
@@ -2599,26 +3132,117 @@ Open \`sandbox.html\` directly in any browser for a fully working UI demo — no
   zip.file("Dockerfile", frontendDockerfile);
   zip.file("docker-compose.yml", dockerCompose);
   zip.file("src/main.tsx", mainTsx);
-  zip.file("src/App.tsx", appTsx);
+  zip.file("src/App.tsx", isRagPlan(plan) ? appTsx : buildDynamicAppTsx(plan, appTitle, 8000));
   zip.file("src/index.css", indexCss);
 
-  // Only add static backend when GPT-4o produced NO files at all (complete failure)
-  // If aiFiles has backend files, don't overwrite them with the FAISS scaffold
+  // ── Option B: build chat.py that wires to the AI's primary answer agent ────────
+  // Scan aiFiles for an agent with `answer_question`. If found, import + call it.
+  // If agent exists but no answer_question, generate a stub that delegates to it.
+  // Only fall back to FAISS template if no agent files at all.
+  function buildAgentChatPy(): string {
+    const allAgentEntries = Object.entries(aiFiles).filter(([path]) =>
+      /backend\/app\/agents\/(?!__init__)/.test(path)
+    );
+
+    if (allAgentEntries.length === 0) return chatApiPy; // no agents at all → FAISS
+
+    // Prefer agent with answer_question, otherwise use the first agent found
+    const agentEntry =
+      allAgentEntries.find(([, src]) => /def answer_question\s*\(/.test(src as string)) ??
+      allAgentEntries[0];
+
+    const [agentPath, agentSrc] = agentEntry;
+    // Extract class name: first `class XxxAgent` in the file
+    const classMatch = (agentSrc as string).match(/^class\s+(\w+)/m);
+    if (!classMatch) return chatApiPy;
+
+    const className = classMatch[1];
+    // Derive module name from file path: backend/app/agents/support_agent.py → support_agent
+    const moduleName = agentPath.replace(/^.*\/agents\//, "").replace(/\.py$/, "");
+    const hasAnswerQuestion = /def answer_question\s*\(/.test(agentSrc as string);
+    // If agent has no answer_question, wrap its first public method in a stub
+    const agentCall = hasAnswerQuestion
+      ? `agent.answer_question(req.question)`
+      : `getattr(agent, next(m for m in dir(agent) if not m.startswith("_")))(req.question)`;
+
+    return `from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from app.database import get_db
+from app.models import ChatMessage
+from app.agents.${moduleName} import ${className}
+import uuid
+
+router = APIRouter()
+
+class ChatRequest(BaseModel):
+    session_id: str = ""
+    question: str
+    history: list[dict] = []
+
+class ChatResponse(BaseModel):
+    session_id: str
+    answer: str
+    steps: list[str] = []
+    source: str = ""
+    confidence: int = 0
+    related: list[str] = []
+    out_of_scope: bool = False
+
+@router.post("", response_model=ChatResponse)
+async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
+    session_id = req.session_id or str(uuid.uuid4())
+    try:
+        agent = ${className}()
+        result = ${agentCall}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    if not isinstance(result, dict):
+        result = {"answer": str(result)}
+    db.add(ChatMessage(session_id=session_id, role="user", content=req.question))
+    db.add(ChatMessage(session_id=session_id, role="assistant", content=result.get("answer", "")))
+    await db.commit()
+    return ChatResponse(session_id=session_id, **{
+        "answer": result.get("answer", ""),
+        "steps": result.get("steps", []),
+        "source": str(result.get("source", "")),
+        "confidence": int(result.get("confidence", 0)),
+        "related": result.get("related", []),
+        "out_of_scope": bool(result.get("out_of_scope", False)),
+    })
+
+@router.get("/history/{session_id}")
+async def get_history(session_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(ChatMessage)
+        .where(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at)
+    )
+    msgs = result.scalars().all()
+    return [{"role": m.role, "content": m.content, "created_at": m.created_at.isoformat()} for m in msgs]
+`;
+  }
+
+  // Infrastructure files: always use reliable templates (AI gets these wrong every time).
+  // Business-logic files (agents/, domain models): keep whatever AI generated.
+  zip.file("backend/main.py", backendMain);
+  zip.file("backend/requirements.txt", requirementsTxt);
+  zip.file("backend/.env.example", envExample);
+  zip.file("backend/Dockerfile", backendDockerfile);
+  zip.file("backend/app/__init__.py", initPy);
+  zip.file("backend/app/config.py", configPy);
+  zip.file("backend/app/database.py", databasePy);
+  zip.file("backend/app/api/__init__.py", apiInitPy);
+  zip.file("backend/app/api/health.py", healthPy);
+  zip.file("backend/app/api/chat.py", buildAgentChatPy());
+  zip.file("backend/app/api/documents.py", documentsApiPy);
+
+  // Only use static rag.py + models.py when AI produced no backend files at all
   const hasBackendFiles = Object.keys(aiFiles).some(p => p.startsWith("backend/"));
   if (!hasBackendFiles) {
-    zip.file("backend/main.py", backendMain);
-    zip.file("backend/requirements.txt", requirementsTxt);
-    zip.file("backend/.env.example", envExample);
-    zip.file("backend/Dockerfile", backendDockerfile);
-    zip.file("backend/app/__init__.py", initPy);
-    zip.file("backend/app/config.py", configPy);
-    zip.file("backend/app/database.py", databasePy);
     zip.file("backend/app/models.py", modelsPy);
     zip.file("backend/app/rag.py", ragPy);
-    zip.file("backend/app/api/__init__.py", apiInitPy);
-    zip.file("backend/app/api/health.py", healthPy);
-    zip.file("backend/app/api/chat.py", chatApiPy);
-    zip.file("backend/app/api/documents.py", documentsApiPy);
   }
 
   return zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
@@ -2767,7 +3391,8 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             Live
           </span>
-          {/* RAG Scaffold download — instant, proven pattern */}
+          {/* RAG Scaffold download — only shown for RAG/doc-based plans */}
+          {isRagPlan(plan) && (
           <button
             onClick={downloadRagScaffold}
             disabled={downloadingRag || downloadingCustom}
@@ -2786,6 +3411,7 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
             )}
             {downloadingRag ? "Packaging…" : "⬇ RAG Scaffold"}
           </button>
+          )}
           {/* Custom Code download — GPT-4o generated, ~40s */}
           <button
             onClick={downloadZip}
@@ -2940,6 +3566,8 @@ function saveSessions(sessions: Session[]) {
 const REFINE_TRIGGERS = /\b(add|change|update|fix|improve|make|show|display|include|remove|replace|adjust|increase|decrease|more|less|better|different|regenerate|redo|rebuild|refresh|enhance)\b/i;
 
 export default function Architect() {
+  const location = useLocation();
+  const processedLocationKey = useRef<string | null>(null);
   const [sessions, setSessions] = useState<Session[]>(() => loadSessions());
   const [activeSid, setActiveSid] = useState<string | null>(
     () => localStorage.getItem(ACTIVE_KEY)
@@ -2974,7 +3602,6 @@ export default function Architect() {
   const messages = active?.messages ?? [];
   const plan = active?.plan;
   const uiHtml = active?.uiHtml;
-  const firstPrompt = messages.find((m) => m.role === "user")?.content ?? "";
 
   function detectChangeType(text: string): PromptChangeType {
     const t = text.toLowerCase();
@@ -3068,17 +3695,38 @@ export default function Architect() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  // Auto-submit prompt coming from Prompt Library / Blueprints / What Should I Build
+  // Auto-fill prompt coming from Prompt Library / Blueprints / What Should I Build via router state
   useEffect(() => {
-    const queued = sessionStorage.getItem("architectPrompt");
+    if (processedLocationKey.current === location.key) return;
+    processedLocationKey.current = location.key;
+    const queued = (location.state as any)?.prompt as string | undefined;
+    const sampleFile = (location.state as any)?.sampleFile as { name: string; url: string } | undefined;
+
     if (queued) {
-      sessionStorage.removeItem("architectPrompt");
       setInput(queued);
-      // Defer so state is flushed and the send() call sees the new session
-      setTimeout(() => send(queued), 80);
+      if (sampleFile) {
+        // Fetch CSV version, then send prompt with file already in state
+        const csvUrl = sampleFile.url.replace(/\.xlsx$/, ".csv");
+        const csvName = sampleFile.name.replace(/\.xlsx$/, ".csv");
+        fetch(csvUrl)
+          .then((r) => r.text())
+          .then((text) => {
+            if (text.trim()) {
+              // Pass file directly to avoid stale closure — send() receives it as overrideFiles
+              const preloaded = [{ name: csvName, text }];
+              setFiles(preloaded);
+              setTimeout(() => send(queued, preloaded), 80);
+            } else {
+              setTimeout(() => send(queued), 80);
+            }
+          })
+          .catch(() => setTimeout(() => send(queued), 80));
+      } else {
+        setTimeout(() => send(queued), 80);
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [location.key]);
 
   // Resizable sidebar mouse handlers
   useEffect(() => {
@@ -3162,13 +3810,12 @@ export default function Architect() {
 
   const PLAN_SUFFIX = "\n\nNow generate the full architecture plan immediately. Do not ask any more questions.";
 
-  async function send(overrideContent?: string) {
+  async function send(overrideContent?: string, overrideFiles?: { name: string; text: string }[]) {
     const rawText = overrideContent ?? input.trim();
-    if (!rawText && files.length === 0 && visualFiles.length === 0) return;
+    const activeFiles = overrideFiles ?? files;
+    if (!rawText && activeFiles.length === 0 && visualFiles.length === 0) return;
     // Strip the hidden suffix for display
     const displayText = rawText.replace(PLAN_SUFFIX, "").trim();
-    const text = rawText;
-
     let sid = activeSid;
     if (!sid) {
       const id = crypto.randomUUID();
@@ -3179,7 +3826,7 @@ export default function Architect() {
       sid = id;
     }
 
-    const capturedFiles = files.length > 0 ? [...files] : undefined;
+    const capturedFiles = activeFiles.length > 0 ? [...activeFiles] : undefined;
 
     // Auto-promote images to source if message explicitly requests it; otherwise keep as visual ref
     const userWantsSource = SOURCE_INTENT_RE.test(displayText);
@@ -3755,7 +4402,6 @@ export default function Architect() {
                       {(generatingUI ? UI_STEPS : PLAN_STEPS).map((step, idx) => {
                         const done    = idx < progressStep;
                         const active  = idx === progressStep;
-                        const pending = idx > progressStep;
                         return (
                           <div key={idx} className="flex items-center gap-3">
                             {/* Step indicator */}
@@ -3924,7 +4570,7 @@ export default function Architect() {
                     docFiles.map(async (f) => {
                       try {
                         const res = await architectApi.extractDocText(f);
-                        if (!res.data.text || res.data.skipped) return null;
+                        if (!res.data.text || (res.data as any).skipped) return null;
                         return { name: f.name, text: res.data.text as string };
                       } catch { return null; }
                     })

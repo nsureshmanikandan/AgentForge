@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "./store/auth";
 import Login from "./pages/Login";
@@ -240,11 +240,22 @@ function ChevronRightIcon() {
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 
+const SIDEBAR_MIN = 180;
+const SIDEBAR_MAX = 480;
+const SIDEBAR_DEFAULT = 256;
+const SIDEBAR_COLLAPSED = 64;
+
 function Sidebar() {
   const { logout } = useAuth();
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem("af_sidebar_collapsed") === "true"
   );
+  const [width, setWidth] = useState(
+    () => parseInt(localStorage.getItem("af_sidebar_width") || String(SIDEBAR_DEFAULT), 10)
+  );
+  const dragging = useRef(false);
+  const startX = useRef(0);
+  const startW = useRef(0);
 
   const toggle = () => {
     setCollapsed(c => {
@@ -256,13 +267,39 @@ function Sidebar() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === "b") {
-        e.preventDefault();
-        toggle();
-      }
+      if (e.ctrlKey && e.key === "b") { e.preventDefault(); toggle(); }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // Drag-to-resize handlers
+  const onDragStart = (e: React.MouseEvent) => {
+    if (collapsed) return;
+    dragging.current = true;
+    startX.current = e.clientX;
+    startW.current = width;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragging.current) return;
+      const delta = e.clientX - startX.current;
+      const next = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startW.current + delta));
+      setWidth(next);
+    };
+    const onUp = () => {
+      if (!dragging.current) return;
+      dragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      setWidth(w => { localStorage.setItem("af_sidebar_width", String(w)); return w; });
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
   }, []);
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
@@ -274,8 +311,23 @@ function Sidebar() {
         : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
     }`;
 
+  const asideStyle = collapsed
+    ? { width: SIDEBAR_COLLAPSED }
+    : { width };
+
   return (
-    <aside className={`${collapsed ? "w-16" : "w-64"} flex-shrink-0 h-screen bg-white border-r border-gray-200 flex flex-col overflow-hidden transition-all duration-200`}>
+    <aside
+      style={asideStyle}
+      className="relative flex-shrink-0 h-screen bg-white border-r border-gray-200 flex flex-col overflow-hidden transition-[width] duration-200"
+    >
+      {/* Drag handle — only visible when expanded */}
+      {!collapsed && (
+        <div
+          onMouseDown={onDragStart}
+          className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-indigo-400 z-10 transition-colors"
+          title="Drag to resize"
+        />
+      )}
       {/* Logo */}
       <div className="px-3 py-4 border-b border-gray-200 flex-shrink-0">
         <div className="flex items-center gap-2.5">

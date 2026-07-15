@@ -105,7 +105,7 @@ export default function AgentCanvas({
     if (isRouter) label = window.prompt("Edge label (e.g. Yes/No, Priority):") ?? "";
     setEdges((eds) => addEdge(
       label
-        ? { ...connection, animated: true, label, labelStyle: { fill: "#e5e7eb", fontSize: 11, fontWeight: 600 }, labelBgStyle: { fill: "#4c1d95" }, labelBgPadding: [6, 3] as [number, number], labelBgBorderRadius: 4, style: { stroke: "#7c3aed", strokeWidth: 2.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: "#7c3aed", width: 20, height: 20 } }
+        ? { ...connection, animated: true, label: label as string, labelStyle: { fill: "#e5e7eb", fontSize: 11, fontWeight: 600 }, labelBgStyle: { fill: "#4c1d95" }, labelBgPadding: [6, 3] as [number, number], labelBgBorderRadius: 4, style: { stroke: "#7c3aed", strokeWidth: 2.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: "#7c3aed", width: 20, height: 20 } } as any
         : { ...connection, animated: true, style: { stroke: "#7c3aed", strokeWidth: 2.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: "#7c3aed", width: 20, height: 20 } },
       eds
     ));
