@@ -986,6 +986,7 @@ Choose the APP TYPE that best fits:
   SEARCH APP  -> knowledge base search, document finder, product catalogue
   FORM APP    -> data entry form with validation, survey, feedback collector
   PORTAL      -> employee self-service, client portal, project dashboard
+  CUSTOM      -> decision intelligence, multi-agent advisor, council/verdict app, recommendation engine, review board
 
 ==================================================
 PHASE 2 -- DESIGN SYSTEM (apply to ALL app types)
@@ -1452,6 +1453,32 @@ Build a self-service portal:
 - Recent activity feed
 - Notification badge in header
 
+--- IF APP TYPE = CUSTOM (decision intelligence / multi-agent advisor / council) ---
+Build a decision intelligence app with this EXACT 3-column layout:
+
+LEFT SIDEBAR (w-56, bg #0f172a, text white):
+- App logo/icon (first letter in purple circle) + app name + tagline
+- Nav buttons: Decision Intake, Decision History, Comparison View, Export Page (each clickable, highlights active in indigo-600)
+- "Live processing" section at bottom: pipeline label "Intake → 5 Advisors → Peer Review → Chairman Verdict"
+
+MAIN CONTENT (flex-1, bg white):
+- Header: app full name + subtitle + "AI Active" and "DB Connected" green badge pills + avatar circle
+- Decision Intake page (default): form with Title, Question, Context, Constraints, Stakes fields + "Submit to Council" button
+- Decision History page: searchable table with columns ID, Title, Tag, Status, Confidence, Alignment, Updated; rows with real sample data from domain
+- Comparison View page: side-by-side card comparison of 2-3 past decisions
+- Export Page: export options (PDF, CSV, Excel) with preview
+
+RIGHT PANEL (w-64, bg white, border-l):
+- Header: "Decision Library" (NOT "Knowledge Base") with count badge
+- List of uploaded files (show any attached CSV/Excel as Decision Dataset cards with name and "✓ Indexed" tag)
+- "Session" section: Messages count, Last Query timestamp
+- "Filter by Category" section (NOT "Filter by Topic"): category pills from decision data (e.g. "Strategy", "Operations", "Hiring") each with count badge
+
+CRITICAL:
+- NEVER use "Knowledge Base", "Filter by Topic", or chatbot-style language
+- Use "Decision Library", "Filter by Category", "Decision Dataset" instead
+- All branding and labels must reflect the app name and domain, not generic IT support
+
 ==================================================
 MANDATORY NAVIGATION RULE (applies to ALL app types with a sidebar/nav)
 ==================================================
@@ -1644,7 +1671,12 @@ async def generate_ui(req: GenerateUIRequest):
 
     # Detect app type from prompt keywords â€" CHATBOT checked FIRST to prevent false matches
     prompt_lower = (req.summary + " " + req.app_name).lower()
-    if any(k in prompt_lower for k in ["chatbot", "chat bot", "support bot", "virtual agent", "rag", "faq",
+    # CUSTOM check runs FIRST — decision/council apps must never be misclassified as CHATBOT
+    if any(k in prompt_lower for k in ["decision intelligence", "decision advisor", "verdict", "the council",
+                                        "multi-agent deliberation", "advisor panel", "chairman", "peer review board",
+                                        "council app", "review board", "blind review"]):
+        detected_type = "CUSTOM"
+    elif any(k in prompt_lower for k in ["chatbot", "chat bot", "support bot", "virtual agent", "rag", "faq",
                                         "knowledge base", "it support", "service desk", "helpdesk", "help desk",
                                         "customer support", "support ticket", "qa bot", "q&a bot",
                                         "conversational", "assistant bot"]):
@@ -1663,7 +1695,7 @@ async def generate_ui(req: GenerateUIRequest):
         detected_type = "FORM APP"
     elif any(k in prompt_lower for k in ["portal", "self-service", "employee portal", "client portal"]):
         detected_type = "PORTAL"
-    elif any(k in prompt_lower for k in ["decision", "advisor", "verdict", "council", "intelligence", "recommendation", "review board"]):
+    elif any(k in prompt_lower for k in ["decision", "advisor", "council", "intelligence", "recommendation"]):
         detected_type = "CUSTOM"
     else:
         detected_type = "CUSTOM"
@@ -1673,7 +1705,7 @@ async def generate_ui(req: GenerateUIRequest):
     #   Pass 1 â€" extract structured KB data (FAQ_DATA, TOPIC_QUESTIONS, DOC_SECTIONS) as JSON
     #   Pass 2 â€" generate HTML with that pre-filled data (no raw docs in context, freeing tokens for UI code)
     prefilled_kb_block = ""
-    if req.documents:
+    if req.documents and detected_type == "CHATBOT":
         # Only include real text documents â€" skip images and anything with no extracted text
         rag_docs = [d for d in req.documents if d.text and d.text.strip()]
         doc_names = [d.name for d in rag_docs]
@@ -1778,7 +1810,7 @@ UPLOADED DOCUMENTS: {doc_names}
 CRITICAL RULES:
 - APP_CONFIG.documents MUST list EXACTLY these files: {doc_names}
 - If PRE-EXTRACTED DATA is provided above, copy it VERBATIM â€" do not regenerate or modify it
-- Topics and content must reflect Loblaw IT support categories from the documents
+- Topics and content must reflect {company} {domain} categories from the documents
 - NEVER use placeholder content â€" all data from documents above
 """
     else:
@@ -1966,7 +1998,7 @@ Incorporate ALL of the above changes while keeping everything else from the orig
         model=settings.azure_openai_deployment_gpt4o,
         messages=messages_payload,
         temperature=0.2,
-        max_completion_tokens=16000,
+        max_completion_tokens=8000 if detected_type == "CUSTOM" else 16000,
     )
 
     html = response.choices[0].message.content or ""
@@ -2372,12 +2404,12 @@ RULES:
     return text.split('\n').map((line, i) => {
       if (!line.trim()) return <div key={i} className="h-1" />;
       const parts: React.ReactNode[] = [];
-      const segments = line.split(/\*\*(.*?)\*\*/g);
+      const segments = line.split(/\\*\\*(.*?)\\*\\*/g);
       segments.forEach((seg, j) => {
         if (j % 2 === 1) parts.push(<strong key={j}>{seg}</strong>);
         else if (seg) parts.push(seg);
       });
-      const isListItem = /^(\d+\.|-)\s/.test(line);
+      const isListItem = /^(\\d+\\.|-)\\s/.test(line);
       return <p key={i} className={`text-sm text-slate-800 leading-relaxed${isListItem ? ' pl-3' : ''}`}>{parts}</p>;
     });
   }

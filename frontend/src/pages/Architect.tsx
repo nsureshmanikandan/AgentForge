@@ -632,18 +632,21 @@ function AgentsTab({ plan }: { plan?: Plan }) {
 // ─── Extract a clean short app name from verbose plan.summary ─────────────────
 // e.g. "This system is a policy analysis agent that ingests..." → "Policy Analysis Agent"
 function extractAppTitle(summary: string): string {
-  const STOPWORDS = new Set(["that","which","for","to","and","with","by","on","in","of","the","a","an","who","where","when","how"]);
+  const ARTICLES = new Set(["the","a","an","build","this","system","is"]);
+  const STOPWORDS = new Set(["that","which","for","to","and","with","by","on","in","of","who","where","when","how","using","via","based","powered"]);
   const cleaned = summary
     .replace(/^(this system is an? |build an? |a |an )/i, "")
     .replace(/[,;.!?].*$/, "");
   const words = cleaned.split(/\s+/);
   const kept: string[] = [];
   for (const w of words) {
-    if (STOPWORDS.has(w.toLowerCase())) break;
+    const wl = w.toLowerCase();
+    if (ARTICLES.has(wl) && kept.length === 0) continue; // skip leading articles
+    if (STOPWORDS.has(wl)) break;
     kept.push(w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
-    if (kept.length >= 5) break;
+    if (kept.length >= 4) break;
   }
-  return kept.join(" ") || summary.slice(0, 40);
+  return kept.join(" ") || summary.slice(0, 30);
 }
 
 // ─── Detect whether a plan is RAG/document-based ─────────────────────────────
@@ -698,7 +701,7 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
   <nav class="p-3 border-b border-white/10 space-y-0.5" id="nav-links"></nav>
   <div class="flex-1 overflow-y-auto p-3 flex flex-col gap-0">
     <div id="topic-section">
-      <p class="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-2 px-1 hidden" id="topic-label">Filter by Topic</p>
+      <p class="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-2 px-1 hidden" id="topic-label">Filter by Category</p>
       <div id="topic-filters"></div>
     </div>
     <p class="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-2 mt-2 px-1">Top Questions</p>
@@ -828,7 +831,7 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
 <aside class="w-64 border-l bg-white flex flex-col flex-shrink-0">
   <div class="px-4 py-3 border-b border-slate-200">
     <div class="flex items-center justify-between">
-      <p class="text-sm font-bold text-slate-800">Knowledge Base</p>
+      <p class="text-sm font-bold text-slate-800">Attached Files</p>
       <span class="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[24px] text-center" id="kb-badge">0</span>
     </div>
     <p class="text-[11px] text-slate-400 mt-0.5" id="kb-subtitle">No documents yet</p>
@@ -1398,7 +1401,7 @@ export default function App() {
 
       <aside className="w-64 border-l bg-white flex flex-col flex-shrink-0">
         <div className="px-4 py-3.5 border-b border-slate-200 flex items-center justify-between">
-          <p className="text-sm font-bold text-slate-800">Knowledge Base</p>
+          <p className="text-sm font-bold text-slate-800">Attached Files</p>
           <span className="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[24px] text-center">{docs.length}</span>
         </div>
         <div className="flex-1 overflow-y-auto p-3">
@@ -1695,7 +1698,10 @@ npm run dev            # opens http://localhost:5173
 // ─── Dynamic App.tsx builder — plan-specific UI for non-RAG Custom Code plans ─
 
 function buildDynamicAppTsx(plan: Plan, appTitle: string, port: number): string {
-  const badge = plan.tech_stack?.ai ?? plan.tech_stack?.backend ?? "Azure OpenAI";
+  const rawBadge = plan.tech_stack?.ai ?? plan.tech_stack?.backend ?? "";
+  // Only show known real model/service names — GPT-4o sometimes hallucinates model versions
+  const VALID_BADGES = ["gpt-4o","gpt-4","gpt-3.5","claude","gemini","azure openai","openai","anthropic","mistral","llama"];
+  const badge = VALID_BADGES.some(v => rawBadge.toLowerCase().includes(v)) ? rawBadge : "Azure OpenAI";
   const featureList = (plan.features ?? []).slice(0, 8);
   const apiList = (plan.api_endpoints ?? []).slice(0, 6);
 
@@ -2475,7 +2481,7 @@ function AnalyticsPage({ apiBase, messages, msgCount }: { apiBase: string; messa
 }
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState("chat");
+  const [currentPage, setCurrentPage] = useState(NAV[0]?.id ?? "chat");
   const [messages, setMessages] = useState<Message[]>([
     { role: "bot", text: "Hello! I'm your AI assistant for ${appTitle}. How can I help you?", time: new Date().toLocaleTimeString() },
   ]);
@@ -3115,7 +3121,7 @@ export default function App() {
 
       <aside className="w-64 border-l bg-white flex flex-col flex-shrink-0">
         <div className="px-4 py-3.5 border-b border-slate-200 flex items-center justify-between">
-          <p className="text-sm font-bold text-slate-800">Knowledge Base</p>
+          <p className="text-sm font-bold text-slate-800">Attached Files</p>
           <span className="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[24px] text-center">{docs.length}</span>
         </div>
         <div className="flex-1 overflow-y-auto p-3">
