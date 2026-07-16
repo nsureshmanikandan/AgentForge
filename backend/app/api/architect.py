@@ -1004,8 +1004,26 @@ EXPORT: Every app must include Export functionality:
   saying the export is "prepared" or "available in the enterprise build" — that is a fake,
   non-functional placeholder and is FORBIDDEN for PDF, Excel, and PowerPoint exports.
 
-RESPONSIVE: Sidebar collapses to hamburger at screen width < 768px using CSS media query.
-  Add toggle button: visible only on mobile via media query.
+RESPONSIVE: At screen width < 768px, the left sidebar's NAV LIST must be HIDDEN by default and
+  only shown when the user taps the hamburger button — do NOT just reflow the full nav list to
+  full-width and stack it above the main content, since that forces users to scroll past a wall
+  of nav items before reaching any actual page content.
+  REQUIRED implementation pattern (use real React state, not CSS-only tricks):
+    const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
+    // Sidebar: on mobile, hide entirely unless mobileNavOpen is true
+    <aside className={`left-sidebar w-56 min-w-56 bg-slate-900 ... ${mobileNavOpen ? 'flex' : 'hidden md:flex'}`}>
+      ...nav content...
+    </aside>
+    // Floating hamburger button — mobile only, MUST toggle the state above
+    <button
+      aria-label="Toggle navigation"
+      className="mobile-show hidden fixed top-3 left-3 z-50 bg-slate-900 text-white px-3 py-2 rounded-lg shadow"
+      onClick={() => setMobileNavOpen(o => !o)}
+    >☰</button>
+  CRITICAL: the hamburger button's onClick MUST toggle real state that shows/hides the sidebar.
+  A hamburger button with no onClick handler (purely decorative) is FORBIDDEN.
+  Right panel: on mobile, collapse the same way (hidden by default) OR move it below the main
+  content — never let it push main content further down the page below a full-height nav list.
 
 COLOR SYSTEM (use as inline styles or Tailwind classes if Tailwind CDN is present):
   Primary bg: #0f172a (slate-900)  Sidebar text: #f1f5f9
