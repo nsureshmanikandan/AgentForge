@@ -105,7 +105,7 @@ AI agents:
 1. Call Intake & Intent Agent — Answers the inbound call, greets the caller, transcribes speech in real time, and classifies intent (FAQ question, appointment booking, complaint, request for human, other).
 2. FAQ Answer Agent — Searches the business knowledge base (hours, services, pricing, location, policies) via RAG and responds conversationally with natural speech-friendly phrasing (short sentences, no bullet points read aloud).
 3. Appointment Booking Agent — Checks Google Calendar availability, proposes 2-3 open slots to the caller, confirms the chosen slot, collects caller name/phone/reason for visit, and creates the calendar event with a confirmation callback/SMS.
-4. Escalation Agent — Detects when the caller explicitly asks for a human, is frustrated (negative sentiment), or the FAQ Agent has low confidence (<70%), and transfers the call with a spoken summary handed to the human receptionist.
+4. Human Handoff Agent — Detects when the caller explicitly asks for a human, is frustrated (negative sentiment), or the FAQ Agent has low confidence (<70%), and transfers the call with a spoken summary handed to the human receptionist.
 5. Call Quality & Analytics Agent — Scores each call transcript for resolution success, logs call duration, outcome (resolved/booked/escalated/abandoned), and produces daily call volume and outcome reports.
 
 Pages:
@@ -113,7 +113,7 @@ Pages:
 2. Call Transcript View — Full conversation transcript with speaker labels (Caller / AI), timestamps, and the detected intent + confidence score. Highlighted moments where the AI consulted the knowledge base or checked the calendar.
 3. Appointments — Table of bookings made by the AI (caller name, requested slot, confirmed slot, reason, status) synced with a calendar view. Reschedule/cancel actions.
 4. Knowledge Base Manager — Manage FAQ entries (question, answer, category). See which FAQs are asked most often, flag gaps from unanswered questions.
-5. Analytics Dashboard — KPI row (calls today, resolution rate, escalation rate, avg call duration) + Bar chart: call volume by hour + Donut: outcome distribution (resolved/booked/escalated/abandoned) + Line chart: daily call trend.
+5. Analytics Dashboard — KPI row (calls today, resolution rate, human transfer rate, avg call duration) + Bar chart: call volume by hour + Donut: outcome distribution (resolved/booked/transferred/abandoned) + Line chart: daily call trend.
 
 UI: Dashboard-first layout with a prominent "Live Calls" ticker at the top. Transcript view styled like a chat log with a phone/waveform icon per caller turn. Knowledge Base and Appointments as standard nav pages.
 
@@ -129,14 +129,14 @@ Database: Persist every call with full transcript, detected intent, outcome, and
     prompt: `Build a Career Advisor Chatbot that reviews a user's background and produces a personalized career roadmap with skill-gap analysis and mock interview practice.
 
 AI agents:
-1. Profile Analysis Agent — Parses the user's resume/LinkedIn profile and self-reported skills, extracts current role, years of experience, skills, and stated career goal, and produces a structured profile summary.
+1. Profile Analysis Agent — Parses the user's CV/LinkedIn profile and self-reported skills, extracts current role, years of experience, skills, and stated career goal, and produces a structured profile summary.
 2. Market Research Agent — Searches the web for target-role job postings and industry trend reports to identify in-demand skills, typical career progression paths, and realistic salary bands for the target role.
 3. Roadmap Generation Agent — Compares the user's current profile against market requirements, generates a phased career roadmap (0-3mo, 3-6mo, 6-12mo, 1-2yr) with specific milestones, and flags the top 3-5 skill gaps to close first.
 4. Mock Interview Agent — Conducts a simulated interview for the target role: asks behavioral and technical questions one at a time, evaluates each answer against a rubric (clarity, structure, relevance, depth), and gives specific improvement feedback.
 5. Progress Tracking Agent — Tracks which roadmap milestones and recommended courses/certifications the user has marked complete, and recalculates readiness score toward the target role over time.
 
 Pages:
-1. Profile Intake — Upload resume (PDF/DOCX) or fill a form (current role, skills, years experience, target role, target timeline). Submit triggers profile analysis and market research.
+1. Profile Intake — Upload CV (PDF/DOCX) or fill a form (current role, skills, years experience, target role, target timeline). Submit triggers profile analysis and market research.
 2. Career Roadmap — Visual timeline (0-3mo/3-6mo/6-12mo/1-2yr phases) with milestone cards, each showing recommended actions (course, certification, project, networking). Readiness score gauge at the top.
 3. Skill Gap Analysis — Radar chart comparing user's current skill levels vs. target-role requirements. Table of top gaps ranked by impact, each with 2-3 recommended resources.
 4. Mock Interview — Chat-style interview simulator. After each answer, shows a scorecard (clarity/structure/relevance/depth bars) and written feedback. Session summary at the end with overall score trend across sessions.
