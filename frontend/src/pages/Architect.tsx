@@ -4309,7 +4309,7 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
         <iframe
           className="flex-1 w-full border-0 bg-white block min-h-0"
           srcDoc={uiHtml?.replace(/<\/head>/, '<style>html,body{overflow-y:auto!important;height:auto!important;}</style></head>') ?? uiHtml}
-          sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+          sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads"
           title="App Preview"
         />
       </div>
