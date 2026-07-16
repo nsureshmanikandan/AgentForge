@@ -842,82 +842,262 @@ Database: Persist mined clusters, source conversation links, drafted/published a
     category: "Productivity",
     title: "Executive Meeting Assistant",
     description: "Review your calendar, prepare briefing notes for upcoming meetings, and draft follow-up emails based on meeting transcripts.",
-    prompt: "Build a meeting assistant agent that reviews my calendar, prepares briefing notes for upcoming meetings, and drafts follow-up emails based on meeting transcripts.",
+    prompt: `Build 'MeetingIQ' — an executive meeting assistant that reviews the calendar, prepares briefing notes ahead of every meeting, and drafts follow-up emails and action items from transcripts.
+
+AI agents:
+1. CalendarScannerAgent — Scans the upcoming calendar, identifies meetings needing prep (external attendees, recurring 1:1s, high-value external meetings), and pulls attendee context from connected contact records and email history.
+2. BriefingAgent — Generates a pre-meeting brief per event: attendee bios, last interaction summary, open action items, talking points, and suggested agenda.
+3. TranscriptAgent — Ingests meeting transcripts (uploaded or auto-captured), extracts decisions, action items (owner + due date), and key quotes.
+4. FollowUpAgent — Drafts a follow-up email per meeting summarizing decisions and action items, ready to send or edit, and schedules reminder nudges for overdue items.
+
+Pages:
+1. Today's Agenda — Timeline view of today's meetings with a "Brief Ready" badge per event; click to expand the full briefing card (attendees, history, talking points).
+2. Meeting Briefs — Searchable list/table of all upcoming briefs with columns: meeting, time, attendees, prep status, priority. Filter by priority and date range.
+3. Action Items Board — Kanban view (To Do / In Progress / Done) of action items extracted from transcripts, grouped by meeting, with owner avatars and due-date badges; overdue items highlighted red.
+4. Analytics — Bar chart of meetings prepped vs. attended per week, donut chart of action-item completion rate, line chart of average follow-up turnaround time.
+5. Follow-Up Drafts — List of AI-drafted follow-up emails with send/edit/schedule actions and a status column (Draft / Sent / Scheduled).
+
+UI: Slate sidebar with calendar-style nav icons, light content area, briefing cards use a left accent bar colored by priority. Kanban columns use soft background tints. Charts rendered with Recharts.
+
+Database: Persist every meeting, briefing, transcript, extracted action item, and follow-up draft with timestamps and status; all pages read live from the DB, never hardcoded.`,
     tools: ["Calendar", "Email", "Slack"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "executive-meeting-assistant-sample.csv", url: "/samples/productivity/executive-meeting-assistant.csv" },
   },
   {
     category: "Productivity",
     title: "Email Triage & Drafter",
     description: "Categorize incoming emails by urgency, draft responses for routine inquiries, and summarize long threads.",
-    prompt: "Build an email triage agent that categorizes incoming emails by urgency, drafts responses for routine inquiries, and summarizes long threads.",
+    prompt: `Build 'InboxPilot' — an email triage and drafting agent that classifies incoming email by urgency, drafts responses for routine inquiries, and condenses long threads into digestible summaries.
+
+AI agents:
+1. TriageAgent — Classifies each incoming email by urgency (Urgent/Normal/Low), category (billing, request, FYI, spam), and sentiment; flags anything needing same-day response.
+2. DraftingAgent — For routine, pattern-matched inquiries, generates a ready-to-send reply using prior thread context and a tone matched to the sender relationship.
+3. SummarizerAgent — Condenses long threads (10+ messages) into a 3-5 bullet summary with key decisions and open questions highlighted.
+4. FollowUpTrackerAgent — Detects emails awaiting a reply past a configurable SLA and surfaces them as reminders.
+
+Pages:
+1. Priority Inbox — Table view of emails with columns: sender, subject, urgency badge (color-coded), category, AI-suggested action, received time. Sortable and filterable by urgency/category.
+2. Thread View — Full email thread with the AI-generated summary pinned at the top, draft reply panel on the right (editable before sending), and a "Mark Resolved" action.
+3. Draft Queue — Kanban board (Awaiting Review / Approved / Sent) of AI-drafted responses so the user can batch-approve routine replies.
+4. Analytics Dashboard — Bar chart of email volume by category, donut chart of urgency distribution, line chart of average response time trend over the last 30 days.
+5. SLA Watchlist — List of emails past their response SLA with days-overdue counter and one-click "Draft Reply Now" action.
+
+UI: Two-pane layout — inbox list on the left, thread/detail on the right, similar to Superhuman/Gmail. Urgency badges use red/amber/green. Charts in Analytics use Recharts with a clean light theme.
+
+Database: Every email, its classification, draft, summary, and SLA status is persisted; all list and analytics views query the database live.`,
     tools: ["Email", "Slack"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "email-triage-drafter-sample.csv", url: "/samples/productivity/email-triage-drafter.csv" },
   },
   {
     category: "Productivity",
     title: "Team Calendar Coordinator",
     description: "Check availability across team members, suggest optimal meeting times, send invites, and prevent double-bookings automatically.",
-    prompt: "Build a calendar coordination agent that checks availability across team members, suggests optimal meeting times, sends invites, and prevents double-bookings automatically.",
+    prompt: `Build 'SyncBoard' — a team calendar coordination agent that checks cross-team availability, suggests optimal meeting slots, sends invites, and prevents double-bookings automatically.
+
+AI agents:
+1. AvailabilityAgent — Aggregates free/busy data across all team members' calendars and computes overlapping open slots for a requested meeting duration and date range.
+2. SchedulingAgent — Ranks the open time slots by attendee preference, timezone fairness, and meeting-fatigue score (avoids back-to-back overload), then proposes the top 3.
+3. InviteAgent — Sends calendar invites once a slot is confirmed, attaches agenda and video link, and manages RSVPs and reschedule requests.
+4. ConflictGuardAgent — Continuously monitors the team calendar for double-bookings or last-minute conflicts and proactively alerts affected attendees with reschedule options.
+
+Pages:
+1. Team Calendar — Weekly calendar grid view showing all team members' events side by side with color-coding per person; conflicts highlighted with a red outline.
+2. Schedule a Meeting — Form: title, attendees (multi-select), duration, date range, preferences. Submit triggers Availability + Scheduling agents and shows the top 3 suggested slots with a one-click "Book" button.
+3. Conflict Center — Kanban view (Detected / Notified / Resolved) of scheduling conflicts with affected attendees and suggested resolution slots.
+4. Team Load Dashboard — Bar chart of meeting hours per team member this week, donut chart of meeting-type distribution (1:1, standup, external), line chart of meeting-fatigue score trend.
+5. Invite History — Table of sent invites with columns: meeting, attendees, status (Pending/Accepted/Declined), sent date; filter by status.
+
+UI: Calendar-first layout with a left mini-calendar navigator, main weekly grid, and a right "Suggestions" panel. Conflict rows pulse subtly until resolved. Charts via Recharts.
+
+Database: All meetings, availability snapshots, conflicts, and invite statuses are stored and read live; nothing is hardcoded or mocked.`,
     tools: ["Calendar", "Email", "Slack"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "team-calendar-coordinator-sample.csv", url: "/samples/productivity/team-calendar-coordinator.csv" },
   },
   {
     category: "Productivity",
     title: "Morning Briefing Agent",
     description: "Compile calendar events, pending tasks, priority emails, and relevant industry news into a concise morning digest delivered at 8 AM.",
-    prompt: "Build a daily briefing agent that compiles my calendar events, pending tasks, unread priority emails, and relevant industry news into a concise morning digest delivered at 8 AM.",
+    prompt: `Build 'DawnBrief' — a daily morning briefing agent that compiles calendar events, pending tasks, priority emails, and relevant industry news into one concise digest delivered every morning.
+
+AI agents:
+1. AggregatorAgent — Pulls today's calendar events, open tasks, unread priority emails, and top industry news for the user's tracked topics into a single raw feed.
+2. PrioritizerAgent — Ranks items across all sources by urgency and relevance, trims to the top 8-10, and groups them into digest sections (Meetings, Tasks, Inbox, News).
+3. DigestWriterAgent — Writes the final digest in a concise, scannable narrative with a one-line "Focus of the Day" summary at the top.
+4. DeliveryAgent — Assembles the digest into the app and optionally emails/Slacks it at the configured delivery time, then tracks read/open status.
+
+Pages:
+1. Today's Digest — The rendered morning brief: "Focus of the Day" banner, then sectioned cards for Meetings, Tasks, Priority Emails, and News, each with source links.
+2. Digest History — Calendar view where each day shows a colored dot if a digest was generated; click a day to view that digest in full.
+3. Task & Email Sources — Table view of the raw items feeding today's digest (task, email, calendar item) with an "Include/Exclude from digest" toggle per row.
+4. Engagement Analytics — Line chart of digest open rate over the last 30 days, bar chart of item counts per section per day, donut chart of news topic distribution.
+5. Preferences — Form to configure delivery time, delivery channel (email/Slack/in-app), tracked news topics, and max items per section.
+
+UI: Warm, editorial "morning newspaper" light theme with a masthead header showing the date. Digest sections use card layout with icons. Calendar history view uses a heatmap-style dot calendar. Charts via Recharts.
+
+Database: Every generated digest, its source items, and open/read events are persisted; history and analytics pages read live from the database.`,
     tools: ["Calendar", "Email", "Web Search"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "morning-briefing-agent-sample.csv", url: "/samples/productivity/morning-briefing-agent.csv" },
   },
   {
     category: "Productivity",
     title: "Notion Workspace Automator",
     description: "Capture action items from Slack conversations and meeting notes, create tasks in Notion, and send reminders before deadlines.",
-    prompt: "Build a Notion automation agent that captures action items from Slack conversations and meeting notes, creates tasks in my Notion workspace, and sends reminders before deadlines.",
+    prompt: `Build 'TaskWeave' — a Notion workspace automation agent that captures action items from Slack conversations and meeting notes, creates and tracks tasks in the connected workspace, and sends deadline reminders.
+
+AI agents:
+1. CaptureAgent — Monitors connected Slack channels and uploaded meeting notes, extracts likely action items (owner, description, implied due date) using NLP.
+2. TaskCreationAgent — De-duplicates extracted items against existing workspace tasks, then creates new task entries with title, assignee, status, priority, and due date.
+3. ReminderAgent — Tracks upcoming and overdue due dates and sends reminders to assignees via Slack/email on a configurable cadence (T-2 days, T-0, overdue).
+4. WorkspaceSyncAgent — Keeps task status changes bidirectionally in sync between the app's database and the connected workspace, and reconciles conflicts.
+
+Pages:
+1. Task Board — Kanban view (Not Started / In Progress / Blocked / Done) of all tasks with assignee avatars, priority tags, and due-date badges (red if overdue).
+2. Capture Log — Table of raw items captured from Slack/notes with columns: source, extracted text, confidence, action taken (Created/Merged/Ignored), date.
+3. Reminders Center — List of scheduled and sent reminders per task with delivery channel and status (Scheduled/Sent/Acknowledged).
+4. Team Workload — Bar chart of open tasks per assignee, donut chart of tasks by status, line chart of tasks completed per week over the last quarter.
+5. Source Connections — Form/list to manage connected Slack channels and meeting-note folders, with a toggle to enable/disable capture per source.
+
+UI: Notion-inspired minimal light theme with a left workspace-style sidebar (Board, Log, Reminders, Workload, Connections) and card-based task tiles with subtle drag-and-drop shadows. Charts via Recharts.
+
+Database: Every captured item, created task, reminder, and sync event is persisted with full history; the board and analytics always reflect live database state, never hardcoded demo tasks.`,
     tools: ["Slack", "Webhook", "Calendar"],
-    complexity: "Intermediate",
+    complexity: "Advanced",
+    sampleFile: { name: "notion-workspace-automator-sample.csv", url: "/samples/productivity/notion-workspace-automator.csv" },
   },
   // ── Development ───────────────────────────────────────────────────────────
   {
     category: "Development",
     title: "Automated Code Reviewer",
     description: "Analyze pull requests for security vulnerabilities, performance issues, and adherence to your style guide.",
-    prompt: "Build a code review agent that analyzes pull requests for security vulnerabilities, performance issues, and adherence to our style guide.",
+    prompt: `Build 'ReviewGuard' — an automated code review agent that analyzes every pull request for security vulnerabilities, performance issues, and style-guide adherence, then posts structured feedback.
+
+AI agents:
+1. StaticAnalysisAgent — Runs on each PR diff, flags security vulnerabilities (injection risks, secrets in code, unsafe deserialization), and severity-scores each finding.
+2. PerformanceAgent — Reviews diffs for performance anti-patterns (N+1 queries, unbounded loops, blocking calls in async code) and suggests fixes with code snippets.
+3. StyleGuideAgent — Checks the diff against the team's configured style guide (naming, formatting, file structure, comment conventions) and auto-suggests corrections.
+4. ReviewSynthesizerAgent — Merges findings from all three agents into a single structured PR comment with a pass/fail outcome and blocking vs. non-blocking issues.
+
+Pages:
+1. PR Review Queue — Table of open PRs with columns: repo, title, author, risk score (color-coded), findings count, review status (Pending/Reviewed/Blocked).
+2. Review Detail — Full diff view with inline AI comments per line, grouped by category (Security/Performance/Style), each with severity tag and suggested fix; approve/request-changes actions.
+3. Findings Library — Searchable/filterable table of all historical findings across PRs by type, severity, and repo, with a "resolved" toggle.
+4. Analytics Dashboard — Bar chart of findings by category per week, donut chart of severity distribution, line chart of average time-to-resolution trend across repos.
+5. Style Guide Config — Form to define/edit style rules (naming conventions, max function length, required doc comments) with a live preview of how a sample diff would be flagged.
+
+UI: Developer-dark theme (GitHub-style), monospace diff panels with color-coded line annotations (red=security, amber=performance, blue=style). Charts via Recharts on a dark-compatible palette.
+
+Database: Every PR, finding, outcome, and style-rule change is persisted with timestamps; the queue, library, and analytics pages always read live data, never mocked results.`,
     tools: ["GitHub", "Webhook", "Slack"],
     complexity: "Advanced",
+    sampleFile: { name: "automated-code-reviewer-sample.csv", url: "/samples/development/automated-code-reviewer.csv" },
   },
   {
     category: "Development",
     title: "Documentation Generator",
     description: "Watch your codebase and automatically update API documentation and README files when code changes are merged.",
-    prompt: "Build a documentation agent that watches my codebase and automatically updates the API documentation and README files when code changes are merged.",
+    prompt: `Build 'DocSync' — a documentation generator agent that watches the codebase for merged changes and automatically keeps API documentation and README files accurate and current.
+
+AI agents:
+1. ChangeWatcherAgent — Monitors merged commits/PRs, detects changes to public functions, endpoints, config, or exported types, and diffs them against existing docs.
+2. DocDraftAgent — Generates or updates documentation sections (function signatures, parameters, examples, README feature lists) matching the detected code changes.
+3. ConsistencyAgent — Cross-checks generated docs against the actual code for drift (renamed params, removed endpoints, outdated examples) and flags mismatches.
+4. PublishAgent — Opens a documentation PR with the proposed changes, or auto-merges low-risk updates (typo-level, formatting) based on configured trust thresholds.
+
+Pages:
+1. Doc Health Dashboard — Bar chart of docs coverage by module/file, donut chart of doc freshness (Up to date / Stale / Missing), line chart of drift incidents over time.
+2. Pending Updates — Table of detected code changes awaiting doc updates: file, change type, affected doc section, status (Drafted/Awaiting Review/Published).
+3. Doc Editor — Side-by-side view of the code diff and the AI-drafted doc update, with accept/edit/reject controls per section.
+4. Drift Log — List of consistency findings (doc says X, code does Y) with severity and a "Regenerate" action per item.
+5. Publish History — Table of documentation PRs/commits made by the agent with timestamp, files touched, and merge status.
+
+UI: Clean docs-site aesthetic (light theme, sidebar table-of-contents style navigation) with a Markdown preview pane. Diff/editor view uses split panels. Charts via Recharts.
+
+Database: Every detected change, drafted doc update, drift finding, and publish event is persisted with timestamps; dashboards and logs always reflect live database state.`,
     tools: ["GitHub", "Webhook"],
     complexity: "Intermediate",
+    sampleFile: { name: "documentation-generator-sample.csv", url: "/samples/development/documentation-generator.csv" },
   },
   {
     category: "Development",
     title: "API Documentation Assistant",
     description: "Connect to your GitHub repo, analyze endpoints and schemas, and generate developer-friendly documentation with request/response examples.",
-    prompt: "Build an API docs agent that connects to my GitHub repo, analyzes endpoints and schemas, and generates developer-friendly documentation with request/response examples and edge cases.",
+    prompt: `Build 'EndpointScribe' — an API documentation assistant that connects to a GitHub repo, analyzes endpoints and schemas, and generates developer-friendly docs with request/response examples and edge cases.
+
+AI agents:
+1. RepoAnalyzerAgent — Scans the connected repo for route definitions, request/response schemas, and auth requirements, and builds a structured endpoint inventory.
+2. ExampleGeneratorAgent — For each endpoint, generates realistic request/response JSON examples, common error responses, and edge-case scenarios (rate limits, invalid input, auth failure).
+3. NarrativeAgent — Writes human-readable descriptions per endpoint (purpose, when to use it, gotchas) in a consistent developer-friendly voice.
+4. VersionDiffAgent — Detects breaking vs. non-breaking changes between repo versions and flags endpoints whose docs need re-review.
+
+Pages:
+1. Endpoint Catalog — Table of all discovered endpoints: method, path, auth required, last updated, doc status (Generated/Reviewed/Stale). Filterable by tag/service.
+2. Endpoint Detail — Full doc page per endpoint: description, parameters table, request/response example blocks (syntax-highlighted), error codes, edge cases.
+3. Version Diff View — Side-by-side comparison of an endpoint's schema across two repo versions with breaking changes highlighted in red.
+4. Coverage Dashboard — Bar chart of documented vs. undocumented endpoints per service, donut chart of doc freshness, line chart of breaking-change frequency over releases.
+5. Export & Publish — Page to export the full catalog as OpenAPI/Swagger JSON or a static docs site bundle, with a history of past exports.
+
+UI: Developer-docs aesthetic similar to Stripe/Swagger UI — left endpoint tree navigation, main content with tabbed request/response examples, syntax-highlighted code blocks. Charts via Recharts.
+
+Database: Every endpoint, generated example, narrative, and version diff is persisted; catalog and dashboard pages always read live from the database, never a static spec file.`,
     tools: ["GitHub", "RAG", "Webhook"],
-    complexity: "Intermediate",
+    complexity: "Advanced",
+    sampleFile: { name: "api-documentation-assistant-sample.csv", url: "/samples/development/api-documentation-assistant.csv" },
   },
   {
     category: "Development",
     title: "Bug Triage Agent",
     description: "Read incoming GitHub issues, classify severity and affected component, suggest root causes, and assign to the right developer.",
-    prompt: "Build a bug triage agent that reads incoming GitHub issues, classifies severity and affected component, suggests potential root causes from the codebase, and assigns to the right developer.",
+    prompt: `Build 'TriageBot' — a bug triage agent that reads incoming GitHub issues, classifies severity and affected component, suggests likely root causes from the codebase, and assigns each bug to the right developer.
+
+AI agents:
+1. IssueClassifierAgent — Reads each new GitHub issue, classifies severity (Critical/High/Medium/Low), affected component/module, and issue type (bug/regression/feature request misfiled as bug).
+2. RootCauseAgent — Searches the codebase and recent commit history for likely root cause locations, linking suspect files/functions and recent related changes.
+3. AssignmentAgent — Matches the classified bug to the best-fit developer based on code ownership, recent activity in the affected component, and current workload.
+4. DuplicateDetectionAgent — Checks new issues against open issues for semantic duplicates and links/merges them automatically with a confidence score.
+
+Pages:
+1. Triage Queue — Table of incoming issues with columns: title, severity badge, component, suggested assignee, duplicate flag, status (New/Triaged/Assigned).
+2. Issue Detail — Full issue view with AI-suggested root cause files/functions linked to the repo, suggested assignee with rationale, and a "Confirm Assignment" action.
+3. Bug Board — Kanban view (New / Triaged / In Progress / Resolved) grouped by severity color, with assignee avatars per card.
+4. Analytics Dashboard — Bar chart of bugs by component, donut chart of severity distribution, line chart of average triage-to-assignment time over the last quarter.
+5. Duplicate Clusters — List of detected duplicate issue groups with a merge/unmerge action and confidence score per cluster.
+
+UI: Developer-dark theme matching GitHub Issues conventions, severity badges in red/orange/yellow/gray, root-cause suggestions shown as clickable file-path chips. Charts via Recharts.
+
+Database: Every issue, classification, root-cause suggestion, assignment, and duplicate link is persisted; the queue, board, and analytics pages always read live database state.`,
     tools: ["GitHub", "Slack", "Webhook"],
-    complexity: "Intermediate",
+    complexity: "Advanced",
+    sampleFile: { name: "bug-triage-agent-sample.csv", url: "/samples/development/bug-triage-agent.csv" },
   },
   {
     category: "Development",
     title: "Release Notes Generator",
     description: "Analyze merged PRs and commits since the last release, categorize changes by type, and generate a polished changelog for users.",
-    prompt: "Build a release notes agent that analyzes merged PRs and commits since the last release, categorizes changes by type, and generates a polished changelog for users.",
+    prompt: `Build 'ChangelogForge' — a release notes generator that analyzes merged PRs and commits since the last release, categorizes changes by type, and produces a polished, user-facing changelog.
+
+AI agents:
+1. CommitCollectorAgent — Pulls all merged PRs and commits since the last tagged release, extracting PR titles, descriptions, and linked issue references.
+2. CategorizerAgent — Classifies each change into categories (Features, Fixes, Improvements, Breaking Changes, Deprecations) using commit conventions and PR labels.
+3. RewriteAgent — Rewrites internal, technical PR titles into clear, user-facing changelog entries, removing jargon and grouping related changes.
+4. PublishAgent — Assembles the final changelog, versions it, and publishes it to the release notes page and optionally emails/Slacks a summary to subscribers.
+
+Pages:
+1. Release Builder — Form/wizard: select version range or "since last release," trigger the workflow, preview categorized draft entries with edit-in-place before publishing.
+2. Changelog Archive — List of all published releases (version, date, entry count) with expandable full changelog per version.
+3. Draft Review — Table of AI-categorized entries awaiting review: original PR title, rewritten entry, category, include/exclude toggle.
+4. Analytics Dashboard — Bar chart of changes by category per release, donut chart of breaking vs. non-breaking changes, line chart of release cadence (days between releases) over the last year.
+5. Subscriber Notifications — Table of past notification sends (email/Slack) per release with delivery status and open-rate tracking.
+
+UI: Clean, product-marketing-style light theme for the public changelog archive (like a public "What's New" page) paired with an internal dark-toned review/draft workspace. Charts via Recharts.
+
+Database: Every commit/PR pulled, categorized entry, rewritten changelog line, and published release is persisted with version history; archive and analytics pages always read live from the database.`,
     tools: ["GitHub", "Slack", "Email"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "release-notes-generator-sample.csv", url: "/samples/development/release-notes-generator.csv" },
   },
   // ── Analysts ──────────────────────────────────────────────────────────────
   {
