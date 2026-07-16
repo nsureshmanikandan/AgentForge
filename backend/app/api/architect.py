@@ -1502,6 +1502,37 @@ Build a self-service portal:
 - Recent activity feed
 - Notification badge in header
 
+--- IF APP TYPE = COUNCIL_APP ---
+Build a decision intelligence / multi-agent advisor council application with this EXACT 3-column layout:
+
+LEFT SIDEBAR (w-56, bg #0f172a, text white):
+- App logo/icon (first letter in purple circle) + app name + "Decision Intelligence" tagline
+- Nav: Decision Intake, Decision History, Comparison View, Export Page
+- "Live processing" section at bottom: "Intake → 5 Advisors → Peer Review → Chairman Verdict"
+
+MAIN CONTENT (flex-1, bg white):
+- Header: app full name + subtitle + "AI Active" and "DB Connected" green badge pills + avatar
+- Decision Intake page (default): form with Title, Question, Context, Constraints, Stakes fields +
+  "Submit to Council" button, live progress stepper (Intake → Advisor 1..5 → Peer Review → Chairman Verdict)
+- Verdict View: each advisor panel (expandable), peer review matrix, chairman verdict with
+  alignment score chart (Recharts), recommendation highlighted, next steps list
+- Decision History page: searchable/filterable table — title, question excerpt, confidence score
+  badge, tags, date, status (running/completed)
+- Comparison View: select 2-3 past decisions side by side — alignment scores, recommendation
+  summaries, advisor agreement patterns
+- Export Page: export any completed decision to Excel (.xlsx) or PowerPoint (.pptx), download button
+
+RIGHT PANEL (w-64, bg white, border-l):
+- "Decision Library" header with count badge (uploaded context files as Decision Dataset cards
+  with "✓ Indexed" tag)
+- "Session" section: Messages count, Last Query timestamp
+- "Filter by Category" section: category pills derived from decision topics
+
+CRITICAL:
+- NEVER use "Knowledge Base" or "Filter by Topic" — use "Decision Library" and "Filter by Category"
+- Color-code each advisor persona differently in the Verdict View
+- All branding must reflect decision-intelligence/council domain, not generic chatbot language
+
 --- IF APP TYPE = CUSTOM (fallback for unclassified apps — infer domain from the prompt) ---
 Build a production-quality multi-page web application. Infer the actual domain and purpose from
 the prompt text below and adapt ALL labels, nav items, and page content to match that domain —
