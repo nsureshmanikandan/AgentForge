@@ -1,0 +1,11 @@
+id,sheet_name,metric_name,current_value,previous_value,pct_change,anomaly_detected,insight_summary,confidence_score
+1,Q2_Sales,Total Revenue,4200000,3850000,9.1,No,"Steady growth driven by enterprise segment",92
+2,Q2_Sales,Customer Churn Rate,4.2,5.8,-27.6,No,"Churn improved after new onboarding flow",88
+3,Q2_Marketing,Cost Per Lead,42.50,38.20,11.3,Yes,"CPL spike correlates with paid social pullback",81
+4,Q2_Finance,Operating Margin,18.5,16.2,14.2,No,"Margin improved via cost discipline",90
+5,Q2_HR,Employee Turnover,8.1,11.4,-28.9,No,"Retention initiatives showing results",85
+6,Q2_Sales,Average Deal Size,52000,45000,15.6,No,"Larger deals from enterprise push",93
+7,Q2_Support,Average Resolution Time,4.2,6.8,-38.2,No,"AI triage reduced resolution time",89
+8,Q2_Marketing,Email Open Rate,38.4,42.1,-8.8,Yes,"Deliverability issue detected mid-quarter",76
+9,Q2_Finance,Cash Runway (months),18,14,28.6,No,"Runway extended after Series C close",95
+10,Q2_Product,Feature Adoption Rate,62.3,54.1,15.2,No,"New dashboard drove adoption increase",87

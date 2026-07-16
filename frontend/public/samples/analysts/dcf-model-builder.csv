@@ -1,0 +1,11 @@
+id,year,revenue_usd_millions,ebitda_usd_millions,capex_usd_millions,free_cash_flow_usd_millions,discount_rate_pct,terminal_growth_pct,present_value_usd_millions,scenario
+1,2026,420,105,32,58,10.5,2.5,58,Base Case
+2,2027,485,124,36,68,10.5,2.5,61.5,Base Case
+3,2028,552,142,40,77,10.5,2.5,63.0,Base Case
+4,2029,618,159,44,85,10.5,2.5,63.0,Base Case
+5,2030,682,175,47,92,10.5,2.5,61.8,Base Case
+6,2026,395,92,32,48,10.5,2.5,48,Bear Case
+7,2027,435,102,35,53,10.5,2.5,48.0,Bear Case
+8,2028,470,110,38,57,10.5,2.5,46.7,Bear Case
+9,2026,455,120,32,70,10.5,2.5,70.0,Bull Case
+10,2027,545,148,38,88,10.5,2.5,79.6,Bull Case

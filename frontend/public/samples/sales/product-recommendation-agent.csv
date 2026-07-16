@@ -1,0 +1,11 @@
+id,customer_name,segment,browsing_history,recommended_product,recommendation_reason,confidence_score,predicted_conversion_pct,recommended_date,converted
+1,Alicia Ferreira,SMB,"CRM Basic,Email Automation",CRM Pro Bundle,Frequent email automation usage,88,42,2026-07-01,Yes
+2,Ben Sturgis,Enterprise,"API Access,Custom Reports",Enterprise Analytics Suite,High API call volume,93,55,2026-07-02,Yes
+3,Chiara Bianchi,Mid-Market,"Mobile App,Integrations",Integration Hub Add-on,Multiple integration searches,79,35,2026-07-03,No
+4,Deshawn Lewis,SMB,"Free Tier,Support Chat",Starter Plan Upgrade,High support engagement,71,28,2026-07-04,No
+5,Emma Sorenson,Enterprise,"Security Settings,SSO",SSO + Advanced Security Pack,SSO configuration attempted,95,60,2026-07-05,Yes
+6,Farid Amiri,Mid-Market,"Dashboard,Custom Reports",Advanced Reporting Module,Repeated dashboard customization,84,45,2026-07-06,Yes
+7,Gabriela Nunez,SMB,"Templates,Automation",Automation Pro Plan,Template library heavy use,76,33,2026-07-07,No
+8,Hiroshi Sato,Enterprise,"Multi-user Admin,API",Team Management Suite,Admin panel repeated visits,90,50,2026-07-08,Yes
+9,Isabel Duarte,Mid-Market,"Mobile App,Push Notifications",Mobile Pro Add-on,High mobile session frequency,82,40,2026-07-09,No
+10,Jamal Whitfield,SMB,"Billing,Invoicing",Invoicing Automation Pack,Manual invoicing pattern detected,73,30,2026-07-10,Yes

@@ -1,0 +1,11 @@
+id,ticket_id,subject,customer_tier,category,severity,auto_assigned_team,sla_deadline,routing_confidence,status
+1,TR-9001,"Cannot access dashboard after update",Enterprise,Technical,Critical,Platform Engineering,2026-07-16 14:00,96,Routed
+2,TR-9002,"Invoice shows duplicate charge",Pro,Billing,High,Billing Ops,2026-07-17 09:00,92,Routed
+3,TR-9003,"Feature suggestion: dark mode",Free,Feature Request,Low,Product Team,2026-07-25 17:00,88,Routed
+4,TR-9004,"API returning 500 errors intermittently",Enterprise,Technical,Critical,Platform Engineering,2026-07-16 12:00,94,Routed
+5,TR-9005,"Question about data export format",Pro,General Inquiry,Medium,Support Tier 1,2026-07-18 12:00,80,Routed
+6,TR-9006,"Security vulnerability disclosure",Enterprise,Security,Critical,Security Team,2026-07-16 10:00,98,Routed
+7,TR-9007,"Unable to reset password",Free,Account,Medium,Support Tier 1,2026-07-17 15:00,90,Routed
+8,TR-9008,"Contract renewal terms question",Enterprise,Billing,Medium,Account Management,2026-07-19 12:00,85,Routed
+9,TR-9009,"App crashes on iOS 19",Pro,Technical,High,Mobile Engineering,2026-07-17 09:00,91,Routed
+10,TR-9010,"Request for additional user seats",Pro,Account,Low,Support Tier 1,2026-07-20 17:00,87,Routed

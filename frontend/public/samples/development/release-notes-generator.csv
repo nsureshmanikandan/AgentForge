@@ -1,0 +1,11 @@
+id,version,release_date,change_type,component,description,pr_reference,customer_facing,author
+1,v4.12.0,2026-07-16,Feature,Payments,"Added support for Apple Pay checkout",PR-2201,Yes,Liu Chen
+2,v4.12.0,2026-07-16,Fix,Auth,"Fixed token refresh race condition",PR-2203,No,Kwesi Amoah
+3,v4.12.0,2026-07-16,Improvement,Dashboard,"Faster chart rendering for large datasets",PR-2204,Yes,Wei Zhang
+4,v4.11.2,2026-07-09,Fix,Notifications,"Fixed duplicate email notifications",PR-2205,Yes,Priya Rao
+5,v4.11.2,2026-07-09,Security,Auth,"Patched dependency with known CVE",PR-2208,No,Kwesi Amoah
+6,v4.11.1,2026-07-02,Fix,Frontend,"Fixed layout shift on mobile checkout",PR-2206,Yes,Tobias Kern
+7,v4.11.0,2026-06-25,Feature,Data Pipeline,"Added scheduled export to S3",PR-2209,Yes,Wei Zhang
+8,v4.11.0,2026-06-25,Improvement,API,"Reduced average API latency by 18%",PR-2207,No,Liu Chen
+9,v4.10.3,2026-06-18,Fix,Payments,"Fixed refund calculation rounding error",PR-2210,Yes,Priya Rao
+10,v4.10.2,2026-06-11,Deprecation,Auth,"Deprecated v1 authentication endpoints",PR-2202,Yes,Kwesi Amoah

@@ -1,0 +1,11 @@
+id,report_section,metric_name,value,unit,period,narrative_summary,audience,status
+1,Executive Summary,Total Revenue,4200000,USD,Q2 2026,"Revenue grew 9% QoQ driven by enterprise expansion",Board,Final
+2,Financial Performance,Gross Margin,74.2,Percent,Q2 2026,"Margin improved via infrastructure cost optimization",Board,Final
+3,Customer Metrics,Net Retention Rate,112,Percent,Q2 2026,"Upsells offset churn for net positive retention",Investors,Final
+4,Product Update,Feature Adoption,58.6,Percent,Q2 2026,"New dashboard drove strong early adoption",Board,Final
+5,Risk Section,Customer Concentration,18,Percent,Q2 2026,"Top 5 customers represent 18% of revenue",Board,Draft
+6,Operational Metrics,Employee Headcount,412,Count,Q2 2026,"Headcount grew 12% to support scaling",Investors,Final
+7,Market Outlook,TAM Estimate,48000,USD Millions,2026,"Market continues to expand with AI adoption",Investors,Draft
+8,Financial Performance,Cash Runway,18,Months,Q2 2026,"Runway extended following Series C close",Board,Final
+9,Customer Metrics,Churn Rate,4.2,Percent,Q2 2026,"Churn improved after onboarding redesign",Investors,Final
+10,Executive Summary,ARR,50400000,USD,Q2 2026,"ARR crossed $50M milestone this quarter",Board,Final

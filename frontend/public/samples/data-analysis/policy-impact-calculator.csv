@@ -1,0 +1,11 @@
+id,policy_name,jurisdiction,affected_population,estimated_cost_usd_millions,estimated_benefit_usd_millions,net_impact_usd_millions,implementation_year,confidence_level,sector
+1,Minimum Wage Increase to $18/hr,California,2400000,850,1200,350,2027,Medium,Labor
+2,EV Tax Credit Expansion,Federal,5000000,2100,3400,1300,2027,High,Transportation
+3,Carbon Tax on Industrial Emissions,Federal,12000000,4500,6800,2300,2028,Medium,Environment
+4,Universal Pre-K Funding,New York,180000,620,980,360,2027,High,Education
+5,Small Business Tax Relief,Texas,340000,410,560,150,2027,Medium,Economic Development
+6,Renewable Energy Mandate 50%,Federal,50000000,8900,12400,3500,2030,Low,Energy
+7,Broadband Access Expansion,Federal,8000000,1200,2100,900,2028,High,Infrastructure
+8,Prescription Drug Price Cap,Federal,25000000,3200,5100,1900,2027,Medium,Healthcare
+9,Affordable Housing Tax Credits,Federal,1500000,1800,2600,800,2028,Medium,Housing
+10,Paid Family Leave Mandate,New York,900000,540,780,240,2027,High,Labor

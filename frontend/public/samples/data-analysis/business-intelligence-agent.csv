@@ -1,0 +1,11 @@
+id,kpi_name,department,current_value,target_value,unit,trend,period,status,owner
+1,Monthly Recurring Revenue,Finance,4200000,4500000,USD,Up,2026-07,On Track,Connor Blaise
+2,Customer Acquisition Cost,Marketing,285,250,USD,Down,2026-07,Needs Attention,Marie Lefevre
+3,Net Promoter Score,Customer Success,62,65,Score,Up,2026-07,On Track,Oscar Reyes
+4,Sales Pipeline Coverage,Sales,3.2,3.0,Ratio,Up,2026-07,On Track,Amara Nwosu
+5,Engineering Velocity,Engineering,142,150,Story Points,Down,2026-07,Needs Attention,Felix Grunwald
+6,Support Ticket Backlog,Support,85,50,Tickets,Up,2026-07,At Risk,Priya Nair
+7,Employee Engagement Score,HR,7.4,8.0,Score,Flat,2026-07,Needs Attention,Priyanka Iyer
+8,Gross Margin,Finance,74.2,75.0,Percent,Up,2026-07,On Track,Connor Blaise
+9,Website Conversion Rate,Marketing,3.8,4.5,Percent,Down,2026-07,Needs Attention,Marie Lefevre
+10,Feature Adoption Rate,Product,58.6,65.0,Percent,Up,2026-07,On Track,Devon Park

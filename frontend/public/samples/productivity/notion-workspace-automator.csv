@@ -1,0 +1,11 @@
+id,page_title,workspace_area,automation_type,trigger_event,last_run_date,run_status,records_updated,linked_database,owner
+1,Weekly Task Digest,Project Tracker,Auto-summary,Every Monday 8am,2026-07-13,Success,42,Tasks DB,Devon Park
+2,New Hire Checklist,HR Onboarding,Template duplication,New employee added,2026-07-13,Success,1,Employees DB,Priyanka Iyer
+3,Sprint Retro Notes,Engineering,Auto-populate from Jira,Sprint closed,2026-07-14,Success,18,Sprints DB,Felix Grunwald
+4,Content Calendar Sync,Marketing,Cross-database sync,Content status change,2026-07-15,Failed,0,Content DB,Marie Lefevre
+5,Expense Report Rollup,Finance,Auto-summary,End of month,2026-06-30,Success,64,Expenses DB,Connor Blaise
+6,Meeting Notes Archive,Executive,Auto-tagging,Meeting note created,2026-07-15,Success,9,Meetings DB,Angela Ruiz
+7,Bug Triage Board Refresh,Engineering,Status auto-update,GitHub issue closed,2026-07-16,Success,27,Bugs DB,Felix Grunwald
+8,Customer Feedback Tagger,Product,AI categorization,New feedback submitted,2026-07-16,Success,15,Feedback DB,Marie Lefevre
+9,OKR Progress Tracker,Company-wide,Auto-calculation,Weekly cron,2026-07-13,Success,36,OKR DB,Angela Ruiz
+10,Vendor Contract Reminders,Legal,Deadline alerting,90 days before expiry,2026-07-14,Success,6,Contracts DB,Jennifer Lowe

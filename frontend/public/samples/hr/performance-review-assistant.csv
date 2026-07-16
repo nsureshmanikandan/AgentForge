@@ -1,0 +1,11 @@
+id,employee_name,department,review_period,manager,overall_rating,goal_completion_pct,strengths,growth_area,promotion_ready
+1,Hannah Ostrowski,Engineering,H1 2026,Felix Grunwald,4.5,92,"Technical depth,Mentoring juniors",Public speaking,Yes
+2,Marco Bellini,Sales,H1 2026,Amara Nwosu,3.8,78,"Client relationships",Pipeline forecasting accuracy,No
+3,Aditi Krishnan,Product,H1 2026,Marie Lefevre,4.2,85,"Stakeholder communication",Prioritization under pressure,No
+4,Liam Fitzgerald,Data,H1 2026,Ahmed Siddiqui,4.7,95,"Model accuracy,Documentation",Cross-team collaboration,Yes
+5,Sofia Karlsson,Design,H1 2026,Kayla Robinson,3.9,80,"Visual craft",Design systems thinking,No
+6,Emeka Chukwu,Engineering,H1 2026,Felix Grunwald,3.5,70,"Debugging speed",Code review thoroughness,No
+7,Valeria Torres,Marketing,H1 2026,Marie Lefevre,4.4,88,"Campaign creativity",Data-driven decision making,Yes
+8,Ravi Subramanian,Finance,H1 2026,Connor Blaise,4.0,82,"Attention to detail",Presenting to executives,No
+9,Chloe Bergeron,Support,H1 2026,Amara Nwosu,3.6,74,"Customer empathy",Technical troubleshooting depth,No
+10,Damian Wozniak,Engineering,H1 2026,Felix Grunwald,4.8,97,"System design,Ownership",Delegation,Yes

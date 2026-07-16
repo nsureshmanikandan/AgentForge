@@ -1,0 +1,10 @@
+id,client_name,process_area,cycle_time_days,cost_per_transaction_usd,error_rate_pct,throughput_per_day,industry_benchmark_cycle_time,industry_benchmark_cost,gap_pct,estimated_annual_value_usd
+1,Beacon Financial,Order Fulfillment,4.2,12.50,3.1,850,2.8,8.20,50.0,620000
+2,Ironwood Construction,Invoice Processing,6.5,18.20,5.4,320,3.5,9.50,85.7,410000
+3,Lumen Healthcare,Claims Processing,9.1,24.80,7.2,540,5.0,15.00,82.0,980000
+4,Delta Freight Systems,Procurement Cycle,11.3,32.00,4.0,180,7.0,20.00,61.4,350000
+5,Solstice Retail Group,Returns Processing,3.8,9.40,6.1,720,2.2,6.00,72.7,290000
+6,ForgeWorks Manufacturing,Quality Inspection,2.5,15.60,2.8,410,1.8,10.00,38.9,180000
+7,Vantage Logistics,Shipment Tracking Updates,1.2,4.20,1.5,2200,0.8,3.00,50.0,140000
+8,Zenith Media Group,Contract Approval,7.8,28.50,4.9,95,4.5,18.00,73.3,225000
+9,Coastal Energy Partners,Vendor Onboarding,14.2,42.00,6.8,60,8.0,25.00,77.5,310000

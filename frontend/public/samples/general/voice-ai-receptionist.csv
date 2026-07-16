@@ -1,0 +1,11 @@
+id,call_id,caller_name,phone_number,call_time,duration_sec,intent,department_routed,resolution,sentiment
+1,C-10234,Rachel Simmons,+1-555-0142,2026-07-14 09:12:00,145,Schedule appointment,Front Desk,Resolved,Positive
+2,C-10235,Anonymous,+1-555-0198,2026-07-14 09:20:00,62,Billing inquiry,Billing,Transferred,Neutral
+3,C-10236,Derek Foster,+1-555-0177,2026-07-14 09:35:00,210,Reschedule appointment,Front Desk,Resolved,Positive
+4,C-10237,Linda Chao,+1-555-0155,2026-07-14 10:01:00,88,Prescription refill,Pharmacy,Resolved,Positive
+5,C-10238,Anonymous,+1-555-0163,2026-07-14 10:15:00,300,Emergency triage,Urgent Care,Escalated to human,Negative
+6,C-10239,Omar Haddad,+1-555-0121,2026-07-14 10:40:00,55,Hours inquiry,Front Desk,Resolved,Positive
+7,C-10240,Grace Muthoni,+1-555-0189,2026-07-14 11:05:00,175,Insurance verification,Billing,Resolved,Neutral
+8,C-10241,Anonymous,+1-555-0110,2026-07-14 11:22:00,40,Wrong number,None,Closed,Neutral
+9,C-10242,Peter Novak,+1-555-0134,2026-07-14 11:48:00,190,Test results inquiry,Nurse Line,Transferred,Neutral
+10,C-10243,Yuki Tanaka,+1-555-0176,2026-07-14 12:10:00,120,Schedule appointment,Front Desk,Resolved,Positive

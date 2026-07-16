@@ -1,0 +1,11 @@
+id,name,email,role,department,stage,match_score,applied_date,skills,status
+1,Sarah Chen,s.chen@email.com,Senior Frontend Engineer,Engineering,Interview,92,2026-07-01,"React,TypeScript,GraphQL",active
+2,David Okonkwo,d.okonkwo@email.com,Backend Engineer,Engineering,Screening,78,2026-07-02,"Python,Django,PostgreSQL",active
+3,Marie Lefevre,m.lefevre@email.com,Product Marketing Manager,Marketing,Offer,95,2026-06-28,"GTM Strategy,Positioning",active
+4,Ahmed Siddiqui,a.siddiqui@email.com,Data Scientist,Data,Interview,88,2026-07-03,"Python,ML,SQL",active
+5,Kayla Robinson,k.robinson@email.com,UX Designer,Design,Screening,71,2026-07-04,"Figma,User Research",active
+6,Tobias Lindgren,t.lindgren@email.com,DevOps Engineer,Engineering,Rejected,55,2026-06-25,"Kubernetes,Terraform",closed
+7,Amara Nwosu,a.nwosu@email.com,Sales Development Rep,Sales,Interview,80,2026-07-05,"Outbound Prospecting,CRM",active
+8,Felix Grunwald,f.grunwald@email.com,Engineering Manager,Engineering,Offer,97,2026-06-30,"Team Leadership,System Design",active
+9,Priyanka Iyer,p.iyer@email.com,HR Business Partner,HR,Screening,74,2026-07-06,"Org Design,Employee Relations",active
+10,Connor Blaise,c.blaise@email.com,Financial Analyst,Finance,Interview,83,2026-07-07,"Excel,Financial Modeling",active

@@ -1,0 +1,11 @@
+id,question,article_title,category,confidence_score,answered_correctly,response_time_ms,escalated,date_asked
+1,How do I reset my password?,Password Reset Guide,Account,98,Yes,320,No,2026-07-10
+2,What is the refund policy?,Refunds & Returns Policy,Billing,95,Yes,410,No,2026-07-10
+3,How do I integrate the API with Salesforce?,Salesforce Integration Guide,Integrations,72,Partial,890,Yes,2026-07-11
+4,Why is my invoice incorrect?,Billing Discrepancy FAQ,Billing,60,No,1200,Yes,2026-07-11
+5,How do I upgrade my subscription plan?,Plan Upgrade Walkthrough,Account,97,Yes,280,No,2026-07-12
+6,What are the SSO requirements?,Single Sign-On Setup,Security,88,Yes,540,No,2026-07-12
+7,Can I export data as CSV?,Data Export Guide,Features,99,Yes,210,No,2026-07-13
+8,Why did my webhook fail?,Webhook Troubleshooting,Integrations,55,No,1450,Yes,2026-07-13
+9,How do I add team members?,Team Management Guide,Account,96,Yes,300,No,2026-07-14
+10,What is the uptime SLA?,Service Level Agreement,Legal,93,Yes,360,No,2026-07-14

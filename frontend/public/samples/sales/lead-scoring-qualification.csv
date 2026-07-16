@@ -1,0 +1,11 @@
+id,lead_name,company,source,lead_score,company_size,industry,budget_confirmed,qualification_status,assigned_rep
+1,Trevor Aldana,Meridian Logistics,Webinar,88,500-1000,Logistics,Yes,Qualified,Sarah Kim
+2,Bianca Ferreira,PulseTech Health,Content Download,45,50-200,Healthcare,No,Nurture,Sarah Kim
+3,Connor Blaise,Ironclad Manufacturing,Trade Show,92,1000-5000,Manufacturing,Yes,Qualified,Devon Marsh
+4,Priyanka Shah,Nimbus Cloud Services,Referral,76,200-500,SaaS,Yes,Qualified,Devon Marsh
+5,Aleksander Nowak,GreenGrid Energy,Cold Outreach,32,10-50,Energy,No,Disqualified,Sarah Kim
+6,Fatima Zahra,Coral Reef Retail,Webinar,68,50-200,Retail,No,Nurture,Devon Marsh
+7,Diego Salinas,Vertex Financial,Content Download,81,500-1000,Finance,Yes,Qualified,Sarah Kim
+8,Oksana Kravets,Harbor Freight Co,Trade Show,54,200-500,Logistics,No,Nurture,Devon Marsh
+9,Ravi Chandran,BrightLine Media,Referral,90,1000-5000,Media,Yes,Qualified,Sarah Kim
+10,Charlotte Beaumont,Aster Biotech,Cold Outreach,38,50-200,Biotech,No,Disqualified,Devon Marsh

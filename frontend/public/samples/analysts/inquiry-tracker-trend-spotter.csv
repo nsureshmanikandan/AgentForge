@@ -1,0 +1,11 @@
+id,inquiry_id,client_name,topic,inquiry_date,analyst_assigned,category,trend_flag,volume_this_month,volume_last_month
+1,INQ-7701,Beacon Financial,AI vendor selection criteria,2026-07-01,Nina Petrov,Technology Strategy,Rising,42,28
+2,INQ-7702,Ironwood Construction,Supply chain risk mitigation,2026-07-02,Devon Park,Operations,Stable,18,17
+3,INQ-7703,Lumen Healthcare,Healthcare AI compliance,2026-07-03,Connor Blaise,Regulatory,Rising,35,20
+4,INQ-7704,Delta Freight Systems,Fleet electrification ROI,2026-07-04,Devon Park,Sustainability,Rising,29,15
+5,INQ-7705,Solstice Retail Group,Personalization technology stack,2026-07-05,Marcus Webb,Customer Experience,Stable,22,24
+6,INQ-7706,ForgeWorks Manufacturing,Robotics ROI benchmarks,2026-07-06,Devon Park,Automation,Rising,31,19
+7,INQ-7707,BrightPath Consulting,Talent retention strategy,2026-07-07,Angela Ruiz,Workforce,Falling,12,20
+8,INQ-7708,Vantage Logistics,Warehouse automation vendors,2026-07-08,Devon Park,Automation,Rising,27,14
+9,INQ-7709,Zenith Media Group,Streaming platform monetization,2026-07-09,Marcus Webb,Media,Stable,16,15
+10,INQ-7710,Coastal Energy Partners,Grid storage technology comparison,2026-07-10,Connor Blaise,Energy,Rising,38,22

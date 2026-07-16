@@ -1,0 +1,11 @@
+id,user_name,signup_date,onboarding_step,step_status,time_spent_min,drop_off_risk,plan_type,last_active_date
+1,Brianna Cole,2026-07-01,Account Setup,Completed,4,Low,Free Trial,2026-07-14
+2,Rohan Malhotra,2026-07-02,Connect Integration,Stuck,15,High,Free Trial,2026-07-03
+3,Sienna Marsh,2026-07-03,Invite Team,Completed,6,Low,Pro,2026-07-15
+4,Bruno Castellano,2026-07-04,Import Data,In Progress,20,Medium,Free Trial,2026-07-10
+5,Nadia Rahman,2026-07-05,First Project Created,Completed,10,Low,Pro,2026-07-16
+6,Ethan Marchetti,2026-07-06,Account Setup,Completed,3,Low,Free Trial,2026-07-07
+7,Zara Hussain,2026-07-07,Connect Integration,Completed,12,Low,Pro,2026-07-15
+8,Cormac Doyle,2026-07-08,Import Data,Stuck,25,High,Free Trial,2026-07-09
+9,Ines Beltran,2026-07-09,Invite Team,In Progress,8,Medium,Free Trial,2026-07-13
+10,Takumi Ito,2026-07-10,First Project Created,Completed,9,Low,Pro,2026-07-16

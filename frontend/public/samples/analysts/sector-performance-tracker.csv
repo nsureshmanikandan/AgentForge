@@ -1,0 +1,11 @@
+id,sector,index_ytd_return_pct,quarter_return_pct,top_performer,top_performer_return_pct,worst_performer,worst_performer_return_pct,volatility_index,outlook
+1,Enterprise Software,24.5,8.2,Rivalio Systems,42.1,SwiftCRM Holdings,-15.2,18.4,Positive
+2,Semiconductors,31.2,11.5,NovaChip Corp,58.3,Legacy Silicon Inc,-8.9,26.7,Positive
+3,Renewable Energy,15.8,4.1,NovaGrid Energy,29.4,Solaris Power Co,-12.1,22.3,Neutral
+4,Healthcare AI,38.9,14.2,Lumen Diagnostics,65.0,MedTech Legacy,-5.5,29.8,Positive
+5,Traditional Retail,-4.2,-1.8,GreenLeaf Retail,8.5,Coastal Foods Inc,-22.4,15.6,Negative
+6,Fintech,19.6,6.8,Vertex Financial,35.7,Stagnant Pay Corp,-10.3,20.1,Positive
+7,Cybersecurity,27.3,9.5,ShieldNet Security,48.2,OldGuard Defense,-3.1,19.9,Positive
+8,Logistics,8.4,2.9,Meridian Logistics,18.6,Delta Freight Systems,-6.8,16.2,Neutral
+9,Biotech,22.1,7.3,Aster Biotech,55.9,PharmaLegacy Inc,-18.7,33.5,Neutral
+10,Consumer Electronics,5.9,1.2,Nimbus Devices,12.3,Legacy Gadgets Co,-9.4,17.8,Neutral

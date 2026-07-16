@@ -1,0 +1,11 @@
+id,region,age_group,population_2026,population_2020,pct_change,median_income_usd,urbanization_pct,key_trend
+1,Northeast US,18-34,4200000,4450000,-5.6,58000,82,Youth outmigration to Sun Belt
+2,Sun Belt US,18-34,6800000,5900000,15.3,52000,68,Rapid in-migration and job growth
+3,Midwest US,65+,3100000,2850000,8.8,45000,55,"Aging population, rural decline"
+4,West Coast US,35-54,5400000,5300000,1.9,89000,90,Housing affordability pressure
+5,Southeast Asia,18-34,180000000,168000000,7.1,8500,52,Rising middle class expansion
+6,Western Europe,65+,42000000,38500000,9.1,38000,78,Pension system strain
+7,Sub-Saharan Africa,0-17,410000000,370000000,10.8,2100,45,Youth bulge driving labor supply
+8,East Asia,18-34,220000000,235000000,-6.4,15200,85,Working-age population decline
+9,Latin America,35-54,95000000,88000000,8.0,9800,80,Growing urban middle class
+10,South Asia,18-34,410000000,385000000,6.5,4200,38,Massive labor force entry

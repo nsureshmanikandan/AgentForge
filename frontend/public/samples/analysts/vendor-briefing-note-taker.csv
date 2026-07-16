@@ -1,0 +1,11 @@
+id,vendor_name,briefing_date,attendees,key_topic,product_update,pricing_change,follow_up_needed,analyst,sentiment
+1,Apex Cloud Solutions,2026-07-10,"Angela Ruiz,Marcus Webb",New AI compute tier launch,"Added GPU-optimized instances",5% price increase on legacy tier,Yes,Nina Petrov,Positive
+2,DataForge Analytics,2026-07-11,"Nina Petrov",Roadmap for real-time analytics,"Streaming dashboards in beta",No change,Yes,Nina Petrov,Neutral
+3,Silverline Robotics,2026-07-12,"Devon Park",Warehouse automation expansion,"New picking robot model released",No change,No,Devon Park,Positive
+4,Titan Components Ltd,2026-07-12,"Connor Blaise",Supply chain resilience update,"Diversified sourcing to 3 new regions",No change,No,Connor Blaise,Positive
+5,Bright Horizon Advisors,2026-07-13,"Angela Ruiz",Engagement scope expansion,"Proposed expanded advisory retainer",10% rate increase,Yes,Nina Petrov,Neutral
+6,NovaGrid Energy Systems,2026-07-13,"Devon Park,Connor Blaise",Renewable capacity buildout,"New solar farm commissioning Q4",No change,Yes,Devon Park,Positive
+7,Meridian Trade Partners,2026-07-14,"Nina Petrov",Distribution network update,"Added 2 new regional hubs",No change,No,Nina Petrov,Positive
+8,CloudNest Systems,2026-07-14,"Marcus Webb",SaaS platform roadmap review,"New compliance certifications achieved",No change,No,Marcus Webb,Positive
+9,Ironclad Manufacturing Supply,2026-07-15,"Connor Blaise",Cost pressures discussion,"Raw material costs up 8%",Passing through 6% increase,Yes,Connor Blaise,Negative
+10,Vertex Cloud Solutions,2026-07-16,"Angela Ruiz,Nina Petrov",Multi-region expansion,"New data centers in APAC",No change,No,Nina Petrov,Positive

@@ -1,0 +1,11 @@
+id,meeting_title,date,attendees,duration_min,key_decision,action_item,owner,due_date,follow_up_status
+1,Q3 Strategy Review,2026-07-10,"CEO,CFO,VP Product",90,Approve Q3 budget increase,Finalize hiring plan,Angela Ruiz,2026-07-20,In Progress
+2,Product Roadmap Sync,2026-07-11,"VP Product,Eng Leads",60,Delay feature X to Q4,Update roadmap doc,Devon Park,2026-07-15,Completed
+3,Board Prep Meeting,2026-07-12,"CEO,CFO,General Counsel",120,Finalize board deck narrative,Send deck for review,Marcus Webb,2026-07-14,Completed
+4,Sales Pipeline Review,2026-07-13,"VP Sales,CRO",45,Reallocate reps to enterprise segment,Draft territory plan,Nina Petrov,2026-07-18,In Progress
+5,M&A Diligence Check-in,2026-07-14,"CEO,CFO,External Counsel",75,Proceed to next diligence phase,Schedule data room access,Angela Ruiz,2026-07-17,Not Started
+6,Crisis Comms Briefing,2026-07-14,"CEO,Head of Comms,Legal",30,Approve public statement draft,Publish statement,Marcus Webb,2026-07-15,Completed
+7,All-Hands Prep,2026-07-15,"CEO,HR Head,Comms",40,Confirm agenda for all-hands,Send calendar invite,Devon Park,2026-07-16,Completed
+8,Vendor Contract Negotiation Review,2026-07-15,"CFO,Procurement Lead",50,Push back on 3-year lock-in,Draft counter-proposal,Nina Petrov,2026-07-22,In Progress
+9,Annual Planning Kickoff,2026-07-16,"CEO,CFO,VP Product,VP Sales",100,Set FY27 planning timeline,Distribute planning template,Angela Ruiz,2026-07-25,Not Started
+10,Investor Update Call,2026-07-16,"CEO,CFO,IR Lead",60,Finalize Q2 investor letter,Send letter to investors,Marcus Webb,2026-07-19,In Progress

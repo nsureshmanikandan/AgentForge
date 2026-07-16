@@ -1,0 +1,11 @@
+id,ticket_id,customer_name,channel,issue_category,priority,assigned_agent,status,response_time_min,csat_score
+1,T-8801,Melissa Grant,Email,Billing,Medium,Oscar Reyes,Resolved,45,5
+2,T-8802,Anonymous,Chat,Login Issue,High,Priya Nair,Resolved,8,4
+3,T-8803,Dominic Wray,Phone,Feature Request,Low,Oscar Reyes,Open,120,0
+4,T-8804,Carmen Silva,Twitter,Bug Report,High,Priya Nair,In Progress,15,0
+5,T-8805,Thabo Mokoena,Email,Account Access,Medium,Oscar Reyes,Resolved,60,4
+6,T-8806,Whitney Park,Chat,Billing,High,Priya Nair,Escalated,5,2
+7,T-8807,Aiden Fitzgerald,WhatsApp,Shipping Delay,Medium,Oscar Reyes,Resolved,30,4
+8,T-8808,Anonymous,Phone,Bug Report,Critical,Priya Nair,In Progress,3,0
+9,T-8809,Larissa Novaes,Email,Feature Request,Low,Oscar Reyes,Resolved,90,5
+10,T-8810,Kofi Boateng,Chat,Login Issue,High,Priya Nair,Resolved,10,5

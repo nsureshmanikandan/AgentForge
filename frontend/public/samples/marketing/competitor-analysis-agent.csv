@@ -1,0 +1,11 @@
+id,competitor_name,category,pricing_tier,monthly_price_usd,key_feature,market_share_pct,funding_stage,last_update,threat_level
+1,Rivalio,CRM Platform,Enterprise,299,AI lead scoring,18.5,Series D,2026-07-01,High
+2,SwiftCRM,CRM Platform,Mid-market,99,Native SMS automation,12.2,Series B,2026-06-28,Medium
+3,NexaSuite,CRM Platform,Enterprise,349,Custom workflow builder,22.1,Public,2026-07-05,High
+4,LeadPilot,Lead Gen Tool,SMB,49,Chrome extension scraping,6.4,Series A,2026-06-15,Low
+5,FlowStack,Marketing Automation,Mid-market,199,Multi-channel journeys,9.8,Series C,2026-07-08,Medium
+6,PulseCRM,CRM Platform,SMB,39,Freemium tier,5.1,Bootstrapped,2026-06-20,Low
+7,OrbitSales,Sales Enablement,Enterprise,279,Revenue intelligence,14.7,Series D,2026-07-10,High
+8,ClearPath Analytics,BI Add-on,Mid-market,149,Predictive forecasting,7.9,Series B,2026-06-30,Medium
+9,Vantage CRM,CRM Platform,Enterprise,399,Industry-specific templates,10.3,Public,2026-07-12,High
+10,Momentum360,Customer Success,Mid-market,179,Health score automation,8.6,Series C,2026-07-03,Medium

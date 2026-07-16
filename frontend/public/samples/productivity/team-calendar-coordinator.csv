@@ -1,0 +1,11 @@
+id,event_title,team,requested_by,proposed_date,proposed_time,duration_min,attendee_count,conflict_detected,status
+1,Sprint Planning,Engineering,Felix Grunwald,2026-07-20,09:00,60,8,No,Confirmed
+2,Design Critique,Design,Kayla Robinson,2026-07-20,11:00,45,5,Yes,Rescheduling
+3,All-Hands Meeting,Company-wide,Angela Ruiz,2026-07-22,10:00,60,150,No,Confirmed
+4,Sales Pipeline Review,Sales,Amara Nwosu,2026-07-21,14:00,30,6,No,Confirmed
+5,1:1 - Manager Sync,Engineering,Felix Grunwald,2026-07-20,15:00,30,2,Yes,Rescheduling
+6,Product Roadmap Review,Product,Marie Lefevre,2026-07-23,13:00,90,10,No,Confirmed
+7,Onboarding Orientation,HR,Priyanka Iyer,2026-07-24,09:30,120,4,No,Confirmed
+8,Budget Review Meeting,Finance,Connor Blaise,2026-07-21,11:00,60,5,Yes,Rescheduling
+9,Customer Advisory Board Call,Customer Success,Oscar Reyes,2026-07-25,16:00,60,12,No,Confirmed
+10,Engineering All-Hands,Engineering,Felix Grunwald,2026-07-26,10:00,45,45,No,Confirmed

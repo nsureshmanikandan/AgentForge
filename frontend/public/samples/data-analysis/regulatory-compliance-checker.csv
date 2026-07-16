@@ -1,0 +1,11 @@
+id,regulation_name,jurisdiction,industry,compliance_status,risk_score,last_assessed,penalty_exposure_usd,remediation_owner,deadline
+1,GDPR Data Processing,EU,Technology,Compliant,15,2026-06-15,0,Sofia Bergstrom,N/A
+2,CCPA Consumer Rights,California,Retail,Partial,55,2026-06-20,750000,Derek Munoz,2026-08-01
+3,HIPAA Privacy Rule,Federal,Healthcare,Non-Compliant,82,2026-06-10,1500000,Connor Blaise,2026-07-25
+4,Dodd-Frank Compliance,Federal,Financial Services,Compliant,20,2026-06-05,0,Angela Weiss,N/A
+5,OSHA Workplace Safety,Federal,Manufacturing,Partial,48,2026-05-30,320000,Devon Park,2026-08-15
+6,Basel III Capital Requirements,Global,Banking,Compliant,18,2026-06-12,0,Angela Weiss,N/A
+7,EU AI Act Conformity,EU,Technology,Partial,60,2026-06-20,900000,Sofia Bergstrom,2026-09-01
+8,FDA Drug Approval Standards,Federal,Pharmaceutical,Compliant,22,2026-06-18,0,Connor Blaise,N/A
+9,SEC Reporting Requirements,Federal,Financial Services,Compliant,25,2026-06-08,0,Angela Weiss,N/A
+10,EPA Emissions Standards,Federal,Manufacturing,Non-Compliant,78,2026-06-14,2100000,Devon Park,2026-07-30

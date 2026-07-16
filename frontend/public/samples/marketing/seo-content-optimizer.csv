@@ -1,0 +1,11 @@
+id,page_url,target_keyword,current_rank,search_volume,keyword_difficulty,word_count,readability_score,backlinks,recommended_action
+1,/blog/composable-commerce-guide,composable commerce,4,2400,58,1850,72,34,Add FAQ schema
+2,/blog/ai-sales-automation,ai sales automation,12,3600,64,900,68,12,Expand to 1500+ words
+3,/case-studies/nordic-retail,retail crm case study,7,590,32,1200,75,8,Add internal links
+4,/whitepapers/automation-roi,automation roi calculator,2,1800,45,4500,70,52,Update stats for 2026
+5,/blog/data-privacy-compliance,data privacy compliance guide,15,4100,71,3200,66,19,Improve meta description
+6,/product/lead-scoring,ai lead scoring software,6,1500,55,1100,73,27,Add comparison table
+7,/blog/customer-success-playbook,customer success playbook,9,980,40,2200,77,15,Add video embed
+8,/pricing,crm pricing comparison,3,2900,60,850,80,41,Add schema markup
+9,/blog/webinar-scaling-support,ai customer support,20,5200,68,600,64,6,Rewrite intro paragraph
+10,/integrations/salesforce,salesforce crm integration,5,1300,50,1400,74,22,Add customer quote

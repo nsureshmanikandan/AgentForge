@@ -1,0 +1,11 @@
+id,grant_name,funder,category,award_amount_usd,application_deadline,status,project_lead,region,renewal_likely
+1,Clean Energy Innovation Grant,Department of Energy,Energy,850000,2026-08-15,Awarded,Devon Park,National,Yes
+2,Rural Broadband Expansion Fund,FCC,Infrastructure,1200000,2026-09-01,Submitted,Nina Petrov,Rural Midwest,N/A
+3,STEM Education Access Grant,National Science Foundation,Education,320000,2026-07-30,Awarded,Angela Ruiz,National,Yes
+4,Community Health Equity Grant,HHS,Healthcare,540000,2026-08-20,Under Review,Connor Blaise,Urban Southeast,N/A
+5,Small Business Innovation Research,SBA,Economic Development,175000,2026-07-25,Awarded,Marcus Webb,National,No
+6,Water Infrastructure Modernization,EPA,Infrastructure,2100000,2026-09-15,Draft,Devon Park,National,N/A
+7,Workforce Reskilling Initiative,Department of Labor,Labor,680000,2026-08-05,Submitted,Priyanka Iyer,National,N/A
+8,Affordable Housing Development Fund,HUD,Housing,3200000,2026-10-01,Draft,Nina Petrov,Urban Northeast,N/A
+9,Agricultural Sustainability Grant,USDA,Agriculture,410000,2026-08-12,Awarded,Connor Blaise,Rural Midwest,Yes
+10,Disaster Resilience Planning Grant,FEMA,Emergency Management,290000,2026-07-28,Under Review,Angela Ruiz,Coastal Southeast,N/A

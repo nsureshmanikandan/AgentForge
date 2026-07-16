@@ -1,0 +1,11 @@
+id,topic,source_title,source_url,source_type,credibility_score,key_finding,published_date,citation_count
+1,Quantum Computing Adoption,IBM Quantum Roadmap 2026,https://ibm.com/quantum/roadmap,industry_report,92,"1000+ qubit systems now commercially available",2026-01-15,340
+2,Quantum Computing Adoption,Nature: Error Correction Breakthroughs,https://nature.com/articles/qc-2026,academic_paper,97,"Surface code error rates below 0.1% achieved",2026-02-20,512
+3,Renewable Energy Storage,IEA Battery Storage Outlook,https://iea.org/reports/battery-2026,government_report,95,"Grid storage capacity up 68% YoY",2026-03-01,210
+4,Renewable Energy Storage,MIT Solid-State Battery Study,https://mit.edu/news/solid-state-2026,academic_paper,94,"Solid-state batteries reach 500 Wh/kg density",2026-01-28,178
+5,AI Regulation Trends,EU AI Act Implementation Report,https://ec.europa.eu/ai-act-2026,government_report,90,"High-risk AI systems require conformity assessment",2026-02-10,89
+6,AI Regulation Trends,Brookings Policy Brief,https://brookings.edu/ai-policy-2026,think_tank,85,"US states adopting patchwork AI liability laws",2026-01-05,64
+7,Semiconductor Supply Chain,TSMC Investor Call Transcript,https://tsmc.com/investors/q1-2026,corporate_filing,88,"3nm capacity expansion in Arizona on schedule",2026-01-22,45
+8,Semiconductor Supply Chain,McKinsey Chip Shortage Analysis,https://mckinsey.com/semiconductors-2026,industry_report,91,"Lead times normalized to pre-2021 levels",2026-02-14,132
+9,Climate Tech Funding,PitchBook VC Report Q1 2026,https://pitchbook.com/climate-tech-q1,industry_report,87,"$18.4B invested in climate startups in Q1",2026-04-02,76
+10,Climate Tech Funding,Bloomberg NEF Trends,https://bloombergnef.com/climate-2026,industry_report,93,"Carbon capture deals doubled since 2025",2026-03-18,98

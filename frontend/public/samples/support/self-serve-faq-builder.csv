@@ -1,0 +1,11 @@
+id,faq_question,category,view_count,helpful_votes,unhelpful_votes,last_updated,source_ticket_count,auto_generated
+1,How do I change my billing cycle?,Billing,4820,410,25,2026-06-20,38,Yes
+2,What browsers are supported?,Technical,3100,290,10,2026-06-15,12,Yes
+3,How do I export my data as CSV?,Features,5600,520,15,2026-06-25,45,Yes
+4,Why was my account suspended?,Account,2900,180,60,2026-06-10,52,No
+5,How do I add team members?,Account,4100,380,20,2026-06-22,29,Yes
+6,What is the API rate limit?,Technical,2200,195,8,2026-06-18,18,Yes
+7,Can I downgrade my plan mid-cycle?,Billing,3400,250,40,2026-06-12,33,No
+8,How do I enable two-factor authentication?,Security,3900,360,12,2026-06-28,21,Yes
+9,Why is my dashboard loading slowly?,Technical,2700,140,70,2026-06-08,47,No
+10,How do I cancel my subscription?,Billing,6100,410,90,2026-06-30,61,No

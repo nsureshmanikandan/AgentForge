@@ -1,0 +1,11 @@
+id,company_name,ticker,report_date,eps_actual,eps_estimate,revenue_actual_millions,revenue_estimate_millions,surprise_pct,stock_reaction_pct,sector
+1,NexaSuite Inc,NXSA,2026-07-14,1.42,1.30,610,585,9.2,4.5,Enterprise Software
+2,Vantage CRM Holdings,VNTG,2026-07-14,0.98,1.05,420,435,-6.7,-3.2,Enterprise Software
+3,OrbitSales Corp,ORBT,2026-07-15,2.10,1.95,340,320,7.7,6.1,Sales Technology
+4,FlowStack Technologies,FLWS,2026-07-15,0.55,0.60,180,190,-8.3,-4.8,Marketing Automation
+5,Momentum360 Inc,MOM3,2026-07-16,0.78,0.75,150,148,4.0,2.1,Customer Success SaaS
+6,ClearPath Analytics Group,CLRP,2026-07-16,1.65,1.50,225,210,10.0,7.8,Business Intelligence
+7,Rivalio Systems,RVLO,2026-07-17,3.20,3.00,780,750,6.7,3.9,Enterprise Software
+8,SwiftCRM Holdings,SWFT,2026-07-17,0.35,0.40,95,100,-12.5,-6.5,CRM Platform
+9,PulseCRM Inc,PLSC,2026-07-18,0.20,0.18,55,52,11.1,5.5,CRM Platform
+10,LeadPilot Technologies,LDPT,2026-07-18,0.42,0.38,42,40,10.5,4.2,Lead Generation

@@ -1,0 +1,11 @@
+id,segment,region,tam_usd_millions,sam_usd_millions,som_usd_millions,growth_rate_pct,year,confidence_level,data_source
+1,Enterprise AI Software,North America,48000,12000,600,28.5,2026,High,Gartner
+2,Enterprise AI Software,Europe,31000,8500,320,24.2,2026,High,IDC
+3,Cloud Security Solutions,North America,22000,6800,410,19.8,2026,Medium,Forrester
+4,Cloud Security Solutions,Asia-Pacific,18500,4200,180,31.4,2026,Medium,IDC
+5,Fintech Payments,Global,95000,21000,850,22.1,2026,High,McKinsey
+6,Healthcare AI Diagnostics,North America,15200,3900,210,35.6,2026,Medium,Gartner
+7,Supply Chain Analytics,Global,27000,7100,290,18.9,2026,Medium,Forrester
+8,Customer Data Platforms,North America,9800,2600,140,26.7,2026,High,IDC
+9,Low-Code Development Platforms,Global,42000,9500,480,25.3,2026,High,Gartner
+10,Cybersecurity Mesh Architecture,Global,19700,5300,225,29.8,2026,Medium,McKinsey

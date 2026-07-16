@@ -1,0 +1,11 @@
+id,meeting_name,attendee_count,avg_hourly_cost_usd,duration_minutes,frequency_per_week,weekly_cost_usd,monthly_cost_usd,annual_cost_usd
+1,Leadership Sync,6,145,60,1,870,3767,45240
+2,Sprint Planning,8,85,90,1,1020,4417,53040
+3,Daily Standup,8,85,15,5,850,3681,44200
+4,All-Hands Meeting,150,70,60,1,10500,45465,546000
+5,1:1 Manager Check-ins,2,95,30,5,475,2057,24700
+6,Product Roadmap Review,10,110,90,1,1650,7145,85800
+7,Sales Pipeline Review,6,90,45,1,405,1754,21060
+8,Customer Advisory Board Call,12,120,60,0.25,360,1559,18720
+9,Budget Review Meeting,5,150,60,1,750,3248,39000
+10,Design Critique,5,80,45,1,300,1299,15600

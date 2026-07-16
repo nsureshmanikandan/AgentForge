@@ -1,0 +1,11 @@
+id,prospect_name,company,title,email,outreach_stage,last_contact_date,response_status,deal_value_usd,next_action
+1,Rebecca Holt,Ferris Manufacturing,VP Operations,r.holt@ferrismfg.com,Initial Outreach,2026-07-05,No Response,45000,Send follow-up #2
+2,Anthony Diaz,BrightPath Health,IT Director,a.diaz@brightpathhealth.com,Follow-up 2,2026-07-08,Opened Email,68000,Call scheduled
+3,Wendy Zhou,Orion Logistics,COO,w.zhou@orionlogistics.com,Meeting Scheduled,2026-07-10,Replied Positive,120000,Prep demo deck
+4,Karl Bennett,Summit Financial,CFO,k.bennett@summitfin.com,Negotiation,2026-06-28,Replied Positive,210000,Send revised proposal
+5,Natalie Cruz,GreenLeaf Retail,Marketing Director,n.cruz@greenleafretail.com,Initial Outreach,2026-07-12,No Response,32000,Send follow-up #1
+6,Samuel Okonkwo,Pinnacle Insurance,VP Sales,s.okonkwo@pinnacleins.com,Closed Won,2026-06-15,Replied Positive,155000,Kickoff call
+7,Michelle Tran,Vector Aerospace,Procurement Lead,m.tran@vectoraero.com,Follow-up 1,2026-07-14,Opened Email,89000,Send case study
+8,Ravi Deshmukh,Quantum Retailers,CTO,r.deshmukh@quantumretail.com,Closed Lost,2026-06-20,Replied Negative,0,Archive
+9,Julia Fontaine,NorthStar Energy,VP Procurement,j.fontaine@northstarenergy.com,Meeting Scheduled,2026-07-13,Replied Positive,175000,Prep demo deck
+10,Owen Marshall,Delta Freight,Operations Manager,o.marshall@deltafreight.com,Initial Outreach,2026-07-16,No Response,54000,Send follow-up #1

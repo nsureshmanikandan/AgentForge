@@ -1,0 +1,11 @@
+id,newsletter_name,issue_number,send_date,subscriber_count,open_rate_pct,click_rate_pct,top_link_clicked,unsubscribe_rate_pct,topic_theme
+1,The Growth Signal,142,2026-07-01,48200,38.2,6.4,Q3 Product Roadmap,0.21,Product Updates
+2,The Growth Signal,143,2026-07-08,48450,41.5,7.1,Customer Story: Nordic Retail,0.18,Case Study
+3,AI Weekly Digest,88,2026-07-02,31200,45.6,9.8,GPT-5 Enterprise Use Cases,0.15,Industry Trends
+4,AI Weekly Digest,89,2026-07-09,31600,43.2,8.5,New Regulation Roundup,0.19,Policy
+5,Sales Leaders Brief,55,2026-07-03,19800,36.7,5.9,Negotiation Playbook Download,0.24,Sales Enablement
+6,Sales Leaders Brief,56,2026-07-10,20100,39.4,6.7,Pipeline Forecasting Tips,0.20,Sales Enablement
+7,The Growth Signal,144,2026-07-15,48900,40.1,6.9,Webinar Replay Link,0.17,Event Recap
+8,AI Weekly Digest,90,2026-07-16,32000,44.8,10.2,Agentic AI Explainer,0.14,Education
+9,Product Digest Monthly,22,2026-07-05,15400,52.3,12.1,Feature Release Notes,0.11,Product Updates
+10,Product Digest Monthly,23,2026-07-14,15600,50.9,11.4,Integration Announcement,0.13,Product Updates

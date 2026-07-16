@@ -1,0 +1,11 @@
+id,brand_metric,current_score,previous_score,pct_change,benchmark_score,region,survey_period,sentiment_trend
+1,Brand Awareness,68,64,6.3,70,North America,Q2 2026,Improving
+2,Brand Consideration,45,42,7.1,50,North America,Q2 2026,Improving
+3,Net Promoter Score,58,55,5.5,60,Global,Q2 2026,Improving
+4,Brand Trust Index,72,75,-4.0,78,Europe,Q2 2026,Declining
+5,Purchase Intent,38,35,8.6,42,North America,Q2 2026,Improving
+6,Social Sentiment Score,64,68,-5.9,70,Global,Q2 2026,Declining
+7,Ad Recall Rate,52,48,8.3,55,Asia-Pacific,Q2 2026,Improving
+8,Brand Loyalty Score,70,71,-1.4,75,Global,Q2 2026,Flat
+9,Competitive Preference,41,38,7.9,45,North America,Q2 2026,Improving
+10,Employee Brand Advocacy,66,60,10.0,68,Global,Q2 2026,Improving

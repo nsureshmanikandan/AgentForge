@@ -1,0 +1,11 @@
+id,vendor_name,category,pricing_score,feature_score,support_score,security_score,total_score,recommendation,contract_value_usd
+1,Apex Cloud Solutions,Cloud Infrastructure,7.5,9.0,8.0,9.2,8.4,Recommended,450000
+2,DataForge Analytics,Analytics Platform,6.8,8.5,7.2,8.0,7.6,Recommended,180000
+3,Silverline Robotics,Automation Tools,8.2,7.0,6.5,7.8,7.4,Consider Alternatives,220000
+4,Titan Components Ltd,Hardware Supply,7.0,6.5,7.8,8.5,7.5,Recommended,320000
+5,Bright Horizon Advisors,Consulting Services,6.0,8.8,9.0,7.5,7.8,Recommended,75000
+6,NovaGrid Energy Systems,Energy Solutions,5.5,7.5,6.8,8.0,6.9,Consider Alternatives,5200000
+7,Meridian Trade Partners,Distribution,7.8,7.2,7.0,7.0,7.3,Recommended,890000
+8,CloudNest Systems,SaaS Subscription,8.5,8.0,8.5,9.0,8.5,Recommended,64000
+9,Ironclad Manufacturing Supply,Manufacturing,6.5,6.0,5.8,7.2,6.4,Not Recommended,1500000
+10,Vertex Cloud Solutions,Cloud Infrastructure,7.2,8.8,7.5,8.8,8.1,Recommended,380000

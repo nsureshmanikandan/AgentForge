@@ -1,0 +1,11 @@
+id,user_name,current_role,years_experience,target_role,skill_gap,recommended_course,session_date,satisfaction_score
+1,Megan Price,Junior Data Analyst,2,Senior Data Scientist,"Machine Learning,Python OOP",Advanced ML Specialization,2026-07-01,4.5
+2,Tyrell Banks,QA Engineer,4,SDET Lead,"Test Automation Architecture,CI/CD",Test Automation Mastery,2026-07-03,4.2
+3,Sofia Marin,Marketing Coordinator,1,Growth Marketing Manager,"SQL,A/B Testing",Growth Analytics Bootcamp,2026-07-05,4.8
+4,Ahmed Youssef,Backend Developer,5,Engineering Manager,"People Management,Budgeting",Tech Leadership Program,2026-07-06,4.0
+5,Claire Dubois,UX Designer,3,Head of Design,"Design Systems,Stakeholder Comms",Design Leadership Track,2026-07-08,4.6
+6,Ben Okafor,Sales Rep,2,Account Executive,"Negotiation,Enterprise Selling",Enterprise Sales Certification,2026-07-09,4.3
+7,Priya Menon,Data Engineer,3,ML Engineer,"Deep Learning,MLOps",MLOps Foundations,2026-07-10,4.7
+8,Jason Wu,Product Analyst,2,Product Manager,"Roadmapping,User Interviews",PM Fundamentals,2026-07-11,4.4
+9,Lena Fischer,HR Generalist,4,HR Business Partner,"Org Design,Data-Driven HR",People Analytics Course,2026-07-12,4.1
+10,Marco Rossi,DevOps Engineer,3,Platform Architect,"Kubernetes,System Design",Cloud Architecture Path,2026-07-13,4.9

@@ -1,0 +1,11 @@
+id,competitor_name,market_position,pricing_strategy,differentiator,funding_total_usd_millions,employee_count,geo_focus,threat_score
+1,Rivalio Systems,Leader,Premium,AI-native architecture,320,1200,Global,9.2
+2,SwiftCRM Holdings,Challenger,Value,Ease of use,45,180,North America,6.5
+3,NexaSuite Inc,Leader,Premium,Enterprise integrations,410,2100,Global,8.8
+4,LeadPilot Technologies,Niche,Freemium,Chrome extension simplicity,12,45,North America,4.2
+5,FlowStack Technologies,Challenger,Mid-tier,Multi-channel journeys,85,320,Europe,6.8
+6,PulseCRM Inc,Niche,Freemium,SMB-first design,8,60,North America,3.9
+7,OrbitSales Corp,Leader,Premium,Revenue intelligence,190,850,Global,8.5
+8,ClearPath Analytics Group,Challenger,Mid-tier,Predictive forecasting,60,240,North America,7.1
+9,Vantage CRM Holdings,Leader,Premium,Industry templates,150,680,Global,7.9
+10,Momentum360 Inc,Challenger,Mid-tier,Health score automation,55,190,Europe,6.3

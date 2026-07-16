@@ -1,0 +1,11 @@
+id,regulation,jurisdiction,category,compliance_status,last_audit_date,risk_score,owner,remediation_deadline,notes
+1,GDPR Article 30 Records,EU,Data Privacy,Compliant,2026-06-01,15,Sofia Bergstrom,N/A,Records up to date
+2,CCPA Consumer Rights,California-US,Data Privacy,Partial,2026-06-15,55,Derek Munoz,2026-08-01,Opt-out mechanism needs update
+3,SOX Section 404,US,Financial Reporting,Compliant,2026-05-20,20,Angela Weiss,N/A,Controls tested quarterly
+4,HIPAA Security Rule,US,Healthcare,Non-Compliant,2026-06-10,82,Derek Munoz,2026-07-25,Encryption gap on legacy servers
+5,PCI DSS 4.0,Global,Payments,Compliant,2026-06-05,25,Angela Weiss,N/A,Passed Q2 scan
+6,EU AI Act - High Risk Systems,EU,AI Governance,Partial,2026-06-20,60,Sofia Bergstrom,2026-09-01,Conformity assessment in progress
+7,SEC Cybersecurity Disclosure,US,Financial Reporting,Compliant,2026-06-12,18,Angela Weiss,N/A,Incident reporting tested
+8,ISO 27001 Recertification,Global,Information Security,Partial,2026-05-30,48,Derek Munoz,2026-08-15,Access review overdue
+9,NY DFS Cybersecurity Reg,New York-US,Financial Services,Compliant,2026-06-08,22,Sofia Bergstrom,N/A,Annual cert filed
+10,Anti-Money Laundering (AML),Global,Financial Crime,Non-Compliant,2026-06-18,78,Angela Weiss,2026-07-30,KYC backlog of 200+ cases

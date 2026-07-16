@@ -1,0 +1,11 @@
+id,briefing_date,category,headline,priority,source,action_needed,time_sensitive,summary_length_words
+1,2026-07-16,Calendar,"3 meetings scheduled today, 1 conflict at 2pm",High,Calendar Sync,Resolve 2pm conflict,Yes,25
+2,2026-07-16,Email,"12 unread emails, 2 flagged urgent",Medium,Inbox Scan,Review flagged emails,Yes,20
+3,2026-07-16,News,"Fed announces rate hold, markets steady",Low,Financial News Feed,None,No,40
+4,2026-07-16,Weather,"Sunny, 78F, no travel delays expected",Low,Weather API,None,No,15
+5,2026-07-16,Tasks,"5 overdue tasks in project tracker",High,Task Manager,Reassign or close overdue tasks,Yes,22
+6,2026-07-16,Industry News,"Competitor launches new AI feature",Medium,Industry News Feed,Review competitive brief,No,35
+7,2026-07-16,Team Updates,"2 team members out sick today",Medium,HR System,Redistribute workload,Yes,18
+8,2026-07-16,Metrics,"Daily active users up 4% overnight",Low,Analytics Dashboard,None,No,20
+9,2026-07-16,Reminders,"Board deck due end of day",High,Task Manager,Finalize board deck,Yes,15
+10,2026-07-16,Travel,"Flight to NYC tomorrow at 7am confirmed",Medium,Travel System,Pack and confirm car service,No,20

@@ -1,0 +1,11 @@
+id,task_name,owner,status,priority,start_date,due_date,percent_complete,project,blocker
+1,Design system audit,Priya Nair,In Progress,High,2026-06-01,2026-07-20,65,Website Relaunch,None
+2,API integration testing,Marcus Webb,Blocked,Critical,2026-06-15,2026-07-18,40,Payments Platform,Waiting on vendor sandbox access
+3,User research interviews,Elena Vasquez,Completed,Medium,2026-05-20,2026-06-30,100,Mobile App v2,None
+4,Content migration,James Okoye,In Progress,Medium,2026-06-10,2026-07-25,55,Website Relaunch,None
+5,Security penetration test,Sofia Lindqvist,Not Started,Critical,2026-07-22,2026-08-05,0,Payments Platform,None
+6,Beta release rollout,Tom Reynolds,In Progress,High,2026-07-01,2026-07-30,30,Mobile App v2,Awaiting App Store review
+7,Stakeholder demo prep,Aisha Rahman,In Progress,High,2026-07-10,2026-07-19,80,Payments Platform,None
+8,Performance load testing,David Kim,Not Started,Medium,2026-07-25,2026-08-10,0,Website Relaunch,None
+9,Accessibility compliance review,Nina Petrov,In Progress,High,2026-07-05,2026-07-24,45,Mobile App v2,None
+10,Data migration validation,Carlos Mendoza,Completed,High,2026-06-01,2026-07-01,100,Payments Platform,None

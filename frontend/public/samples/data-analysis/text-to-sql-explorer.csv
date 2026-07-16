@@ -1,0 +1,11 @@
+id,natural_language_query,generated_sql,table_referenced,rows_returned,execution_time_ms,accuracy_flag,run_date
+1,"Show total revenue by region last quarter","SELECT region, SUM(revenue) FROM sales WHERE quarter='Q2-2026' GROUP BY region",sales,6,45,Correct,2026-07-14
+2,"List top 10 customers by order value","SELECT customer_name, SUM(order_value) AS total FROM orders GROUP BY customer_name ORDER BY total DESC LIMIT 10",orders,10,62,Correct,2026-07-14
+3,"How many support tickets were opened this week","SELECT COUNT(*) FROM tickets WHERE created_at >= DATE('now','-7 days')",tickets,1,28,Correct,2026-07-15
+4,"Average order value by product category","SELECT category, AVG(order_value) FROM orders JOIN products USING(product_id) GROUP BY category",orders,8,80,Correct,2026-07-15
+5,"Employees hired in the last 6 months","SELECT name, hire_date FROM employees WHERE hire_date >= DATE('now','-6 months')",employees,34,35,Correct,2026-07-15
+6,"Revenue trend by month for 2026","SELECT month, SUM(revenue) FROM sales WHERE year=2026 GROUP BY month ORDER BY month",sales,7,50,Correct,2026-07-16
+7,"Which products have negative inventory","SELECT product_name, inventory_count FROM inventory WHERE inventory_count < 0",inventory,3,22,Needs Review,2026-07-16
+8,"Customer churn rate by cohort","SELECT cohort, churn_rate FROM customer_cohorts ORDER BY cohort",customer_cohorts,12,55,Correct,2026-07-16
+9,"Support tickets resolved by agent this month","SELECT agent_name, COUNT(*) FROM tickets WHERE status='Resolved' GROUP BY agent_name",tickets,9,48,Correct,2026-07-16
+10,"Top 5 marketing channels by conversion rate","SELECT channel, conversion_rate FROM marketing_channels ORDER BY conversion_rate DESC LIMIT 5",marketing_channels,5,40,Correct,2026-07-16

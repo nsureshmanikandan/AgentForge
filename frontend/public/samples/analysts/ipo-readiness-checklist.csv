@@ -1,0 +1,11 @@
+id,company_name,category,readiness_criterion,status,owner,target_completion_date,risk_flag,notes
+1,Nimbus Cloud Corp,Financial,Three years audited financials,Complete,Angela Ruiz,N/A,None,Big 4 auditor engaged
+2,Nimbus Cloud Corp,Governance,Independent board members appointed,In Progress,Marcus Webb,2026-08-15,Medium,2 of 4 seats filled
+3,Nimbus Cloud Corp,Legal,IP portfolio due diligence,Complete,Jennifer Lowe,N/A,None,No outstanding disputes
+4,Nimbus Cloud Corp,Financial,SOX 404 controls implemented,In Progress,Connor Blaise,2026-09-01,High,Material weakness identified
+5,Nimbus Cloud Corp,Operational,Revenue recognition policy documented,Complete,Angela Ruiz,N/A,None,ASC 606 compliant
+6,Nimbus Cloud Corp,Governance,Audit committee charter drafted,Complete,Marcus Webb,N/A,None,Approved by board
+7,Nimbus Cloud Corp,Market,Roadshow materials drafted,Not Started,Nina Petrov,2026-10-01,Medium,Pending underwriter selection
+8,Nimbus Cloud Corp,Legal,S-1 registration statement drafted,In Progress,Jennifer Lowe,2026-09-15,High,Awaiting financial finalization
+9,Nimbus Cloud Corp,Financial,Underwriter selection finalized,In Progress,Angela Ruiz,2026-08-01,Medium,Down to 2 finalists
+10,Nimbus Cloud Corp,Operational,Investor relations team hired,Not Started,Marcus Webb,2026-09-30,Low,Job postings live

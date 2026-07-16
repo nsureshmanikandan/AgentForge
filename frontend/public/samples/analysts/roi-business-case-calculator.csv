@@ -1,0 +1,11 @@
+id,initiative_name,department,upfront_cost_usd,annual_savings_usd,annual_revenue_lift_usd,payback_period_months,three_year_roi_pct,risk_level,approval_status
+1,AI Customer Support Deployment,Support,280000,410000,0,8.2,340,Low,Approved
+2,Marketing Automation Platform,Marketing,150000,85000,220000,6.0,510,Low,Approved
+3,Sales Forecasting AI Tool,Sales,190000,60000,350000,5.5,548,Medium,Approved
+4,Legacy System Modernization,Engineering,850000,320000,0,26.5,13,High,Under Review
+5,Employee Engagement Platform,HR,95000,40000,0,28.5,26,Low,Approved
+6,Supply Chain Optimization AI,Operations,420000,580000,0,8.7,314,Medium,Approved
+7,Fraud Detection Upgrade,Finance,310000,650000,0,5.7,529,Low,Approved
+8,Data Warehouse Migration,Engineering,600000,180000,0,40.0,-10,High,Rejected
+9,Personalization Engine,Product,275000,0,480000,6.9,423,Medium,Approved
+10,RPA for Invoice Processing,Finance,120000,220000,0,6.5,450,Low,Approved

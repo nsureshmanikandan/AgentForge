@@ -1,0 +1,11 @@
+id,employee_id,department,survey_date,engagement_score,enps_score,workload_rating,manager_support_rating,flight_risk,comment_theme
+1,E-1042,Engineering,2026-07-01,7.8,42,6.5,8.2,Low,Positive on team culture
+2,E-1088,Sales,2026-07-01,6.2,15,7.9,6.0,Medium,Concerns about quota pressure
+3,E-1113,Marketing,2026-07-01,8.4,55,5.8,9.1,Low,Values creative freedom
+4,E-1067,Support,2026-07-01,5.5,-10,8.5,5.2,High,Burnout from ticket volume
+5,E-1199,Finance,2026-07-01,7.1,30,6.0,7.5,Low,Wants clearer career path
+6,E-1204,Engineering,2026-07-01,8.0,48,5.5,8.0,Low,Positive on remote flexibility
+7,E-1156,HR,2026-07-01,7.6,38,6.2,8.6,Low,Appreciates leadership transparency
+8,E-1231,Data,2026-07-01,6.8,20,7.2,6.8,Medium,Wants more mentorship
+9,E-1078,Sales,2026-07-01,5.9,5,8.1,5.5,High,Compensation concerns
+10,E-1145,Design,2026-07-01,8.6,60,5.0,9.0,Low,Loves current project scope

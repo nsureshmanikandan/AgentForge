@@ -1,0 +1,11 @@
+id,post_id,platform,post_date,content_summary,post_type,impressions,engagement_rate_pct,clicks,status
+1,SM-2201,LinkedIn,2026-07-10,"Announcing our Q3 product roadmap",Image Post,42500,6.8,890,Published
+2,SM-2202,X/Twitter,2026-07-10,"Thread on AI adoption trends",Thread,18200,9.2,410,Published
+3,SM-2203,Instagram,2026-07-11,"Behind-the-scenes office culture reel",Reel,67800,11.4,1230,Published
+4,SM-2204,LinkedIn,2026-07-12,"Customer testimonial video",Video,29400,7.5,560,Published
+5,SM-2205,Facebook,2026-07-12,"Webinar registration reminder",Link Post,15600,3.9,340,Published
+6,SM-2206,X/Twitter,2026-07-13,"Live-tweeting industry conference",Text Post,22100,8.1,280,Published
+7,SM-2207,Instagram,2026-07-14,"Product feature carousel",Carousel,38900,10.2,700,Published
+8,SM-2208,LinkedIn,2026-07-15,"Hiring announcement - 20 open roles",Image Post,31200,5.4,610,Scheduled
+9,SM-2209,TikTok,2026-07-16,"Day in the life of our engineers",Short Video,89500,14.7,1980,Scheduled
+10,SM-2210,X/Twitter,2026-07-16,"Poll: What feature do you want next?",Poll,12800,16.3,150,Scheduled

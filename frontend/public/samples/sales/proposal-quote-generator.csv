@@ -1,0 +1,11 @@
+id,quote_number,client_name,company,product_bundle,quantity,unit_price_usd,discount_pct,total_value_usd,quote_status,expiry_date
+1,Q-3301,Rachel Osgood,Beacon Financial,Enterprise CRM Suite,50,120,10,5400,Sent,2026-08-01
+2,Q-3302,Tomas Berger,Ironwood Construction,Standard CRM Plan,25,80,5,1900,Accepted,2026-07-25
+3,Q-3303,Sana Farooq,Lumen Healthcare,Enterprise CRM Suite + Analytics,100,150,15,12750,Under Review,2026-08-10
+4,Q-3304,Miguel Cabrera,Delta Freight Systems,Automation Add-on,30,60,0,1800,Sent,2026-07-30
+5,Q-3305,Erin McAllister,Solstice Retail Group,Standard CRM Plan,40,80,8,2944,Accepted,2026-07-22
+6,Q-3306,Nikolaus Braun,ForgeWorks Manufacturing,Enterprise CRM Suite,75,120,12,7920,Rejected,2026-07-20
+7,Q-3307,Adaeze Nwosu,BrightPath Consulting,Team Starter Plan,15,45,0,675,Sent,2026-08-05
+8,Q-3308,Lucas Ferreira,Vantage Logistics,Enterprise CRM Suite + SSO,60,140,10,7560,Accepted,2026-07-28
+9,Q-3309,Hana Kobayashi,Zenith Media Group,Automation Add-on,20,60,5,1140,Under Review,2026-08-08
+10,Q-3310,Peter Van Dijk,Coastal Energy Partners,Standard CRM Plan,35,80,0,2800,Sent,2026-08-03

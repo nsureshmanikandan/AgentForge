@@ -1,0 +1,11 @@
+id,policy_title,version,department,last_reviewed,compliance_gap,severity,recommended_change,reviewer,status
+1,Data Retention Policy,v3.2,IT Security,2026-05-10,No mention of AI-generated data,Medium,Add AI data retention clause,Fiona Marsh,Needs Update
+2,Remote Work Policy,v2.0,HR,2026-04-15,Missing international remote work tax guidance,High,Add cross-border remote work section,Gerald Osei,Needs Update
+3,Code of Conduct,v4.1,Legal,2026-06-01,None found,Low,None,Fiona Marsh,Approved
+4,Vendor Risk Management Policy,v1.5,Procurement,2026-05-20,No AI vendor risk criteria,High,Add AI vendor assessment checklist,Gerald Osei,Needs Update
+5,Data Privacy Policy,v5.0,Legal,2026-06-10,Outdated CCPA references,Medium,Update to reflect 2026 CCPA amendments,Fiona Marsh,Needs Update
+6,Whistleblower Policy,v2.3,Legal,2026-03-30,None found,Low,None,Gerald Osei,Approved
+7,Expense Reimbursement Policy,v3.0,Finance,2026-05-05,Outdated per-diem rates,Low,Update rates for 2026,Fiona Marsh,Needs Update
+8,Information Security Policy,v6.2,IT Security,2026-06-15,Missing incident response SLA,High,Define 24-hour breach notification SLA,Gerald Osei,Needs Update
+9,Anti-Harassment Policy,v3.1,HR,2026-04-01,None found,Low,None,Fiona Marsh,Approved
+10,Third-Party AI Usage Policy,v1.0,Legal,2026-06-20,New policy - needs stakeholder review,Medium,Circulate for department sign-off,Gerald Osei,Draft

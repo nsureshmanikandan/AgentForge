@@ -1,0 +1,11 @@
+id,segment_name,size_pct,avg_age,avg_income_usd,primary_channel,purchase_frequency,brand_affinity_score,key_motivator,recommended_campaign
+1,Tech-Forward Professionals,22,34,95000,Digital,High,8.2,Innovation & convenience,Early access product drops
+2,Value-Conscious Families,28,41,62000,In-Store,Medium,6.5,Price & reliability,Bundle discount campaign
+3,Luxury Seekers,12,45,180000,Direct/Concierge,Low,9.0,Exclusivity & status,VIP loyalty program
+4,Eco-Conscious Millennials,18,29,58000,Digital,Medium,7.8,Sustainability,Green packaging campaign
+5,Budget Students,10,21,22000,Mobile App,High,5.2,Discounts & promos,Student discount push
+6,Loyal Repeat Buyers,15,52,75000,Omnichannel,High,8.9,Trust & consistency,Anniversary reward program
+7,Digital Natives Gen Z,14,19,30000,Social Commerce,High,7.0,Trend-driven,Influencer collaboration
+8,Suburban Homeowners,20,44,88000,In-Store,Medium,6.9,Convenience & family,Family bundle promotion
+9,Urban Professionals,25,31,105000,Digital,High,7.6,Time-saving,Subscription service launch
+10,Retiree Value Shoppers,9,66,52000,In-Store,Low,7.2,Reliability & service,Senior loyalty discount

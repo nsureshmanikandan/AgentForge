@@ -1,0 +1,11 @@
+id,company_name,ticker,sector,market_cap_usd_millions,ev_ebitda,pe_ratio,revenue_growth_pct,gross_margin_pct,comparable_to
+1,NexaSuite Inc,NXSA,Enterprise Software,18500,14.2,32.5,22.4,78.5,Target Co
+2,Vantage CRM Holdings,VNTG,Enterprise Software,12800,12.8,28.0,19.1,74.2,Target Co
+3,OrbitSales Corp,ORBT,Sales Technology,9400,15.5,35.8,26.7,80.1,Target Co
+4,FlowStack Technologies,FLWS,Marketing Automation,6200,11.4,24.2,15.8,71.5,Target Co
+5,Momentum360 Inc,MOM3,Customer Success SaaS,4800,13.9,30.1,20.5,76.8,Target Co
+6,ClearPath Analytics Group,CLRP,Business Intelligence,7500,16.2,38.4,29.2,82.3,Target Co
+7,Rivalio Systems,RVLO,Enterprise Software,22100,17.8,42.6,31.5,79.9,Target Co
+8,SwiftCRM Holdings,SWFT,CRM Platform,3100,9.8,22.5,12.3,68.4,Target Co
+9,PulseCRM Inc,PLSC,CRM Platform,1800,8.5,19.8,9.6,65.2,Target Co
+10,LeadPilot Technologies,LDPT,Lead Generation,950,10.1,21.0,17.4,70.8,Target Co

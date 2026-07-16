@@ -1,0 +1,11 @@
+id,dataset_name,table_name,completeness_pct,accuracy_pct,consistency_pct,duplicate_rate_pct,overall_quality_score,last_scanned,critical_issues
+1,Customer Master,customers,94.5,97.2,92.0,3.1,93.9,2026-07-14,2
+2,Sales Transactions,orders,98.1,96.5,95.8,1.2,96.6,2026-07-14,0
+3,Product Catalog,products,88.2,90.1,85.5,5.4,87.8,2026-07-13,4
+4,Employee Records,employees,99.5,98.8,97.2,0.5,98.6,2026-07-15,0
+5,Marketing Leads,leads,76.3,82.5,79.1,12.8,79.5,2026-07-12,6
+6,Support Tickets,tickets,91.8,93.4,90.2,2.5,91.8,2026-07-15,1
+7,Vendor Contracts,contracts,85.0,88.9,84.2,3.8,85.7,2026-07-11,3
+8,Inventory Levels,inventory,79.5,85.2,81.0,7.9,82.4,2026-07-13,5
+9,Financial Ledger,gl_entries,99.9,99.5,99.1,0.1,99.5,2026-07-16,0
+10,Web Analytics Events,events,68.4,75.0,70.5,15.2,72.0,2026-07-10,8

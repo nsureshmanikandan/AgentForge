@@ -1,0 +1,11 @@
+id,respondent_id,survey_name,question,response_value,sentiment,segment,submitted_date,follow_up_flag
+1,R-2201,Product Satisfaction Q2,How satisfied are you overall?,9,Positive,Enterprise,2026-07-01,No
+2,R-2202,Product Satisfaction Q2,How satisfied are you overall?,4,Negative,SMB,2026-07-01,Yes
+3,R-2203,Product Satisfaction Q2,How likely are you to recommend us?,8,Positive,Mid-Market,2026-07-02,No
+4,R-2204,Product Satisfaction Q2,What feature is missing most?,"Better reporting tools",Neutral,Enterprise,2026-07-02,No
+5,R-2205,Product Satisfaction Q2,How satisfied are you overall?,3,Negative,SMB,2026-07-03,Yes
+6,R-2206,Employee Engagement Q2,Do you feel valued at work?,7,Positive,Internal,2026-07-03,No
+7,R-2207,Employee Engagement Q2,Do you feel valued at work?,2,Negative,Internal,2026-07-04,Yes
+8,R-2208,Product Satisfaction Q2,How likely are you to recommend us?,9,Positive,Enterprise,2026-07-04,No
+9,R-2209,Employee Engagement Q2,Rate your work-life balance,6,Neutral,Internal,2026-07-05,No
+10,R-2210,Product Satisfaction Q2,How satisfied are you overall?,10,Positive,Mid-Market,2026-07-05,No

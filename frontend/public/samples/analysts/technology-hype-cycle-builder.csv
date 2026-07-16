@@ -1,0 +1,11 @@
+id,technology_name,category,hype_stage,years_to_mainstream,current_year_mentions,previous_year_mentions,momentum_trend,analyst_confidence,source
+1,Agentic AI Systems,AI,Peak of Inflated Expectations,2,18400,6200,Rising,High,Gartner
+2,Quantum Machine Learning,AI,Innovation Trigger,8,890,320,Rising,Medium,IDC
+3,Composable Commerce,E-commerce,Slope of Enlightenment,1,4200,4800,Stable,High,Forrester
+4,Digital Twins,IoT,Trough of Disillusionment,3,3100,5400,Falling,Medium,Gartner
+5,Web3 Identity,Blockchain,Trough of Disillusionment,5,1200,2900,Falling,Low,Gartner
+6,Synthetic Data Generation,AI,Peak of Inflated Expectations,2,7800,3100,Rising,High,IDC
+7,Neuromorphic Computing,Hardware,Innovation Trigger,10,420,180,Rising,Low,McKinsey
+8,Edge AI Inference,AI,Slope of Enlightenment,1,9600,8200,Stable,High,Forrester
+9,Autonomous Robotic Process Automation,Automation,Plateau of Productivity,0,12500,11800,Stable,High,Gartner
+10,Post-Quantum Cryptography,Security,Innovation Trigger,6,1650,540,Rising,Medium,IDC

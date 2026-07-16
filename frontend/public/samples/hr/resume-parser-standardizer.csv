@@ -1,0 +1,11 @@
+id,candidate_name,source_file,years_experience,top_skills,education,previous_company,standardized_title,parse_confidence,flagged_for_review
+1,Julian Marsh,julian_marsh_resume.pdf,6,"Java,Spring Boot,AWS",BS Computer Science,Fintech Solutions Inc,Senior Backend Engineer,96,No
+2,Renata Alves,renata_alves_cv.docx,3,"SEO,Content Strategy,Analytics",MA Marketing,BrightWave Media,Marketing Specialist,91,No
+3,Kwame Asante,kwame_asante_resume.pdf,9,"Product Strategy,Roadmapping,Agile",MBA,Nimbus Cloud Corp,Senior Product Manager,94,No
+4,Petra Svobodova,petra_s_cv.pdf,2,"Figma,Sketch,User Testing",BFA Design,Freelance,UX Designer,82,Yes
+5,Marcos Villalobos,marcos_v_resume.pdf,12,"Financial Modeling,M&A,Valuation",MBA Finance,Sterling Capital Partners,Finance Director,97,No
+6,Ingrid Haugen,ingrid_h_resume.docx,5,"Python,Data Pipelines,Airflow",MS Data Science,Vector Analytics,Data Engineer,93,No
+7,Samuel Ortega,samuel_ortega_cv.pdf,1,"Sales Outreach,Cold Calling",BA Business,Recent Graduate,Sales Development Rep,68,Yes
+8,Yuna Park,yuna_park_resume.pdf,7,"Kubernetes,Terraform,CI/CD",BS Computer Engineering,CloudForge Systems,DevOps Engineer,95,No
+9,Beatrice Nardone,beatrice_n_cv.pdf,4,"Employee Relations,HRIS,Compliance",BA Human Resources,Meridian Group,HR Generalist,89,No
+10,Tunde Bakare,tunde_bakare_resume.docx,15,"Executive Leadership,P&L Management",MBA,Continental Holdings,VP Operations,98,No

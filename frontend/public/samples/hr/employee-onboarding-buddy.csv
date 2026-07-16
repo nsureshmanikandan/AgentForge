@@ -1,0 +1,11 @@
+id,employee_name,start_date,department,manager,onboarding_stage,percent_complete,buddy_assigned,laptop_provisioned,first_week_check_in
+1,Nathan Wills,2026-07-06,Engineering,Felix Grunwald,Week 2,60,Sarah Chen,Yes,Completed
+2,Isabela Rocha,2026-07-13,Marketing,Marie Lefevre,Week 1,25,David Okonkwo,Yes,Scheduled
+3,Owen Kavanagh,2026-06-29,Sales,Amara Nwosu,Week 3,85,Kayla Robinson,Yes,Completed
+4,Yasmin Haddad,2026-07-13,Data,Ahmed Siddiqui,Week 1,20,Tobias Lindgren,No,Scheduled
+5,Marcus Thibodeaux,2026-06-22,Finance,Connor Blaise,Week 4,100,Priyanka Iyer,Yes,Completed
+6,Chiara Esposito,2026-07-06,Design,Kayla Robinson,Week 2,55,Nathan Wills,Yes,Completed
+7,Femi Adebayo,2026-07-13,Engineering,Felix Grunwald,Week 1,30,Isabela Rocha,Yes,Scheduled
+8,Greta Lindqvist,2026-06-29,HR,Priyanka Iyer,Week 3,90,Owen Kavanagh,Yes,Completed
+9,Diego Nunes,2026-07-13,Product,Marie Lefevre,Week 1,15,Yasmin Haddad,No,Scheduled
+10,Aaliyah Foster,2026-07-06,Support,Amara Nwosu,Week 2,65,Marcus Thibodeaux,Yes,Completed

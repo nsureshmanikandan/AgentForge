@@ -1,0 +1,11 @@
+id,kpi_name,category,current_value,target_value,unit,period,variance_pct,rag_status,frequency
+1,Revenue Growth Rate,Financial,18.5,20.0,Percent,Q2 2026,-7.5,Amber,Quarterly
+2,Customer Retention Rate,Customer,91.2,90.0,Percent,Q2 2026,1.3,Green,Monthly
+3,Average Response Time,Operations,3.2,4.0,Hours,July 2026,20.0,Green,Weekly
+4,Employee Satisfaction,HR,7.8,8.0,Score,Q2 2026,-2.5,Amber,Quarterly
+5,Cost of Goods Sold,Financial,42.1,40.0,Percent of Revenue,Q2 2026,-5.3,Red,Monthly
+6,New Customer Signups,Sales,320,300,Count,July 2026,6.7,Green,Monthly
+7,Website Uptime,Operations,99.95,99.9,Percent,July 2026,0.05,Green,Daily
+8,Product Return Rate,Operations,3.4,2.5,Percent,Q2 2026,-36.0,Red,Monthly
+9,Marketing Qualified Leads,Marketing,850,900,Count,July 2026,-5.6,Amber,Monthly
+10,Employee Turnover Rate,HR,9.2,8.0,Percent,Q2 2026,-15.0,Amber,Quarterly

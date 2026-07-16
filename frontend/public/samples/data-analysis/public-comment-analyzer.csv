@@ -1,0 +1,11 @@
+id,comment_id,policy_topic,submitter_type,comment_summary,sentiment,theme,submitted_date,flagged_for_review
+1,PC-4401,Renewable Energy Mandate,Individual,"Supports mandate but concerned about cost pass-through to consumers",Mixed,Cost Concerns,2026-07-01,No
+2,PC-4402,Renewable Energy Mandate,Industry Group,"Opposes timeline as too aggressive for grid capacity",Negative,Implementation Timeline,2026-07-02,Yes
+3,PC-4403,Data Privacy Regulation,Advocacy Organization,"Strongly supports stronger consumer protections",Positive,Consumer Rights,2026-07-03,No
+4,PC-4404,Data Privacy Regulation,Individual,"Worried about compliance burden on small businesses",Negative,Small Business Impact,2026-07-04,No
+5,PC-4405,Minimum Wage Increase,Labor Union,"Strongly supports increase to $18/hr",Positive,Worker Welfare,2026-07-05,No
+6,PC-4406,Minimum Wage Increase,Small Business Owner,"Concerned about ability to maintain staffing levels",Negative,Business Impact,2026-07-06,Yes
+7,PC-4407,Zoning Reform Proposal,Individual,"Supports increased housing density near transit",Positive,Housing Access,2026-07-07,No
+8,PC-4408,Zoning Reform Proposal,Neighborhood Association,"Opposes density increase citing traffic concerns",Negative,Community Impact,2026-07-08,No
+9,PC-4409,Broadband Expansion Plan,Rural Resident,"Strongly supports expansion to underserved areas",Positive,Access Equity,2026-07-09,No
+10,PC-4410,Broadband Expansion Plan,Telecom Industry,"Requests longer implementation timeline",Mixed,Implementation Timeline,2026-07-10,Yes

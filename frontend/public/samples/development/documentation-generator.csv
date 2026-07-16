@@ -1,0 +1,11 @@
+id,module_name,repo,doc_type,coverage_pct,last_generated,functions_documented,functions_total,outdated_sections,status
+1,auth/token_manager.py,auth-service,Docstring,88,2026-07-14,22,25,1,Needs Update
+2,payments/stripe_client.py,payments-service,API Reference,95,2026-07-15,40,42,0,Up to Date
+3,frontend/components/Dashboard.tsx,frontend-app,Component Doc,70,2026-07-10,14,20,3,Needs Update
+4,data/etl_pipeline.py,data-pipeline,Docstring,60,2026-07-08,18,30,5,Needs Update
+5,notifications/email_sender.py,notification-service,API Reference,100,2026-07-16,15,15,0,Up to Date
+6,auth/oauth_flow.py,auth-service,Sequence Diagram,80,2026-07-12,10,12,1,Up to Date
+7,frontend/hooks/useAuth.ts,frontend-app,Component Doc,90,2026-07-13,9,10,0,Up to Date
+8,payments/refund_handler.py,payments-service,Docstring,55,2026-07-05,8,15,4,Needs Update
+9,data/schema_validator.py,data-pipeline,API Reference,75,2026-07-11,12,16,2,Needs Update
+10,notifications/sms_gateway.py,notification-service,Docstring,92,2026-07-14,11,12,0,Up to Date

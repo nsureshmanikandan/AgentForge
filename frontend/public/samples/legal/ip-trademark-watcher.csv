@@ -1,0 +1,11 @@
+id,mark_name,applicant,jurisdiction,filing_date,class,similarity_score,status,conflict_risk,action_recommended
+1,NOVACORE,Nova Technologies Inc,USPTO,2026-06-01,Class 9 (Software),88,Published for Opposition,High,File opposition
+2,BRIGHTFLOW,BrightFlow Analytics LLC,USPTO,2026-05-15,Class 42 (SaaS),35,Registered,Low,Monitor only
+3,PULSEWORKS,Pulseworks Media,EUIPO,2026-06-10,Class 35 (Advertising),62,Published,Medium,Send cease and desist inquiry
+4,ORBITAL AI,Orbital Systems Corp,USPTO,2026-06-20,Class 9 (AI Software),91,Published for Opposition,High,File opposition
+5,CLEARPATH,ClearPath Logistics,USPTO,2026-04-28,Class 39 (Transport),20,Registered,Low,Monitor only
+6,VERTEX CLOUD,Vertex Cloud Solutions,WIPO,2026-06-05,Class 42 (Cloud Computing),75,Published,Medium,Send cease and desist inquiry
+7,SIGNALWAVE,Signalwave Communications,USPTO,2026-05-30,Class 38 (Telecom),28,Registered,Low,Monitor only
+8,DATAFORGE PRO,DataForge Pro Inc,USPTO,2026-06-18,Class 9 (Data Software),95,Published for Opposition,High,File opposition
+9,GREENLOOP,GreenLoop Recycling,EUIPO,2026-05-01,Class 40 (Waste Treatment),18,Registered,Low,Monitor only
+10,NIMBUS AI,Nimbus Intelligence Ltd,USPTO,2026-06-25,Class 9 (AI Software),84,Published,High,File opposition

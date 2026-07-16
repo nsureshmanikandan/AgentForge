@@ -1,0 +1,11 @@
+id,category,item_description,impact_level,likelihood,strategic_priority,related_department,quarter,status
+1,Strength,Market-leading AI product capabilities,High,High,Leverage in enterprise sales,Product,Q3 2026,Active
+2,Strength,Strong brand recognition in North America,Medium,High,Expand marketing spend,Marketing,Q3 2026,Active
+3,Weakness,Limited presence in APAC markets,High,High,Prioritize regional expansion,Sales,Q4 2026,Planned
+4,Weakness,High customer support ticket backlog,Medium,High,Invest in AI-assisted support,Support,Q3 2026,Active
+5,Opportunity,Growing demand for AI compliance tooling,High,High,Launch compliance product line,Product,Q4 2026,Planned
+6,Opportunity,Partnership potential with cloud providers,Medium,Medium,Pursue co-sell agreements,Business Development,Q3 2026,Active
+7,Threat,New well-funded competitor entering market,High,Medium,Accelerate differentiation roadmap,Product,Q3 2026,Active
+8,Threat,Potential AI regulation increasing compliance cost,Medium,High,Build compliance-by-design features,Legal,Q4 2026,Planned
+9,Strength,High customer retention and NPS,High,High,Use in sales enablement materials,Customer Success,Q3 2026,Active
+10,Weakness,Dependency on single cloud infrastructure vendor,Medium,Medium,Evaluate multi-cloud strategy,Engineering,Q4 2026,Planned

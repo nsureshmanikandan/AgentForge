@@ -1,0 +1,11 @@
+id,endpoint,method,repo,version,description_status,example_status,auth_required,deprecated,last_reviewed
+1,/api/v2/users,GET,auth-service,v2.1,Complete,Complete,Yes,No,2026-07-14
+2,/api/v2/payments/charge,POST,payments-service,v2.1,Complete,Missing Example,Yes,No,2026-07-12
+3,/api/v1/users,GET,auth-service,v1.0,Complete,Complete,Yes,Yes,2026-06-01
+4,/api/v2/notifications/send,POST,notification-service,v2.0,Incomplete,Missing Example,Yes,No,2026-07-10
+5,/api/v2/data/export,GET,data-pipeline,v2.0,Complete,Complete,Yes,No,2026-07-15
+6,/api/v2/payments/refund,POST,payments-service,v2.1,Complete,Complete,Yes,No,2026-07-13
+7,/api/v2/auth/token,POST,auth-service,v2.1,Complete,Complete,No,No,2026-07-14
+8,/api/v1/notifications/send,POST,notification-service,v1.2,Incomplete,Missing Example,Yes,Yes,2026-05-20
+9,/api/v2/data/schema,GET,data-pipeline,v2.0,Complete,Missing Example,Yes,No,2026-07-11
+10,/api/v2/users/preferences,PATCH,auth-service,v2.1,Incomplete,Missing Example,Yes,No,2026-07-09

@@ -1,0 +1,11 @@
+id,contact_name,company,email,lifecycle_stage,owner,last_activity_date,deal_stage,deal_value_usd,data_quality_flag
+1,Elena Marquez,Titan Steel Corp,e.marquez@titansteel.com,Customer,Jordan Blake,2026-07-14,Closed Won,95000,Clean
+2,Frank Osei,BlueWave Media,f.osei@bluewavemedia.com,Opportunity,Jordan Blake,2026-07-10,Proposal,42000,Missing phone
+3,Grace Lindholm,Cedar Point Retail,g.lindholm@cedarpoint.com,Lead,Amara Bello,2026-07-01,N/A,0,Duplicate entry
+4,Hassan Malik,Redwood Analytics,h.malik@redwoodanalytics.com,Customer,Amara Bello,2026-07-12,Closed Won,68000,Clean
+5,Ingrid Sorensen,Falcon Robotics,i.sorensen@falconrobotics.com,Opportunity,Jordan Blake,2026-07-09,Negotiation,180000,Clean
+6,Jerome Baptiste,Coastal Foods Inc,j.baptiste@coastalfoods.com,Lead,Amara Bello,2026-06-30,N/A,0,Missing company field
+7,Keiko Yamada,Zenith Pharma,k.yamada@zenithpharma.com,Customer,Jordan Blake,2026-07-08,Closed Won,225000,Clean
+8,Liam O'Rourke,Sturdy Builders,l.orourke@sturdybuilders.com,Opportunity,Amara Bello,2026-07-11,Proposal,55000,Outdated title
+9,Mariana Cortez,Vista Telecom,m.cortez@vistatelecom.com,Lead,Jordan Blake,2026-07-15,N/A,0,Clean
+10,Nikolai Petrenko,Anchor Shipping,n.petrenko@anchorshipping.com,Customer,Amara Bello,2026-07-05,Closed Won,142000,Clean

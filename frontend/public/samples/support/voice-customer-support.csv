@@ -1,0 +1,11 @@
+id,call_id,customer_name,call_time,duration_sec,issue_type,ai_handled,transferred_to_human,resolution_status,sentiment_score
+1,V-4401,Harriet Solano,2026-07-15 08:12:00,180,Password Reset,Yes,No,Resolved,0.85
+2,V-4402,Anonymous,2026-07-15 08:30:00,420,Billing Dispute,Partial,Yes,Escalated,0.35
+3,V-4403,Theo Bergstrom,2026-07-15 09:05:00,95,Order Status,Yes,No,Resolved,0.90
+4,V-4404,Priscilla Duarte,2026-07-15 09:22:00,260,Technical Issue,Partial,Yes,Resolved,0.60
+5,V-4405,Emeka Nwachukwu,2026-07-15 09:45:00,140,Cancellation Request,Yes,No,Resolved,0.55
+6,V-4406,Anonymous,2026-07-15 10:10:00,510,Fraud Report,No,Yes,Escalated,0.20
+7,V-4407,Wren Kowalski,2026-07-15 10:35:00,110,Account Update,Yes,No,Resolved,0.88
+8,V-4408,Salma Idrissi,2026-07-15 11:00:00,300,Refund Request,Partial,Yes,Resolved,0.65
+9,V-4409,Julius Okafor,2026-07-15 11:20:00,75,Order Status,Yes,No,Resolved,0.92
+10,V-4410,Anonymous,2026-07-15 11:45:00,200,Technical Issue,Yes,No,Resolved,0.78

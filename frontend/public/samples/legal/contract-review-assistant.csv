@@ -1,0 +1,11 @@
+id,contract_title,counterparty,contract_type,value_usd,risk_level,flagged_clause,expiration_date,reviewer,status
+1,Master Services Agreement - Vendor A,Apex Cloud Solutions,MSA,450000,Medium,Auto-renewal without 90-day notice,2027-03-01,Jennifer Lowe,Under Review
+2,NDA - Acquisition Target,Silverline Robotics,NDA,0,Low,Standard mutual confidentiality,2028-01-15,Marcus Delgado,Approved
+3,Software License Agreement,DataForge Analytics,License,180000,High,Unlimited liability clause,2026-12-31,Jennifer Lowe,Flagged
+4,Employment Contract - Executive,Internal,Employment,0,Medium,Non-compete overly broad (5 years),N/A,Priya Ramesh,Under Review
+5,Real Estate Lease - HQ,Harbor Point Properties,Lease,2400000,Low,Standard commercial terms,2031-06-30,Marcus Delgado,Approved
+6,Vendor Supply Agreement,Titan Components Ltd,Supply,320000,High,No force majeure clause,2027-09-01,Priya Ramesh,Flagged
+7,Consulting Agreement,Bright Horizon Advisors,Consulting,75000,Low,IP assignment standard,2026-11-30,Jennifer Lowe,Approved
+8,Joint Venture Agreement,NovaGrid Energy,JV,5200000,High,Ambiguous profit-sharing formula,2029-01-01,Marcus Delgado,Under Review
+9,Distribution Agreement,Meridian Trade Partners,Distribution,890000,Medium,Termination notice too short,2027-05-15,Priya Ramesh,Flagged
+10,SaaS Subscription Agreement,CloudNest Systems,Subscription,64000,Low,Standard data processing terms,2027-02-28,Jennifer Lowe,Approved

@@ -1,0 +1,11 @@
+id,product_name,current_price_usd,competitor_avg_price_usd,willingness_to_pay_usd,price_elasticity,recommended_price_usd,revenue_impact_pct,segment,confidence_level
+1,Starter Plan,29,32,35,-1.2,32,8.5,SMB,High
+2,Pro Plan,99,110,105,-0.9,105,6.2,Mid-Market,High
+3,Enterprise Plan,499,520,540,-0.6,530,4.8,Enterprise,Medium
+4,Add-on: Analytics Module,49,45,52,-1.5,50,10.2,All Segments,Medium
+5,Add-on: SSO Package,79,85,80,-0.8,80,1.3,Enterprise,High
+6,Annual Discount Tier,890,950,920,-1.0,910,3.5,Mid-Market,Medium
+7,API Usage Overage,0.02,0.025,0.022,-1.8,0.022,9.0,Enterprise,Medium
+8,Freemium Upgrade Trigger,0,15,12,-2.1,12,15.0,SMB,High
+9,Team Seat Add-on,15,18,17,-1.1,17,7.4,Mid-Market,High
+10,White-Label License,2500,2800,2650,-0.5,2700,5.5,Enterprise,Low

@@ -1,0 +1,11 @@
+id,customer_id,customer_name,segment,ltv_usd,churn_risk_score,last_purchase_date,total_purchases,nps_score,engagement_tier
+1,C-9001,Beacon Financial,Enterprise,285000,12,2026-07-10,18,72,High
+2,C-9002,Ironwood Construction,Mid-Market,95000,45,2026-06-28,9,55,Medium
+3,C-9003,Lumen Healthcare,Enterprise,410000,8,2026-07-14,25,80,High
+4,C-9004,Delta Freight Systems,Mid-Market,72000,60,2026-06-15,6,42,Low
+5,C-9005,Solstice Retail Group,SMB,28000,35,2026-07-01,4,58,Medium
+6,C-9006,ForgeWorks Manufacturing,Enterprise,320000,20,2026-07-08,15,68,High
+7,C-9007,BrightPath Consulting,SMB,18500,72,2026-05-20,3,35,Low
+8,C-9008,Vantage Logistics,Mid-Market,110000,25,2026-07-12,11,64,Medium
+9,C-9009,Zenith Media Group,SMB,32000,50,2026-06-25,5,48,Medium
+10,C-9010,Coastal Energy Partners,Enterprise,255000,15,2026-07-15,14,75,High

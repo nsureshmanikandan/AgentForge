@@ -1,0 +1,11 @@
+id,bug_id,title,repo,severity,reporter,ai_classification,duplicate_of,assigned_team,status
+1,BUG-3301,"Checkout button unresponsive on Safari",frontend-app,High,Customer Support,UI Bug,None,Frontend Team,Triaged
+2,BUG-3302,"Payment webhook timing out intermittently",payments-service,Critical,Monitoring Alert,Infrastructure,None,Platform Team,In Progress
+3,BUG-3303,"Duplicate charge appears on invoice",payments-service,Critical,Customer Support,Data Integrity,None,Payments Team,Triaged
+4,BUG-3304,"Login button unresponsive on Safari",frontend-app,High,Customer Support,UI Bug,BUG-3301,Frontend Team,Marked Duplicate
+5,BUG-3305,"Email notifications delayed by 10+ minutes",notification-service,Medium,Internal QA,Performance,None,Notifications Team,Triaged
+6,BUG-3306,"Data export produces malformed CSV",data-pipeline,Medium,Customer Support,Data Formatting,None,Data Team,In Progress
+7,BUG-3307,"Password reset email not sending",auth-service,High,Customer Support,Infrastructure,None,Auth Team,Triaged
+8,BUG-3308,"Dashboard chart fails to render on mobile",frontend-app,Low,Internal QA,UI Bug,None,Frontend Team,Triaged
+9,BUG-3309,"Refund process fails for partial refunds",payments-service,High,Customer Support,Logic Error,None,Payments Team,In Progress
+10,BUG-3310,"API rate limit incorrectly enforced",auth-service,Medium,Internal QA,Logic Error,None,Auth Team,Triaged

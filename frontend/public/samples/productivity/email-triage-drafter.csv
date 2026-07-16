@@ -1,0 +1,11 @@
+id,email_id,sender,subject,received_date,category,priority,ai_draft_status,sentiment,action_required
+1,EM-6601,client@ferrismfg.com,"Question on invoice #4521",2026-07-15 08:20,Billing,Medium,Draft Ready,Neutral,Reply with clarification
+2,EM-6602,partner@brightwave.com,"Partnership renewal terms",2026-07-15 09:05,Partnership,High,Draft Ready,Positive,Schedule call
+3,EM-6603,angry.customer@example.com,"Extremely disappointed with service",2026-07-15 09:30,Complaint,Critical,Needs Human Review,Negative,Escalate to manager
+4,EM-6604,vendor@titansteel.com,"Updated pricing sheet attached",2026-07-15 10:00,Vendor,Low,Draft Ready,Neutral,File for reference
+5,EM-6605,recruiter@example.com,"Candidate interview availability",2026-07-15 10:15,Scheduling,Medium,Draft Ready,Neutral,Confirm time slot
+6,EM-6606,press@techdaily.com,"Interview request for CEO",2026-07-15 10:40,Media,High,Needs Human Review,Positive,Forward to comms team
+7,EM-6607,support@internaltool.com,"Scheduled maintenance notice",2026-07-15 11:00,Notification,Low,Archived,Neutral,None
+8,EM-6608,legal@counterparty.com,"Redlined contract attached",2026-07-15 11:20,Legal,High,Needs Human Review,Neutral,Forward to legal team
+9,EM-6609,newsletter@industry.com,"Weekly industry digest",2026-07-15 11:45,Newsletter,Low,Archived,Neutral,None
+10,EM-6610,investor@venturefund.com,"Follow-up on Q2 metrics",2026-07-15 12:10,Investor Relations,High,Draft Ready,Positive,Reply with metrics deck

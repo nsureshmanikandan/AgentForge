@@ -1,0 +1,11 @@
+id,nda_id,counterparty,nda_type,requested_by,sent_date,signed_date,status,expiration_date,department
+1,NDA-5501,Cascade Ventures,Mutual,Tom Reilly,2026-06-20,2026-06-25,Fully Executed,2028-06-25,Business Development
+2,NDA-5502,Horizon Data Labs,One-Way (Disclosing),Karen Ibrahim,2026-07-01,N/A,Pending Signature,N/A,Product
+3,NDA-5503,Steele Manufacturing,Mutual,Tom Reilly,2026-06-15,2026-06-18,Fully Executed,2028-06-18,Sales
+4,NDA-5504,Redwood Consulting Group,One-Way (Receiving),Anita Kapoor,2026-07-05,N/A,Draft,N/A,HR
+5,NDA-5505,Blue Harbor Capital,Mutual,Karen Ibrahim,2026-06-28,2026-07-02,Fully Executed,2027-07-02,Finance
+6,NDA-5506,Fenwick Robotics,Mutual,Tom Reilly,2026-07-08,N/A,Pending Signature,N/A,Business Development
+7,NDA-5507,Nova Analytics Inc,One-Way (Disclosing),Anita Kapoor,2026-06-10,2026-06-14,Fully Executed,2028-06-14,Product
+8,NDA-5508,Coastal Insurance Group,Mutual,Karen Ibrahim,2026-07-10,N/A,Draft,N/A,Sales
+9,NDA-5509,Pinehurst Logistics,Mutual,Tom Reilly,2026-06-22,2026-06-30,Fully Executed,2027-06-30,Operations
+10,NDA-5510,Zenith Pharmaceuticals,One-Way (Receiving),Anita Kapoor,2026-07-12,N/A,Pending Signature,N/A,R&D
