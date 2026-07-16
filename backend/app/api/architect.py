@@ -1671,32 +1671,66 @@ async def generate_ui(req: GenerateUIRequest):
 
     # Detect app type from prompt keywords â€" CHATBOT checked FIRST to prevent false matches
     prompt_lower = (req.summary + " " + req.app_name).lower()
-    # CUSTOM check runs FIRST — decision/council apps must never be misclassified as CHATBOT
+
+    # Priority 1: Council/decision-intelligence apps (checked first, most specific)
     if any(k in prompt_lower for k in ["decision intelligence", "decision advisor", "verdict", "the council",
                                         "multi-agent deliberation", "advisor panel", "chairman", "peer review board",
-                                        "council app", "review board", "blind review"]):
-        detected_type = "CUSTOM"
+                                        "council app", "review board", "blind review", "decision intel"]):
+        detected_type = "COUNCIL_APP"
+
+    # Priority 2: Specific enterprise domains (checked before generic chatbot/dashboard)
+    elif any(k in prompt_lower for k in ["recruiter", "resume", "onboarding buddy", "payroll", "performance review",
+                                          "employee engagement", "hr ", "human resource", "talent", "headcount",
+                                          "workforce", "leave request", "time off", "org chart", "candidate"]):
+        detected_type = "HR_APP"
+
+    elif any(k in prompt_lower for k in ["sales outreach", "crm", "lead scoring", "pipeline", "deal", "quota",
+                                          "cold email", "prospect", "close rate", "revenue forecast",
+                                          "account executive", "sales rep", "proposal", "quote generator"]):
+        detected_type = "SALES_APP"
+
+    elif any(k in prompt_lower for k in ["contract review", "nda", "legal assistant", "compliance monitor",
+                                          "regulation", "clause", "trademark", "ip watch", "litigation",
+                                          "legal document", "policy analyzer", "redline"]):
+        detected_type = "LEGAL_APP"
+
+    elif any(k in prompt_lower for k in ["support ticket", "helpdesk", "customer support", "omni-channel",
+                                          "ticket triage", "self-serve faq", "csat", "escalation",
+                                          "unified inbox", "voice support", "voice customer"]):
+        detected_type = "SUPPORT_APP"
+
+    elif any(k in prompt_lower for k in ["marketing team", "content marketing", "competitor analysis", "seo agent",
+                                          "seo content", "newsletter", "social media manager", "campaign",
+                                          "content calendar"]):
+        detected_type = "MARKETING_APP"
+
+    elif any(k in prompt_lower for k in ["code review", "code reviewer", "pull request", "documentation generator",
+                                          "api documentation", "api docs", "bug triage", "release notes",
+                                          "github", "ci/cd", "devops"]):
+        detected_type = "DEV_TOOL"
+
+    elif any(k in prompt_lower for k in ["vendor comparison", "scorecard", "market sizing", "hype cycle",
+                                          "comparable company", "dcf", "roi calculator", "roi & business case",
+                                          "business case calculator", "equity research", "comp table",
+                                          "earnings", "ipo readiness", "briefing note"]):
+        detected_type = "ANALYST_APP"
+
+    elif any(k in prompt_lower for k in ["stock market", "text-to-sql", "excel data insights", "business intelligence",
+                                          "customer analytics", "kpi dashboard builder", "survey results",
+                                          "data quality", "a/b test", "segmentation", "demographic",
+                                          "sql query result", "pricing research", "brand health"]):
+        detected_type = "DATA_APP"
+
+    # Priority 3: Generic chatbot / dashboard fallback keywords
     elif any(k in prompt_lower for k in ["chatbot", "chat bot", "support bot", "virtual agent", "rag", "faq",
-                                        "knowledge base", "it support", "service desk", "helpdesk", "help desk",
-                                        "customer support", "support ticket", "qa bot", "q&a bot",
-                                        "conversational", "assistant bot"]):
+                                          "knowledge base", "it support", "service desk", "helpdesk", "help desk",
+                                          "customer support", "support ticket", "qa bot", "q&a bot",
+                                          "conversational", "assistant bot"]):
         detected_type = "CHATBOT"
+
     elif any(k in prompt_lower for k in ["dashboard", "analytics", "kpi", "metrics", "monitor", "report", "chart"]):
         detected_type = "DASHBOARD"
-    elif any(k in prompt_lower for k in ["table", "crud", "inventory", "records", "manage", "employees"]):
-        detected_type = "DATA TABLE"
-    elif any(k in prompt_lower for k in ["wizard", "onboard", "multi-step", "intake", "step by step form"]):
-        detected_type = "WIZARD"
-    elif any(k in prompt_lower for k in ["booking", "appointment", "schedule", "calendar", "slot"]):
-        detected_type = "SCHEDULER"
-    elif any(k in prompt_lower for k in ["search", "knowledge base finder", "document finder", "catalogue"]):
-        detected_type = "SEARCH APP"
-    elif any(k in prompt_lower for k in ["survey", "feedback", "data entry", "collect"]):
-        detected_type = "FORM APP"
-    elif any(k in prompt_lower for k in ["portal", "self-service", "employee portal", "client portal"]):
-        detected_type = "PORTAL"
-    elif any(k in prompt_lower for k in ["decision", "advisor", "council", "intelligence", "recommendation"]):
-        detected_type = "CUSTOM"
+
     else:
         detected_type = "CUSTOM"
 
