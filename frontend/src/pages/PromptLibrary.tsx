@@ -1123,257 +1123,754 @@ UI: Clean, professional light theme. Data-dense tables with compact rows. Charts
 Sample data: Pre-populate with 6 sample vendors in the "Cloud Data Warehouse" category (Snowflake, Databricks, BigQuery, Redshift, Azure Synapse, Firebolt) with realistic scores across 8 criteria.`,
     tools: ["RAG", "Web Search", "Webhook"],
     complexity: "Advanced",
+    sampleFile: { name: "vendor-comparison-scorecard-sample.csv", url: "/samples/analysts/vendor-comparison-scorecard.csv" },
   },
   {
     category: "Analysts",
     title: "Market Sizing Calculator",
     description: "Enter assumptions like buyer count, deal size, and growth rates to calculate TAM, SAM, and SOM with a breakdown chart.",
-    prompt: "Build a market sizing tool where I enter assumptions like number of potential buyers, average deal size, adoption rates, and growth rates, and it calculates TAM, SAM, and SOM with a breakdown chart and scenario comparison.",
+    prompt: `Build a Market Sizing Calculator platform for analysts sizing new markets.
+
+AI agents:
+1. Assumptions Agent — Takes user inputs (total potential buyers, average purchase size, adoption rate, penetration rate, growth rate, geography/segment filters) and validates them against typical industry ranges, flagging assumptions that look unrealistic with a suggested benchmark range.
+2. Calculation Agent — Computes TAM (Total Addressable Market), SAM (Serviceable Addressable Market), and SOM (Serviceable Obtainable Market) from the assumptions, produces a 5-year growth projection, and runs three scenarios (Conservative, Base, Aggressive) by flexing adoption and growth rates.
+3. Narrative Agent — Writes a 2-3 paragraph executive summary explaining the sizing logic, key assumptions driving the result, and the biggest risks to the estimate, in plain analyst language suitable for a client deck.
+
+Pages:
+1. Assumptions Builder — Form with fields for total buyers, average purchase size, adoption %, penetration %, annual growth %, plus optional segment/geography breakdown rows. "Validate Assumptions" button runs the Assumptions Agent and shows inline benchmark warnings.
+2. TAM/SAM/SOM Dashboard — Funnel chart showing TAM > SAM > SOM narrowing, KPI tiles for each figure, and a stacked bar chart of the 5-year projection. Scenario toggle (Conservative/Base/Aggressive) updates all charts live.
+3. Scenario Comparison — Side-by-side table and grouped bar chart comparing all three scenarios across Year 1, Year 3, Year 5. Sensitivity slider showing how SOM changes as adoption rate moves.
+4. Report — Auto-generated summary combining the Narrative Agent's write-up, the funnel chart, and the scenario table. Export as PDF (jsPDF) or Excel (xlsx) for client-ready deliverables.
+
+UI: Clean light theme, large number KPI tiles with currency formatting, funnel and bar charts via Recharts, scenario toggle pills at top of dashboard.
+
+Sample data: Pre-populate with a SaaS market sizing example (50,000 potential buyers, $12,000 average purchase size, 8% adoption, 15% annual growth).`,
     tools: ["Webhook"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "market-sizing-calculator-sample.csv", url: "/samples/analysts/market-sizing-calculator.csv" },
   },
   {
     category: "Analysts",
     title: "Technology Hype Cycle Builder",
     description: "Plot emerging technologies on a hype cycle curve with stage placement and time-to-mainstream estimates.",
-    prompt: "Build a technology hype cycle tool where I can add technology names, place them along the curve stages, and estimate time to mainstream adoption with a clean exportable output.",
+    prompt: `Build a Technology Hype Cycle Builder for analysts tracking emerging tech.
+
+AI agents:
+1. Research Agent — Given a technology name, searches the web for recent news, funding activity, adoption signals, and vendor announcements, and suggests a starting hype-cycle stage (Innovation Trigger, Peak of Inflated Expectations, Trough of Disillusionment, Slope of Enlightenment, Plateau of Productivity) with supporting evidence.
+2. Positioning Agent — Places each technology on the curve x/y coordinates based on stage and estimated years-to-mainstream, and detects clustering/overlap to auto-space labels for readability.
+3. Narrative Agent — Writes a one-paragraph rationale per technology explaining why it sits where it does and what would move it to the next stage.
+
+Pages:
+1. Technology Registry — Add technologies by name (manual or "Auto-Research" via the Research Agent). Table view: name, category, current stage badge, years-to-mainstream estimate, last updated.
+2. Hype Cycle Curve — Interactive SVG/Recharts curve with technologies plotted as draggable dots along the classic hype-cycle line, color-coded by category, labeled with technology name and years-to-mainstream on hover.
+3. Technology Detail — Click any technology to see the Research Agent's evidence, the Narrative Agent's rationale, and a small trend chart of stage movement over past updates (if tracked over time).
+4. Export & Reports — Clean exportable curve image plus a categorized table (by stage, by years-to-mainstream) for inclusion in research reports. Export as PDF or PNG.
+
+UI: Professional light theme resembling analyst-firm hype cycle charts — smooth S-curve, color-coded category legend, draggable/clickable dots.
+
+Sample data: Pre-populate with 10 technologies across AI, cloud, and biotech (e.g. Agentic AI, Quantum Computing, Synthetic Biology, Edge AI) at varied stages.`,
     tools: ["Webhook"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "technology-hype-cycle-builder-sample.csv", url: "/samples/analysts/technology-hype-cycle-builder.csv" },
   },
   {
     category: "Analysts",
     title: "Comparable Company Analyzer",
     description: "Build comp tables with revenue, EBITDA, and market cap data to automatically calculate EV/Revenue, EV/EBITDA, and P/E ratios.",
-    prompt: "Build a comp table tool where I enter companies with their revenue, EBITDA, net income, market cap, and growth rates, and automatically get calculated multiples like EV/Revenue, EV/EBITDA, and P/E ratio with median, mean, and outlier highlighting.",
+    prompt: `Build a Comparable Company Analyzer for equity research and valuation work.
+
+AI agents:
+1. Data Intake Agent — Accepts company financials (revenue, EBITDA, net income, market cap, total debt, cash, growth rate) via manual entry or CSV upload, validates completeness, and calculates enterprise value (EV = market cap + debt - cash) for each company.
+2. Multiples Agent — Calculates EV/Revenue, EV/EBITDA, and P/E ratio for every company, computes the peer group median, mean, and standard deviation for each multiple, and flags statistical outliers (>1.5 std dev from median).
+3. Valuation Agent — Applies the peer median multiple to a target company's own financials (if provided) to produce an implied valuation range, and writes a short analyst commentary on which peers are most/least comparable and why.
+
+Pages:
+1. Peer Group Builder — Table to add/edit companies with financial inputs, CSV bulk import, inline validation (negative EBITDA flagged, missing fields highlighted).
+2. Comp Table — Full comparable company table: company name, revenue, EBITDA, EV, EV/Revenue, EV/EBITDA, P/E, growth rate. Median and mean rows pinned at bottom. Outlier cells highlighted in amber with a tooltip explaining why.
+3. Valuation Summary — Bar chart comparing each peer's EV/EBITDA multiple against the peer median line, plus an implied valuation range card for the target company using median/mean multiples (low/base/high).
+4. Analyst Report — Auto-generated commentary from the Valuation Agent plus the comp table and chart, exportable as PDF or Excel with formulas intact.
+
+UI: Data-dense, spreadsheet-style table with sortable columns, color-coded outlier highlighting (red high / green low relative to median), professional light theme.
+
+Sample data: Pre-populate with 8 cloud software companies with realistic FY financials and multiples.`,
     tools: ["Webhook"],
     complexity: "Intermediate",
+    sampleFile: { name: "comparable-company-analyzer-sample.csv", url: "/samples/analysts/comparable-company-analyzer.csv" },
   },
   {
     category: "Analysts",
     title: "DCF Model Builder",
     description: "Input revenue projections, margins, capex, and discount rate to calculate free cash flows, present values, and implied share price.",
-    prompt: "Build a DCF valuation tool where I can input revenue projections, margins, capex, working capital changes, discount rate, and terminal growth rate, and it calculates free cash flows, present values, and an implied share price with adjustable assumptions.",
+    prompt: `Build a DCF Model Builder for financial analysts and equity researchers.
+
+AI agents:
+1. Projections Agent — Takes revenue growth assumptions, margin assumptions, capex %, and working capital change % across a 5-10 year horizon and builds out the full projected income statement and free cash flow schedule.
+2. Valuation Agent — Discounts each year's free cash flow to present value using the user's WACC/discount rate, calculates terminal value using the Gordon Growth method (terminal growth rate) or exit multiple method, sums to enterprise value, then bridges to implied equity value and per-share price using shares outstanding and net debt.
+3. Sensitivity Agent — Runs the model across a grid of discount rate x terminal growth rate combinations and produces a sensitivity table/heatmap showing implied share price at each combination, plus identifies which single assumption the valuation is most sensitive to.
+
+Pages:
+1. Assumptions Input — Form for revenue growth (per year or CAGR), EBITDA margin, D&A %, tax rate, capex %, working capital change %, WACC/discount rate, terminal growth rate, shares outstanding, net debt.
+2. Projection Model — Full year-by-year table: revenue, EBITDA, EBIT, taxes, D&A, capex, change in WC, unlevered free cash flow, discount factor, present value. Editable inline with live recalculation.
+3. Valuation Output — KPI tiles for Enterprise Value, Equity Value, Implied Share Price. Waterfall chart bridging EV to equity value. Bar chart of yearly free cash flow and present value.
+4. Sensitivity & Export — Heatmap table of implied share price across discount rate x terminal growth rate grid (color-scaled). Export full model to Excel (with all inputs/formulas visible) or PDF summary.
+
+UI: Financial-modeling aesthetic — monospace numbers, right-aligned columns, green/red for positive/negative deltas, professional light theme with a sticky assumptions panel.
+
+Sample data: Pre-populate with a mid-cap SaaS company DCF (revenue $200M, 20% growth tapering to 3% terminal, 25% EBITDA margin, 9% WACC, 2.5% terminal growth).`,
     tools: ["Webhook"],
     complexity: "Advanced",
+    sampleFile: { name: "dcf-model-builder-sample.csv", url: "/samples/analysts/dcf-model-builder.csv" },
   },
   {
     category: "Analysts",
     title: "ROI & Business Case Calculator",
     description: "Input upfront costs, ongoing costs, expected benefits, and discount rate to automatically get NPV, IRR, payback period, and cash flow chart.",
-    prompt: "Build a business case calculator where I can input the upfront cost, ongoing costs, expected benefits per year, and a discount rate, and automatically get NPV, IRR, payback period, and a cumulative cash flow chart with adjustable assumptions.",
+    prompt: `Build an ROI & Business Case Calculator for consultants and analysts justifying investments.
+
+AI agents:
+1. Cash Flow Agent — Builds a year-by-year cash flow schedule from upfront cost, recurring/ongoing costs, and expected benefits per year across the chosen time horizon.
+2. Financial Metrics Agent — Calculates NPV using the user's discount rate, IRR (via iterative solve), simple and discounted payback period, and benefit-cost ratio.
+3. Risk & Narrative Agent — Flags business cases with thin margins (NPV close to zero, payback beyond 3 years) as "marginal", runs a quick best/worst case using +/-20% benefit variance, and writes a one-paragraph investment recommendation.
+
+Pages:
+1. Business Case Inputs — Form for project name, upfront cost, ongoing annual cost, expected annual benefit (can vary by year), time horizon, discount rate.
+2. Cash Flow Schedule — Table of year-by-year cash flow, cumulative cash flow, and discounted cash flow. Line chart showing cumulative cash flow crossing zero at the payback point.
+3. Results Dashboard — KPI tiles for NPV, IRR, Payback Period, Benefit-Cost Ratio, each with a green/amber/red status badge. Best/worst case range chart (tornado-style) showing NPV under +/-20% benefit swings.
+4. Business Case Report — Auto-generated one-page summary (Narrative Agent recommendation + key metrics + cash flow chart) exportable as PDF, ready to attach to a business case document.
+
+UI: Clean light theme, prominent KPI cards with status badges (green "Strong", amber "Marginal", red "Weak"), Recharts line and bar charts.
+
+Sample data: Pre-populate with a process automation business case ($150K upfront, $20K/year ongoing cost, $80K/year benefit, 5-year horizon, 8% discount rate).`,
     tools: ["Webhook"],
     complexity: "Intermediate",
+    sampleFile: { name: "roi-business-case-calculator-sample.csv", url: "/samples/analysts/roi-business-case-calculator.csv" },
   },
   // ── Data & Analysis ───────────────────────────────────────────────────────
   {
     category: "Data & Analysis",
     title: "Stock Market Analyst",
     description: "Monitor portfolio tickers, aggregate news and analyst ratings, and send a pre-market summary every morning.",
-    prompt: "Build a stock analysis agent that monitors my portfolio tickers, aggregates news and analyst ratings, and sends me a pre-market summary every morning.",
+    prompt: `Build a Stock Market Analyst platform for portfolio monitoring.
+
+AI agents:
+1. News Aggregation Agent — Monitors a user-defined list of portfolio tickers, searches the web for overnight news, earnings announcements, and price-moving events for each ticker, and summarizes each into 1-2 sentences.
+2. Ratings & Sentiment Agent — Aggregates recent analyst rating changes (upgrades/downgrades/price target changes) per ticker and computes an overall sentiment score (Bullish/Neutral/Bearish) based on news tone and rating activity.
+3. Pre-Market Briefing Agent — Compiles the news summaries and sentiment scores into a structured pre-market digest ranked by relevance/magnitude of overnight movement, and drafts an email-ready summary.
+
+Pages:
+1. Portfolio Setup — Add/manage tickers in the watchlist, group into custom categories (e.g. "Core Holdings", "Watch List"), set alert thresholds for price moves.
+2. Pre-Market Dashboard — Card per ticker showing overnight price change %, news summary, sentiment badge, and analyst rating changes. Sorted by absolute price move by default.
+3. News & Ratings Feed — Chronological feed of all aggregated news items and rating changes across the portfolio, filterable by ticker and by sentiment.
+4. Daily Digest & Reports — Auto-compiled pre-market summary formatted for email distribution (send via Email tool), plus a historical archive of past daily digests with a line chart of portfolio sentiment trend over time.
+
+UI: Financial dashboard styling, sentiment badges (green/gray/red), ticker cards with sparkline mini-charts, professional dark-on-light theme.
+
+Sample data: Pre-populate with an 8-ticker portfolio (mix of tech, finance, and healthcare names) with sample overnight news and rating changes.`,
     tools: ["Web Search", "Email", "Webhook"],
     complexity: "Intermediate",
+    sampleFile: { name: "stock-market-analyst-sample.csv", url: "/samples/data-analysis/stock-market-analyst.csv" },
   },
   {
     category: "Data & Analysis",
     title: "Text-to-SQL Explorer",
     description: "Connect to your SQL database and allow plain-English questions to generate charts and reports automatically.",
-    prompt: "Build a data exploration agent that connects to my SQL database and allows me to ask questions in plain English to generate charts and reports.",
+    prompt: `Build a Text-to-SQL Explorer for self-service data analysis.
+
+AI agents:
+1. Schema Understanding Agent — Introspects the connected database schema (tables, columns, relationships) and builds a semantic map so plain-English questions can be matched to the right tables and joins.
+2. Query Generation Agent — Converts a plain-English question into a validated SQL query using the schema map, explains the query logic in plain English, and runs it safely (read-only) against the database.
+3. Visualization Agent — Analyzes the query result shape (single value, time series, categorical breakdown, etc.) and automatically suggests and renders the best chart type (KPI tile, line, bar, pie, table) for the result.
+
+Pages:
+1. Ask a Question — Chat-style input box: "Ask anything about your data" with example prompt chips. Shows the generated SQL (collapsible), the plain-English explanation, and the result — either a chart or table depending on shape.
+2. Schema Explorer — Browsable list of connected tables and columns with descriptions, row counts, and sample values, so users know what's queryable.
+3. Query History — Live list from the database of past questions asked, the SQL generated, and a "re-run" button. Searchable and filterable by date.
+4. Saved Reports — Pin any question+result combo to a personal dashboard of saved charts/tables; export any report to PDF or Excel.
+
+UI: Clean light theme, chat-style question input at top, generated SQL shown in a collapsible code block, chart area below with export icon.
+
+Sample data: Pre-populate with a sample "orders/customers/products" schema and 5 example questions with pre-computed results (e.g. "What were sales by region last quarter?").`,
     tools: ["Webhook", "RAG"],
     complexity: "Advanced",
+    sampleFile: { name: "text-to-sql-explorer-sample.csv", url: "/samples/data-analysis/text-to-sql-explorer.csv" },
   },
   {
     category: "Data & Analysis",
     title: "Excel Data Insights Generator",
     description: "Accept Excel or CSV uploads, identify patterns and anomalies, and generate an executive summary with visualizations.",
-    prompt: "Build a data analysis agent that accepts Excel or CSV uploads, identifies patterns and anomalies, and generates an executive summary with visualizations and actionable insights.",
+    prompt: `Build an Excel Data Insights Generator for quick self-service analysis.
+
+AI agents:
+1. Profiling Agent — Parses an uploaded Excel/CSV file, profiles every column (data type, null %, distinct values, min/max/mean for numeric columns), and detects the likely purpose of the dataset.
+2. Pattern & Anomaly Agent — Scans for statistical outliers, unexpected nulls, duplicate rows, and notable trends or correlations between columns, ranking findings by significance.
+3. Insight Narrative Agent — Synthesizes the profiling and anomaly results into an executive summary: 3-5 key findings in plain English, each paired with a supporting chart, plus 2-3 recommended next actions.
+
+Pages:
+1. Upload & Profile — Drag-and-drop upload for Excel/CSV. Shows a data preview table with per-column stat badges (nulls %, distinct count, type) as soon as parsing completes.
+2. Findings Dashboard — Card list of detected patterns/anomalies (e.g. "Revenue column has 4 outliers above 3 std dev", "Region and Channel are highly correlated"), each with an inline chart (bar/scatter/line as appropriate).
+3. Executive Summary — Auto-generated summary page: key findings narrative, top 3 supporting charts, recommended actions list. Formatted for pasting into a deck or email.
+4. Export & History — Export the full insights report as PDF or Excel (with charts embedded); history list of previously analyzed files with re-open capability.
+
+UI: Clean light theme, drag-and-drop upload zone front and center, stat badges using color (green/amber/red) for data quality signals.
+
+Sample data: Pre-populate with a sample sales transactions CSV (500 rows) containing a few intentional outliers and a null-heavy column for the demo to surface.`,
     tools: ["PDF Parser", "Webhook"],
     complexity: "Intermediate",
+    sampleFile: { name: "excel-data-insights-generator-sample.csv", url: "/samples/data-analysis/excel-data-insights-generator.csv" },
   },
   {
     category: "Data & Analysis",
     title: "Business Intelligence Agent",
     description: "Connect to your ERP or database, generate weekly performance reports across sales, inventory, and finance, and highlight trends.",
-    prompt: "Build a BI agent that connects to my ERP or database, generates weekly performance reports across sales, inventory, and finance, and highlights trends that need attention.",
+    prompt: `Build a Business Intelligence Agent for weekly operational reporting.
+
+AI agents:
+1. Data Sync Agent — Connects to the ERP/database data source, pulls the latest weekly figures across Sales, Inventory, and Finance modules, and reconciles them into a unified weekly snapshot.
+2. Trend Detection Agent — Compares this week's snapshot to prior weeks, calculates week-over-week and month-over-month changes for every key metric, and flags metrics moving outside their normal range (>2 std dev from trailing average).
+3. Report Writing Agent — Drafts a structured weekly performance narrative per module (Sales, Inventory, Finance) highlighting what changed, why it likely happened (based on flagged trends), and what needs attention this week.
+
+Pages:
+1. Executive Dashboard — KPI tiles across Sales (revenue, orders), Inventory (stock levels, turnover), Finance (cash position, AR/AP) with week-over-week delta arrows. Line charts for each module's primary metric over the trailing 12 weeks.
+2. Module Deep Dive — Tabs for Sales / Inventory / Finance, each with a detailed breakdown table and bar/line charts, plus the Trend Detection Agent's flagged anomalies highlighted inline.
+3. Weekly Report — Auto-generated narrative report combining all three modules, formatted for distribution, with a "Needs Attention" callout box listing this week's flagged items.
+4. Report Archive & Export — Searchable history of past weekly reports, export any week's report to PDF or send via Email/Slack.
+
+UI: Executive dashboard styling, module tabs, delta arrows (green up/red down contextual to metric type), professional light theme.
+
+Sample data: Pre-populate with 12 weeks of sample Sales/Inventory/Finance data showing a realistic seasonal dip and one flagged anomaly (inventory stockout risk).`,
     tools: ["Webhook", "Email", "Slack"],
     complexity: "Advanced",
+    sampleFile: { name: "business-intelligence-agent-sample.csv", url: "/samples/data-analysis/business-intelligence-agent.csv" },
   },
   {
     category: "Data & Analysis",
     title: "Customer Analytics Agent",
     description: "Segment users by behavior and demographics, identify churn risk patterns, and recommend targeted retention strategies.",
-    prompt: "Build a customer analytics agent that segments users by behavior and demographics, identifies churn risk patterns, and recommends targeted retention strategies based on the data.",
+    prompt: `Build a Customer Analytics Agent for churn prevention and segmentation.
+
+AI agents:
+1. Segmentation Agent — Clusters uploaded customer data (behavioral + demographic fields) into meaningful segments (e.g. "Power Users", "At-Risk", "New/Onboarding", "Dormant") using rule-based or statistical clustering, and describes each segment's defining characteristics.
+2. Churn Risk Agent — Scores each customer's churn risk (0-100) based on engagement decline, help-request volume, and usage recency, and ranks customers by risk within each segment.
+3. Retention Strategy Agent — For each at-risk segment, recommends 2-3 targeted retention actions (e.g. "re-engagement email sequence", "proactive account check-in", "discount offer") based on the segment's characteristics and churn drivers.
+
+Pages:
+1. Customer Upload & Segments — CSV upload of customer data (usage metrics, demographics, support history). Segmentation Agent auto-clusters and displays segment cards with size and description.
+2. Churn Risk Board — Sortable table of all customers with churn risk score, segment tag, and key risk drivers (e.g. "usage down 40% in 30 days"). Color-coded risk badges (green/amber/red).
+3. Segment Analytics — Bar chart of segment sizes, radar chart comparing segment characteristics (engagement, tenure, spend), line chart of churn risk trend by segment over time.
+4. Retention Playbook — Per-segment recommended actions from the Retention Strategy Agent, with a "Mark Action Taken" tracker and outcome notes field. Export segment lists to CSV for import into your customer database.
+
+UI: Clean light theme, segment cards with distinct colors, risk badges prominent in the customer table, professional analytics dashboard feel.
+
+Sample data: Pre-populate with 200 sample customer records spanning 4 segments with realistic usage/demographic fields and a range of churn risk scores.`,
     tools: ["Webhook", "CRM", "Email"],
     complexity: "Advanced",
+    sampleFile: { name: "customer-analytics-agent-sample.csv", url: "/samples/data-analysis/customer-analytics-agent.csv" },
   },
   {
     category: "Data & Analysis",
     title: "KPI Dashboard Builder",
     description: "Define KPIs with current value, target, and trend direction, then present a clean dashboard that updates as numbers change.",
-    prompt: "Build a KPI dashboard tool where I can define KPIs with their current value, target, and trend direction, organise them into categories, and present a clean dashboard view that updates in real time.",
+    prompt: `Build a KPI Dashboard Builder for cross-functional performance tracking.
+
+AI agents:
+1. KPI Definition Agent — Takes user-defined KPIs (name, current value, target, unit, category, trend direction) and validates completeness, suggesting a sensible visualization type (gauge, line, bar) based on the KPI's nature.
+2. Progress Calculation Agent — Calculates percent-to-target for each KPI, classifies status (On Track / At Risk / Off Track) based on configurable thresholds, and computes trend direction from historical entries if available.
+3. Narrative Agent — Generates a short auto-summary per category (e.g. "Sales KPIs: 3 of 4 on track, Revenue trending up 8% this month") for a quick-scan executive view.
+
+Pages:
+1. KPI Builder — Form to define a KPI: name, category, current value, target value, unit, update frequency. Organize KPIs by drag-and-drop into categories (Sales, Ops, Finance, Customer, etc.).
+2. Live Dashboard — Grid of KPI cards grouped by category, each showing current value, progress bar to target, trend arrow, and status badge (green/amber/red). Updates as new values are logged.
+3. Trend View — Line chart per KPI showing historical values over time (if multiple entries logged), with target line overlay.
+4. Executive Summary & Export — Auto-generated per-category narrative summary from the Narrative Agent, full dashboard export to PDF/PNG for sharing in meetings.
+
+UI: Clean grid dashboard, category color-coding, progress bars and status badges, professional light theme suitable for TV-wall display.
+
+Sample data: Pre-populate with 12 sample KPIs across Sales, Ops, and Customer categories with a mix of on-track/at-risk statuses.`,
     tools: ["Webhook"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "kpi-dashboard-builder-sample.csv", url: "/samples/data-analysis/kpi-dashboard-builder.csv" },
   },
   {
     category: "Data & Analysis",
     title: "Survey Results Analyzer",
     description: "Upload survey results, see response distributions, cross-tabulate by demographics, and filter results dynamically.",
-    prompt: "Build a survey analysis tool where I can upload survey results, see response distributions for each question, cross-tabulate answers by demographics, and filter results dynamically with charts ready for client reports.",
+    prompt: `Build a Survey Results Analyzer for market research analysts.
+
+AI agents:
+1. Response Parsing Agent — Parses an uploaded survey results file (CSV/Excel), identifies question columns and demographic columns, and classifies each question type (multiple choice, scale/Likert, open text, numeric).
+2. Distribution Agent — Calculates response distributions for every question (counts and percentages per option, mean/median for scale questions), and cross-tabulates any question against selected demographic fields.
+3. Insight Agent — Scans open-text responses for common themes/keywords, and writes a short summary of notable findings per question, including any significant demographic differences detected in the cross-tabs.
+
+Pages:
+1. Upload & Question Map — Upload survey data, review auto-detected question types and demographic fields (editable if misclassified).
+2. Question-by-Question View — Select any question to see its response distribution as a bar or pie chart, with a demographic filter panel (age, region, gender, etc.) that updates the chart live.
+3. Cross-Tab Explorer — Pick a question and a demographic dimension to see a cross-tabulated stacked bar chart and data table (e.g. satisfaction score by age group).
+4. Client Report — Auto-compiled report with the Insight Agent's key findings per question, embedded charts, and cross-tab highlights, exportable as PDF ready for client delivery.
+
+UI: Clean light theme, filter panel on the left of the Question-by-Question view, charts styled for client presentation quality.
+
+Sample data: Pre-populate with a 300-respondent customer satisfaction survey (8 questions, 4 demographic fields) with realistic distributions.`,
     tools: ["PDF Parser", "Webhook"],
     complexity: "Intermediate",
+    sampleFile: { name: "survey-results-analyzer-sample.csv", url: "/samples/data-analysis/survey-results-analyzer.csv" },
   },
   {
     category: "Data & Analysis",
     title: "Competitive Landscape Mapper",
     description: "Plot competitors on a customizable 2×2 matrix with defined axes, company positions, and strategic annotations.",
-    prompt: "Build a competitive landscape tool where I can plot competitors on a customisable 2×2 matrix with defined axes, adjust their positions, and add annotations about each competitor's strategy.",
+    prompt: `Build a Competitive Landscape Mapper for strategy and market analysts.
+
+AI agents:
+1. Research Agent — Given a competitor name, searches the web for recent strategic moves, product positioning, pricing, and market share signals, returning structured findings to inform axis placement.
+2. Positioning Agent — Given user-defined axis labels (e.g. "Price" vs "Feature Breadth") and the Research Agent's findings, suggests an initial x/y position for each competitor on the 2x2 matrix with a confidence note.
+3. Narrative Agent — Writes a short strategic annotation per competitor explaining their positioning and what strategic move might shift them on the matrix.
+
+Pages:
+1. Matrix Setup — Define the two axes (label + low/high description for each end), select or add competitors, "Auto-Research" button per competitor to trigger the Research Agent.
+2. Landscape Matrix — Interactive 2x2 (or 2xN) scatter plot with draggable competitor dots, quadrant labels, color-coded by competitor category/tier.
+3. Competitor Detail — Click any competitor dot to see the Research Agent's findings and the Narrative Agent's strategic annotation, editable by the analyst.
+4. Report & Export — Clean exportable matrix image plus a competitor summary table (position, category, annotation), export as PDF or PNG for client decks.
+
+UI: Professional light theme, clean quadrant grid with subtle gridlines, draggable dots with hover tooltips showing competitor name and annotation snippet.
+
+Sample data: Pre-populate with 8 competitors in the "Project Management Software" space plotted on Price vs Feature Breadth axes.`,
     tools: ["Web Search", "Webhook"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "competitive-landscape-mapper-sample.csv", url: "/samples/data-analysis/competitive-landscape-mapper.csv" },
   },
   // ── Analysts (additional) ─────────────────────────────────────────────────
   {
     category: "Analysts",
     title: "Vendor Briefing Note Taker",
     description: "Log vendor briefings with key claims, product updates, differentiators, and your assessment — then search and compare across all briefings.",
-    prompt: "Build a vendor briefing tracker where I can log each briefing with company name, date, key claims, product updates, differentiators, and my assessment, then search across all notes and compare what different vendors said about the same topic.",
+    prompt: `Build a Vendor Briefing Note Taker for analysts tracking vendor relationship intelligence.
+
+AI agents:
+1. Note Structuring Agent — Takes raw briefing notes (typed or pasted transcript) and extracts structured fields: key claims, product updates, roadmap items, differentiators mentioned, and competitive comparisons made by the vendor.
+2. Cross-Briefing Search Agent — Given a topic or keyword (e.g. "pricing model", "AI features"), searches across all logged briefings and returns what each vendor said about that topic, side by side, with source briefing date.
+3. Trend Agent — Analyzes briefings over time per vendor to detect narrative shifts (e.g. messaging pivots, new claims not made in prior briefings) and flags notable changes.
+
+Pages:
+1. Log Briefing — Form: company name, date, attendees, raw notes/transcript paste box. "Structure Notes" button runs the Note Structuring Agent to auto-populate key claims, product updates, and differentiators fields (editable).
+2. Briefing History — Live list from the database, filterable by vendor and date range, searchable by keyword, card view showing date, key claims summary, and assessment badge.
+3. Topic Comparison — Enter a topic; Cross-Briefing Search Agent returns a side-by-side comparison table of what each vendor said, with links back to the source briefing.
+4. Vendor Trend View — Per-vendor timeline of briefings with the Trend Agent's flagged narrative shifts highlighted, plus a simple line chart of "assessment score" over time if the analyst scores each briefing.
+
+UI: Clean light theme, timeline-style briefing history, search bar prominent on Topic Comparison page.
+
+Sample data: Pre-populate with 6 briefings across 3 vendors over the past 2 quarters.`,
     tools: ["RAG", "Webhook"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "vendor-briefing-note-taker-sample.csv", url: "/samples/analysts/vendor-briefing-note-taker.csv" },
   },
   {
     category: "Analysts",
     title: "Inquiry Tracker & Trend Spotter",
     description: "Log client inquiry calls by topic, industry, and company size, then spot trending topics and patterns over time.",
-    prompt: "Build an inquiry tracker where I can log each client call with topic, industry, company size, and what they were trying to solve, then see which topics are trending and which industries are asking about what.",
+    prompt: `Build an Inquiry Tracker & Trend Spotter for analyst relations teams.
+
+AI agents:
+1. Inquiry Logging Agent — Structures raw call notes into fields: topic, industry, company size, problem being solved, and auto-tags the inquiry with 1-3 relevant categories from a taxonomy.
+2. Trend Detection Agent — Analyzes all logged inquiries over time to identify trending topics (rising volume week-over-week), emerging industries asking new questions, and topic clusters that frequently co-occur.
+3. Briefing Agent — Generates a weekly digest summarizing top trending topics, notable industry patterns, and 2-3 illustrative inquiry excerpts, formatted for internal distribution.
+
+Pages:
+1. Log Inquiry — Form: client/company, industry, company size, topic, call notes. Auto-tag suggestion from the Inquiry Logging Agent, editable before saving.
+2. Inquiry Log — Live searchable/filterable table (topic, industry, company size, date) reading from the database.
+3. Trend Dashboard — Bar chart of topic volume this month vs last month, line chart of top 5 topics over the past 6 months, heatmap of industry x topic frequency.
+4. Weekly Digest — Auto-generated summary from the Briefing Agent with trending topics, industry call-outs, and example excerpts. Export as PDF or send via email.
+
+UI: Clean light theme, tag pills for topics, heatmap using color intensity for the industry x topic matrix.
+
+Sample data: Pre-populate with 40 sample inquiries spanning 6 topics and 5 industries over 3 months.`,
     tools: ["Webhook"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "inquiry-tracker-trend-spotter-sample.csv", url: "/samples/analysts/inquiry-tracker-trend-spotter.csv" },
   },
   {
     category: "Analysts",
     title: "Earnings Season Dashboard",
     description: "Track revenue, EPS, and guidance vs consensus for 15+ companies, flag beats/misses, and capture key management quotes.",
-    prompt: "Build an earnings dashboard where I can enter each company's reported revenue, EPS, and guidance alongside consensus estimates, see instant beats/misses/surprises, jot down key management quotes, and flag companies where guidance changed meaningfully.",
+    prompt: `Build an Earnings Season Dashboard for equity research analysts.
+
+AI agents:
+1. Surprise Calculation Agent — Takes reported revenue/EPS/guidance alongside consensus estimates and calculates beat/miss/in-line status and surprise percentage for each metric, per company.
+2. Guidance Change Agent — Compares newly issued guidance to the company's prior guidance and flags "raised", "lowered", or "maintained" with the magnitude of change, highlighting meaningful shifts (>5%).
+3. Summary Agent — Writes a short 2-3 sentence takeaway per company combining the surprise result, guidance direction, and any management quote entered, plus an overall "season summary" once 15+ companies are logged.
+
+Pages:
+1. Log Earnings — Form per company: ticker, reported revenue, consensus revenue, reported EPS, consensus EPS, new guidance, prior guidance, key management quote (free text).
+2. Earnings Board — Live table of all logged companies: ticker, revenue surprise %, EPS surprise %, beat/miss/inline badges (green/red/gray), guidance direction arrow, date reported.
+3. Season Dashboard — Bar chart of EPS surprise % across all companies (sorted), donut chart of beat/miss/inline distribution, list of companies with meaningful guidance changes highlighted.
+4. Management Quotes & Report — Searchable card view of all logged quotes tagged by company and sentiment, plus the Summary Agent's season-level takeaway. Export full dashboard as PDF or Excel.
+
+UI: Data-dense financial dashboard, green/red beat-miss badges, sortable columns, professional light theme.
+
+Sample data: Pre-populate with 15 companies' Q-over-Q earnings results with realistic beats, misses, and guidance changes.`,
     tools: ["Webhook"],
     complexity: "Intermediate",
+    sampleFile: { name: "earnings-season-dashboard-sample.csv", url: "/samples/analysts/earnings-season-dashboard.csv" },
   },
   {
     category: "Analysts",
     title: "Sector Performance Tracker",
     description: "Track YTD and 3-month returns for 20 stocks vs S&P 500 and NASDAQ with ranked tables and charts.",
-    prompt: "Build a sector performance tracker where I can follow about 20 stocks, track each stock's YTD return, 3-month return, and performance vs the S&P 500 and NASDAQ, with a ranked table and chart showing outperformers and laggards.",
+    prompt: `Build a Sector Performance Tracker for equity research and portfolio analysts.
+
+AI agents:
+1. Data Aggregation Agent — Given a list of ~20 tickers, fetches/accepts YTD return, 3-month return, and current price for each, along with the same period returns for S&P 500 and NASDAQ benchmarks.
+2. Relative Performance Agent — Calculates each stock's alpha (return minus benchmark return) for both YTD and 3-month periods, ranks all stocks by relative performance, and classifies each as Outperformer, In-Line, or Laggard.
+3. Sector Insight Agent — Groups stocks by sector (if provided) and writes a short paragraph on which sectors are leading/lagging the benchmark this period and any notable divergence within a sector.
+
+Pages:
+1. Watchlist Setup — Add/edit ~20 tickers with sector tag, CSV bulk import, manual entry of returns or connect to a data feed placeholder.
+2. Ranked Performance Table — Sortable table: ticker, sector, YTD return, 3-month return, alpha vs S&P 500, alpha vs NASDAQ, classification badge (Outperformer/In-Line/Laggard color-coded).
+3. Performance Chart — Bar chart of all stocks ranked by YTD alpha vs S&P 500, with a zero-line reference. Toggle between YTD/3-month view and between S&P 500/NASDAQ benchmark.
+4. Sector Summary & Report — Grouped bar chart of average alpha by sector, Sector Insight Agent commentary, exportable as PDF or Excel for weekly distribution.
+
+UI: Financial dashboard styling, green/red bars for above/below benchmark, sortable data-dense table.
+
+Sample data: Pre-populate with 20 large-cap tickers across 5 sectors with realistic YTD/3-month returns vs S&P 500 and NASDAQ.`,
     tools: ["Web Search", "Webhook"],
     complexity: "Intermediate",
+    sampleFile: { name: "sector-performance-tracker-sample.csv", url: "/samples/analysts/sector-performance-tracker.csv" },
   },
   {
     category: "Analysts",
     title: "IPO Readiness Checklist",
     description: "Score companies across financial performance, governance, market positioning, competitive moat, and risk factors with an overall readiness score.",
-    prompt: "Build an IPO readiness assessment tool where I can score a company across financial performance, governance readiness, market positioning, competitive moat, and risk factors, and get an overall readiness score with flags for areas needing attention.",
+    prompt: `Build an IPO Readiness Checklist platform for capital markets analysts.
+
+AI agents:
+1. Scoring Agent — Takes analyst-entered scores (1-10) across five dimensions — Financial Performance, Governance Readiness, Market Positioning, Competitive Moat, Risk Factors — plus supporting notes per dimension, and calculates a weighted overall readiness score.
+2. Gap Analysis Agent — Identifies the lowest-scoring dimensions, flags any dimension scoring below a configurable threshold (default 6/10) as "needs attention", and suggests 2-3 concrete remediation actions per flagged dimension based on the notes provided.
+3. Benchmark Agent — Compares the company's dimension scores against a reference set of previously assessed companies (or industry norms) to show whether it's ahead of or behind typical IPO-ready peers on each dimension.
+
+Pages:
+1. Assessment Input — Form with the five dimensions, each with a 1-10 slider and a notes textarea for supporting evidence (financials, governance structure, competitive analysis, risk register).
+2. Readiness Dashboard — Radar chart showing the company's score across all five dimensions vs a benchmark overlay. Overall readiness score as a large gauge/KPI tile with a status badge (Ready / Nearly Ready / Not Ready).
+3. Gap Analysis — List view of flagged dimensions with the Gap Analysis Agent's remediation suggestions, sortable by severity (lowest score first).
+4. Assessment History & Report — Track multiple assessments of the same company over time (line chart of overall score trend), export a full readiness report as PDF for IPO committee review.
+
+UI: Professional light theme, radar chart as the centerpiece, gauge-style overall score tile, red/amber/green flags on the gap analysis list.
+
+Sample data: Pre-populate with 2 sample company assessments — one "Nearly Ready" (score 7.2) and one "Not Ready" (score 4.8) — with realistic dimension scores and notes.`,
     tools: ["Webhook"],
     complexity: "Intermediate",
+    sampleFile: { name: "ipo-readiness-checklist-sample.csv", url: "/samples/analysts/ipo-readiness-checklist.csv" },
   },
   // ── Data & Analysis (additional) ──────────────────────────────────────────
   {
     category: "Data & Analysis",
     title: "Consumer Segmentation Tool",
     description: "Define customer segments based on purchase behaviour, demographics, and attitudes, then size each segment and visualize how they differ.",
-    prompt: "Build a consumer segmentation tool where I can define customer segments based on purchase behaviour, demographics, and attitudes, then size each segment, describe their key characteristics, and visualise how they differ on important dimensions.",
+    prompt: `Build a Consumer Segmentation Tool for market research analysts.
+
+AI agents:
+1. Segment Definition Agent — Takes user-defined segmentation criteria (purchase behavior, demographics, attitudinal survey data) and clusters the uploaded consumer dataset into distinct segments, naming each with a descriptive label.
+2. Sizing Agent — Calculates the size (count and % of total) of each segment and computes key summary statistics (average spend, average frequency, top demographic profile) per segment.
+3. Differentiation Agent — Identifies the dimensions on which segments differ most (e.g. price sensitivity, brand loyalty, channel preference) and writes a short comparative description per segment highlighting what makes it distinct.
+
+Pages:
+1. Data Upload & Criteria — Upload consumer dataset (behavioral + demographic + attitudinal columns), select segmentation criteria/dimensions to cluster on.
+2. Segment Overview — Card grid of segments with size (count + %), descriptive name, and 2-3 key characteristics each, generated by the Segment Definition Agent.
+3. Segment Comparison — Radar chart comparing all segments across key dimensions (spend, frequency, loyalty, price sensitivity), plus a bar chart of segment sizes.
+4. Segment Deep Dive & Export — Per-segment detail page with full characteristic breakdown and the Differentiation Agent's narrative, export segment profiles to PDF or Excel for client presentation.
+
+UI: Clean light theme, distinct color per segment used consistently across cards/charts, radar chart as centerpiece of comparison page.
+
+Sample data: Pre-populate with a 500-respondent consumer dataset clustering into 4 segments (e.g. "Value Seekers", "Brand Loyalists", "Convenience Shoppers", "Premium Explorers").`,
     tools: ["Webhook"],
     complexity: "Intermediate",
+    sampleFile: { name: "consumer-segmentation-tool-sample.csv", url: "/samples/data-analysis/consumer-segmentation-tool.csv" },
   },
   {
     category: "Data & Analysis",
     title: "Brand Health Tracker",
     description: "Track awareness, consideration, purchase intent, NPS, and satisfaction for multiple brands each quarter with trend lines and comparisons.",
-    prompt: "Build a brand health tracker where I can enter brand health metrics like awareness, consideration, purchase intent, NPS, and satisfaction for multiple brands each quarter, with trend lines over time, significant change highlights, and side-by-side brand comparisons.",
+    prompt: `Build a Brand Health Tracker for brand and marketing analysts.
+
+AI agents:
+1. Metric Logging Agent — Structures quarterly-entered brand health metrics (awareness, consideration, purchase intent, NPS, satisfaction) per brand, validating ranges and flagging missing quarters.
+2. Change Detection Agent — Compares each brand's metrics quarter-over-quarter, flags statistically or practically significant changes (e.g. >5 point swing), and classifies the change as positive or concerning.
+3. Comparative Insight Agent — Writes a short narrative comparing brands within a category, highlighting which brand is gaining/losing ground on which specific metric and a plausible explanation based on trend patterns.
+
+Pages:
+1. Quarterly Data Entry — Form to log each brand's metrics for the current quarter, with a running view of past quarters for reference.
+2. Brand Trend Dashboard — Line charts per metric (awareness, consideration, purchase intent, NPS, satisfaction) showing trend over time, one line per brand, with significant-change markers annotated on the chart.
+3. Brand Comparison — Side-by-side radar chart comparing selected brands across all metrics for the latest quarter, plus a table of quarter-over-quarter deltas with color-coded significance flags.
+4. Insights Report — Auto-generated comparative narrative from the Comparative Insight Agent, embedded with the key trend charts, exportable as PDF for stakeholder distribution.
+
+UI: Clean light theme, one consistent color per brand across all charts, significant-change markers as small callout icons on trend lines.
+
+Sample data: Pre-populate with 4 competing brands tracked across 6 quarters with realistic metric fluctuations including one notable dip for a brand.`,
     tools: ["Webhook"],
     complexity: "Intermediate",
+    sampleFile: { name: "brand-health-tracker-sample.csv", url: "/samples/data-analysis/brand-health-tracker.csv" },
   },
   {
     category: "Data & Analysis",
     title: "Pricing Research Analyzer",
     description: "Enter Van Westendorp survey data and automatically get the optimal price point, indifference price, and acceptable price range chart.",
-    prompt: "Build a Van Westendorp pricing analysis tool where I can enter responses about what price is too cheap, a bargain, getting expensive, and too expensive, and automatically get the optimal price point, indifference price point, and range of acceptable prices plotted on the classic chart.",
+    prompt: `Build a Pricing Research Analyzer (Van Westendorp Price Sensitivity Meter) for pricing analysts.
+
+AI agents:
+1. Response Intake Agent — Accepts survey responses for the four Van Westendorp questions (Too Cheap, Bargain, Getting Expensive, Too Expensive) per respondent via manual entry or CSV upload, validates logical consistency (e.g. Too Cheap < Bargain < Getting Expensive < Too Expensive) and flags inconsistent respondents.
+2. Curve Calculation Agent — Builds the four cumulative distribution curves from the response data and calculates the key intersection points: Point of Marginal Cheapness, Point of Marginal Expensiveness, Optimal Price Point (OPP), and Indifference Price Point (IPP), deriving the acceptable price range.
+3. Recommendation Agent — Writes a short pricing recommendation summarizing the acceptable range, the optimal price point, and considerations for where within the range to position given stated business goals (e.g. volume vs margin).
+
+Pages:
+1. Data Collection — Form/CSV upload for the four price-point responses per respondent, with a running count and consistency-check status.
+2. Price Sensitivity Chart — The classic Van Westendorp chart: four cumulative curves plotted together with the OPP and IPP intersection points marked and labeled, acceptable range shaded.
+3. Results Summary — KPI tiles for Optimal Price Point, Indifference Price Point, Point of Marginal Cheapness, Point of Marginal Expensiveness, and the full acceptable price range.
+4. Recommendation Report — Auto-generated pricing recommendation from the Recommendation Agent plus the chart and KPIs, exportable as PDF for client/stakeholder presentation.
+
+UI: Clean light theme, classic 4-line intersection chart as centerpiece, shaded acceptable-range band, KPI tiles with currency formatting.
+
+Sample data: Pre-populate with 150 sample respondent price-point sets for a consumer subscription product, yielding a realistic $12-$18 acceptable range.`,
     tools: ["Webhook"],
     complexity: "Advanced",
+    sampleFile: { name: "pricing-research-analyzer-sample.csv", url: "/samples/data-analysis/pricing-research-analyzer.csv" },
   },
   {
     category: "Data & Analysis",
     title: "Data Quality Scorecard",
     description: "Score each data source on completeness, accuracy, timeliness, and consistency, track scores over time, and flag sources that drop below threshold.",
-    prompt: "Build a data quality scorecard where I can score each data source on dimensions like completeness, accuracy, timeliness, and consistency, track these scores over time, produce an overall data health score, and flag sources that drop below threshold.",
+    prompt: `Build a Data Quality Scorecard for data governance analysts.
+
+AI agents:
+1. Scoring Agent — Takes analyst-entered or auto-computed scores (0-100) per data source across Completeness, Accuracy, Timeliness, and Consistency dimensions, and calculates a weighted overall data health score per source.
+2. Threshold Monitoring Agent — Compares each source's overall score and per-dimension scores against a configurable threshold (default 75), flags sources that drop below threshold, and detects which dimension is driving the drop.
+3. Trend Agent — Tracks each source's scores over time (weekly/monthly entries) and writes a short note on sources that are improving, stable, or declining, prioritizing declining sources for attention.
+
+Pages:
+1. Source Registry & Scoring — List of data sources with a scoring form per source (four dimension sliders + notes), auto-calculated overall score displayed live.
+2. Scorecard Dashboard — Grid of source cards showing overall health score (gauge), dimension breakdown (mini radar or bar), and a threshold-flag badge (green/amber/red) for sources below threshold.
+3. Trend View — Line chart of overall score over time per source, with threshold line overlay; table of sources trending down over the last 3 periods.
+4. Governance Report — Auto-compiled report listing flagged sources, root-cause dimension per flag, and the Trend Agent's commentary, exportable as PDF or Excel for data governance review.
+
+UI: Clean light theme, gauge charts for overall score, radar mini-charts per source card, red/amber/green threshold flags.
+
+Sample data: Pre-populate with 10 data sources (customer database, ERP, marketing analytics DB, etc.) scored across the 4 dimensions over 6 months, with 2 sources flagged below threshold.`,
     tools: ["Webhook"],
     complexity: "Intermediate",
+    sampleFile: { name: "data-quality-scorecard-sample.csv", url: "/samples/data-analysis/data-quality-scorecard.csv" },
   },
   {
     category: "Data & Analysis",
     title: "A/B Test Calculator & Reporter",
     description: "Enter visitors and conversions for control and variant to instantly see conversion rates, lift, statistical significance, and whether you have a winner.",
-    prompt: "Build an A/B test calculator where I can enter the number of visitors and conversions for control and variant groups and instantly see conversion rates, absolute and relative lift, statistical significance (p-value), confidence interval, and a plain-English winner declaration.",
+    prompt: `Build an A/B Test Calculator & Reporter for growth and product analysts.
+
+AI agents:
+1. Statistics Agent — Takes visitor and conversion counts for control and variant groups, calculates conversion rates, absolute and relative lift, runs a two-proportion z-test to compute the p-value, and calculates the 95% confidence interval for the lift.
+2. Significance Interpretation Agent — Determines statistical significance at standard thresholds (90%/95%/99%), checks for adequate sample size (minimum detectable effect check), and produces a plain-English winner declaration or "inconclusive, need more data" outcome.
+3. Report Agent — Writes a short summary paragraph explaining the result in non-technical language suitable for sharing with stakeholders, including a caveat about sample size or test duration if applicable.
+
+Pages:
+1. Test Setup — Form: test name, control visitors, control conversions, variant visitors, variant conversions, desired confidence level (90/95/99%).
+2. Results Dashboard — KPI tiles for conversion rate (control vs variant), absolute lift, relative lift %, p-value, confidence interval. Bar chart comparing conversion rates with error bars for the confidence interval.
+3. Significance & Outcome — Large winner declaration banner (green "Variant Wins", gray "Inconclusive", red "Control Wins") with the Significance Interpretation Agent's explanation and sample-size adequacy check.
+4. Test Log & Report — History of past tests run, searchable table, export any test's full result as a PDF one-pager for sharing.
+
+UI: Clean light theme, prominent winner-declaration banner at top of results, bar chart with error bars, KPI tiles below.
+
+Sample data: Pre-populate with 3 past A/B tests (one clear winner, one inconclusive, one control wins) with realistic visitor/conversion counts.`,
     tools: ["Webhook"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "ab-test-calculator-reporter-sample.csv", url: "/samples/data-analysis/ab-test-calculator-reporter.csv" },
   },
   {
     category: "Data & Analysis",
     title: "SQL Query Result Visualiser",
     description: "Paste tabular data from SQL queries and instantly pick from chart types to create presentation-ready visuals.",
-    prompt: "Build a SQL result visualizer where I can paste in tabular data, pick from chart types like bar, line, pie, or scatter, and get charts presentable enough to drop into a Slack message or email.",
+    prompt: `Build a SQL Query Result Visualiser for analysts sharing quick data cuts.
+
+AI agents:
+1. Data Parsing Agent — Parses pasted tabular data (CSV/TSV/query output) into structured rows and columns, auto-detects column types (numeric, categorical, date), and suggests which columns are best suited for X-axis, Y-axis, and grouping.
+2. Chart Recommendation Agent — Based on the data shape (time series, categorical comparison, distribution, correlation), recommends the best chart type (bar, line, pie, scatter) and pre-configures axis mappings.
+3. Styling Agent — Applies presentation-ready styling (clean colors, legible labels, title suggestion based on column names) so the output chart is ready to screenshot into Slack or email without further editing.
+
+Pages:
+1. Paste Data — Large paste box for tabular data. Auto-parses on paste and shows a preview table with detected column types.
+2. Chart Builder — Chart type selector (bar/line/pie/scatter) pre-set by the Chart Recommendation Agent, with axis/field pickers, live chart preview that updates as selections change.
+3. Style & Export — Title/subtitle fields (auto-suggested), color theme picker, "Copy as Image" and "Download PNG" buttons sized for Slack/email embedding.
+4. Recent Charts — History of recently built charts (thumbnail + data snapshot) for quick re-use or re-export.
+
+UI: Minimal clean interface, large paste box front and center, instant chart preview, one-click copy/export actions.
+
+Sample data: Pre-populate the paste box with a sample "monthly signups by channel" dataset ready to visualize on load.`,
     tools: ["Webhook"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "sql-query-result-visualiser-sample.csv", url: "/samples/data-analysis/sql-query-result-visualiser.csv" },
   },
   {
     category: "Data & Analysis",
     title: "Stakeholder Report Generator",
     description: "Enter this week's and last week's key business metrics to automatically get a formatted report with trends, week-over-week changes, and a summary.",
-    prompt: "Build a weekly stakeholder report tool where I can enter this week's numbers and last week's numbers for metrics like revenue, active users, churn, support tickets, and NPS, and automatically get a formatted report showing the trend, week-over-week change, and a summary of what's up and what's down.",
+    prompt: `Build a Stakeholder Report Generator for weekly business updates.
+
+AI agents:
+1. Metrics Intake Agent — Takes this week's and last week's values for key metrics (revenue, active users, churn, support volume, NPS, or any custom metric set), validates entries, and calculates week-over-week absolute and percentage change for each.
+2. Trend Classification Agent — Classifies each metric's movement as "Improving", "Stable", or "Declining" based on direction and magnitude of change, accounting for metrics where "down is good" (e.g. churn, support volume) vs "up is good" (e.g. revenue).
+3. Summary Writing Agent — Drafts a concise "What's Up / What's Down" executive summary paragraph plus a one-line headline for the whole report (e.g. "Solid week: revenue up 6%, churn down slightly, NPS flat").
+
+Pages:
+1. Weekly Entry — Form to enter this week's and last week's value for each tracked metric, with a running list of previously tracked metrics for quick re-entry.
+2. Report Dashboard — KPI tiles per metric showing current value, WoW change (arrow + %), and trend classification badge (green/gray/red, direction-aware). Bar chart comparing this week vs last week across all metrics.
+3. Executive Summary — Auto-drafted headline and "What's Up / What's Down" narrative from the Summary Writing Agent, editable before sending.
+4. Report History & Export — Archive of past weekly reports (searchable by date), export current report as PDF or send directly via Email.
+
+UI: Clean light theme, KPI tiles with directional arrows colored correctly per metric type (not always green=up), headline banner at top of report.
+
+Sample data: Pre-populate with a sample week's data for 5 metrics (revenue, active users, churn, support volume, NPS) showing a realistic mixed week.`,
     tools: ["Email", "Webhook"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "stakeholder-report-generator-sample.csv", url: "/samples/data-analysis/stakeholder-report-generator.csv" },
   },
   {
     category: "Data & Analysis",
     title: "Policy Impact Calculator",
     description: "Input tax policy parameters across income brackets to see estimated revenue impact, who benefits, who pays more, and net budget effect.",
-    prompt: "Build a policy impact calculator where I can input current tax rates, proposed rates, income brackets, and population data, then see the estimated revenue impact, who benefits, who pays more, and the net effect on the budget with adjustable proposed rates.",
+    prompt: `Build a Policy Impact Calculator for public policy analysts.
+
+AI agents:
+1. Tax Modeling Agent — Takes current tax rates, proposed rates, income brackets, and population/taxpayer counts per bracket, and calculates total tax revenue under both current and proposed scenarios.
+2. Distributional Impact Agent — Calculates the per-bracket change in tax burden (who pays more, who pays less, by how much), and classifies each bracket as a net winner or net loser under the proposed policy.
+3. Budget Narrative Agent — Writes a plain-English summary of the net budget impact (revenue gain/loss), which brackets are most affected, and the overall progressivity shift of the proposed change.
+
+Pages:
+1. Policy Inputs — Form: income brackets with current rate, proposed rate, and population/taxpayer count per bracket. "Adjust Proposed Rates" sliders for quick scenario testing.
+2. Revenue Impact Dashboard — KPI tiles for Current Total Revenue, Proposed Total Revenue, Net Budget Impact ($ and %). Bar chart comparing revenue by bracket under current vs proposed rates.
+3. Distributional Analysis — Table and chart showing per-bracket change in average tax burden, color-coded (green = pays less, red = pays more), sorted by income bracket.
+4. Policy Brief & Export — Auto-generated narrative from the Budget Narrative Agent combined with the key charts, exportable as PDF for a policy brief or legislative summary.
+
+UI: Clean, neutral government/policy-report styling, sliders for rate adjustment with live-updating charts, professional light theme.
+
+Sample data: Pre-populate with 5 income brackets, current rates, one proposed rate scenario, and realistic taxpayer population figures.`,
     tools: ["Webhook"],
     complexity: "Advanced",
+    sampleFile: { name: "policy-impact-calculator-sample.csv", url: "/samples/data-analysis/policy-impact-calculator.csv" },
   },
   {
     category: "Data & Analysis",
     title: "Demographic Trend Explorer",
     description: "Upload population data by age, region, income, and education to explore trends and project forward with different growth assumptions.",
-    prompt: "Build a demographic trend explorer where I can upload population data broken down by age, region, income, and education level, explore trends over time, project forward using different growth assumptions, and create clear visualisations for policy briefs.",
+    prompt: `Build a Demographic Trend Explorer for policy and public sector analysts.
+
+AI agents:
+1. Data Ingestion Agent — Parses uploaded population data broken down by age, region, income, and education level across multiple time periods, validating consistency and flagging gaps in the time series.
+2. Trend Analysis Agent — Identifies key demographic trends over time (e.g. aging population share, regional migration patterns, income distribution shifts) and quantifies the rate of change per dimension.
+3. Projection Agent — Projects each dimension forward under user-adjustable growth assumptions (e.g. birth rate, migration rate, income growth), producing a forward-looking scenario alongside the historical trend.
+
+Pages:
+1. Data Upload — Upload population dataset with age/region/income/education breakdowns across time periods, preview and validate the parsed data.
+2. Trend Explorer — Interactive charts (line/area) for each dimension over the historical period, with a dimension/region filter panel to slice the view.
+3. Projection Scenarios — Adjustable assumption sliders (growth rate, migration rate) with a projected trend line extending beyond the historical data, toggle between Conservative/Base/Aggressive presets.
+4. Policy Brief Visuals — Curated set of clean, labeled charts (historical + projected) formatted for a policy brief, exportable as PDF or PNG.
+
+UI: Clean, neutral government-report styling, filter panel on the left, historical data solid line transitioning to dashed projected line.
+
+Sample data: Pre-populate with 20 years of sample population data broken down by 4 age bands, 3 regions, and income/education tiers.`,
     tools: ["PDF Parser", "Webhook"],
     complexity: "Advanced",
+    sampleFile: { name: "demographic-trend-explorer-sample.csv", url: "/samples/data-analysis/demographic-trend-explorer.csv" },
   },
   {
     category: "Data & Analysis",
     title: "Grant & Funding Tracker",
     description: "Track each grant's budget, spend, deadlines, and reporting status with at-risk alerts and a portfolio-level funding health view.",
-    prompt: "Build a grant tracker where I can track each grant's total budget, amount spent, remaining balance, key deadlines, and reporting status, see which grants are at risk of underspending or overspending, which reports are due soon, and get a portfolio-level view of funding health.",
+    prompt: `Build a Grant & Funding Tracker for nonprofit and public sector grant managers.
+
+AI agents:
+1. Budget Tracking Agent — Takes each grant's total budget, amount spent to date, and time elapsed in the grant period, and calculates burn rate, remaining balance, and projected end-of-period spend.
+2. Risk Detection Agent — Compares actual burn rate to the expected pace (based on time elapsed vs grant period), flags grants at risk of underspending (may need reallocation or return of funds) or overspending (budget overrun risk), and flags reporting deadlines due within 30 days.
+3. Portfolio Summary Agent — Rolls up all grants into a portfolio-level funding health view, writing a short summary of overall spend pace, total at-risk funding, and upcoming reporting obligations.
+
+Pages:
+1. Grant Registry — Table/form to add and manage grants: name, funder, total budget, amount spent, grant period start/end, next reporting deadline, reporting status.
+2. Grant Health Dashboard — Card per grant showing burn rate gauge, remaining balance, risk badge (underspending/on-pace/overspending), and days until next report due.
+3. Portfolio View — Stacked bar chart of budget vs spent across all grants, donut chart of portfolio risk distribution, upcoming deadlines timeline (next 90 days).
+4. Reporting & Export — List of reports due soon with reminder status, export full portfolio summary as PDF or Excel, send deadline reminders via Email.
+
+UI: Clean nonprofit/public-sector styling, burn-rate gauges, risk badges (green/amber/red), timeline view for deadlines.
+
+Sample data: Pre-populate with 8 grants of varying size and pace, including one underspending and one overspending example.`,
     tools: ["Email", "Webhook"],
     complexity: "Intermediate",
+    sampleFile: { name: "grant-funding-tracker-sample.csv", url: "/samples/data-analysis/grant-funding-tracker.csv" },
   },
   {
     category: "Data & Analysis",
     title: "Regulatory Compliance Checker",
     description: "List regulations, map them to business practices, score compliance for each, and flag gaps when a regulation changes.",
-    prompt: "Build a compliance checker where I can list regulations, map them to our business practices, score our compliance level for each, flag gaps, and see how our overall compliance posture shifts when a regulation changes.",
+    prompt: `Build a Regulatory Compliance Checker for compliance and risk analysts.
+
+AI agents:
+1. Requirement Mapping Agent — Given a list of compliance requirements and a set of internal business practices/controls, maps each requirement to the relevant practice(s) that address it, flagging requirements with no mapped practice at all.
+2. Compliance Scoring Agent — Takes analyst-entered compliance scores (0-100) per requirement-practice mapping, calculates an overall compliance posture score, and flags gaps below a configurable threshold with a severity rating.
+3. Change Impact Agent — When a compliance requirement is updated, re-evaluates the affected mappings and estimates how the overall compliance posture score would shift, highlighting which practices need review first.
+
+Pages:
+1. Requirement & Practice Registry — Manage lists of compliance requirements and internal business practices, with a mapping matrix to link them.
+2. Compliance Scorecard — Matrix view: compliance requirements as rows, mapped practices as columns, compliance score per cell, overall score per requirement. Color-coded (red/amber/green) gap highlighting.
+3. Gap Analysis — Sorted list of flagged gaps (requirement, unmapped or low-scoring practice, severity), with recommended next steps field for the analyst to fill in.
+4. Change Simulation & Report — Select a compliance requirement, simulate an update to it, see projected posture score shift via the Change Impact Agent, export full compliance report as PDF for audit purposes.
+
+UI: Clean, formal compliance-dashboard styling, matrix view with color-coded cells, severity badges on the gap analysis list.
+
+Sample data: Pre-populate with 10 compliance requirements mapped to 15 internal practices, with 3 intentional gaps for the demo to surface.`,
     tools: ["RAG", "Webhook"],
     complexity: "Advanced",
+    sampleFile: { name: "regulatory-compliance-checker-sample.csv", url: "/samples/data-analysis/regulatory-compliance-checker.csv" },
   },
   {
     category: "Data & Analysis",
     title: "Public Comment Analyzer",
     description: "Upload public comments on proposed regulations, categorize by theme and sentiment, and get a summary for official response documents.",
-    prompt: "Build a public comment analysis tool where I can upload hundreds of public comments on a proposed regulation, have them categorised by theme and sentiment, see which issues came up most frequently, and get a summary of the main arguments for and against thorough enough for an official response document.",
+    prompt: `Build a Public Comment Analyzer for regulatory affairs analysts.
+
+AI agents:
+1. Categorization Agent — Ingests hundreds of uploaded public comments, classifies each into recurring themes (e.g. "Cost Impact", "Environmental Concern", "Implementation Timeline") and tags overall sentiment (Support/Oppose/Neutral).
+2. Frequency Analysis Agent — Tallies theme frequency and sentiment breakdown across all comments, identifies the top issues raised, and surfaces representative comment excerpts for each theme.
+3. Response Drafting Agent — Synthesizes the main arguments for and against the proposed rule into a structured summary suitable as the basis for an official response document, organized by theme with representative quotes cited.
+
+Pages:
+1. Upload Comments — Bulk upload of comment files (CSV/text/PDF), parsing progress indicator, preview of parsed comment count.
+2. Theme & Sentiment Dashboard — Bar chart of comment volume by theme, donut chart of overall sentiment (Support/Oppose/Neutral), sortable table of themes with counts.
+3. Comment Explorer — Browse/search all comments filtered by theme and sentiment, with representative excerpts highlighted per theme.
+4. Response Document Draft — Auto-generated structured summary (by theme, arguments for/against, representative quotes) from the Response Drafting Agent, editable and exportable as a Word-ready PDF for the official response.
+
+UI: Clean, formal government-affairs styling, theme bar chart and sentiment donut side by side, comment excerpts shown as quote cards.
+
+Sample data: Pre-populate with 200 sample public comments on a proposed zoning ordinance, spanning 5 themes with mixed sentiment.`,
     tools: ["PDF Parser", "RAG", "Webhook"],
     complexity: "Advanced",
+    sampleFile: { name: "public-comment-analyzer-sample.csv", url: "/samples/data-analysis/public-comment-analyzer.csv" },
   },
   {
     category: "Data & Analysis",
     title: "SWOT & Strategy Framework Builder",
     description: "Pick a framework (SWOT, Porter's Five Forces, value chain), fill in the analysis, and get a clean professional visual output ready to share.",
-    prompt: "Build a strategy framework tool where I can pick a framework like SWOT, Porter's Five Forces, or value chain analysis, fill in my analysis, and get a clean professional visual output I can share with clients or drop into a presentation.",
+    prompt: `Build a SWOT & Strategy Framework Builder for management consultants and strategy analysts.
+
+AI agents:
+1. Framework Guidance Agent — Given the selected framework (SWOT, Porter's Five Forces, Value Chain), provides guiding prompts/questions for each section to help the analyst fill it in thoroughly (e.g. for Porter's Five Forces: "What substitute products threaten this market?").
+2. Synthesis Agent — Once all sections are filled in, analyzes cross-connections (e.g. a Strength that could offset a Threat in SWOT) and drafts a short "So What" strategic implication paragraph.
+3. Visual Layout Agent — Formats the completed framework into the classic visual layout for that framework type (2x2 grid for SWOT, five-force radial diagram for Porter's, horizontal flow for Value Chain) ready for export.
+
+Pages:
+1. Framework Selection — Choose framework type (SWOT / Porter's Five Forces / Value Chain), name the analysis subject (company/market/product).
+2. Guided Input — Section-by-section input form with the Framework Guidance Agent's prompting questions shown as placeholder hints, auto-save as you type.
+3. Visual Output — Clean, presentation-ready rendering of the completed framework in its classic visual format (SWOT quadrant grid, Porter's radial diagram, or Value Chain flow), with the Synthesis Agent's "So What" callout box.
+4. Library & Export — Save and browse past framework analyses, export any as PDF or PNG for client decks/presentations.
+
+UI: Clean, professional consulting-deck styling, framework-appropriate visual layouts (quadrant/radial/flow), export button prominent.
+
+Sample data: Pre-populate with a sample completed SWOT analysis for a mid-market retail company.`,
     tools: ["Webhook"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "swot-strategy-framework-builder-sample.csv", url: "/samples/data-analysis/swot-strategy-framework-builder.csv" },
   },
   {
     category: "Data & Analysis",
