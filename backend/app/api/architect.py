@@ -1636,6 +1636,108 @@ RIGHT PANEL:
 NOTE: For SUPPORT_APP specifically, "Knowledge Base" as a NAV PAGE NAME is allowed (it's a real feature
 of a support tool), but the RIGHT PANEL header must still say "Attached Files", not "Knowledge Base".
 
+--- IF APP TYPE = MARKETING_APP ---
+Build a Marketing Intelligence platform:
+
+LEFT SIDEBAR (w-56, bg #0f172a, text white):
+- Nav: Dashboard, Content Calendar, Competitors, SEO Audit, Campaigns, Reports
+
+MAIN CONTENT:
+- Dashboard: KPI row (content pieces this month, competitor alerts, SEO opportunities, campaign ROI) +
+  Line chart: organic traffic trend + Bar: content performance by type +
+  Donut: channel distribution
+- Content Calendar: calendar grid view with scheduled posts, drag-and-drop rescheduling,
+  platform icons (LinkedIn/Twitter/Instagram), status badges (draft/scheduled/published)
+- Competitors: table of tracked competitors with weekly change indicators,
+  spider/radar chart comparing share of voice
+- SEO Audit: URL list with score, issues count, opportunity tags; click for detail
+- Campaigns: table with budget, spend, ROI, status; bar chart ROI comparison
+- Reports: downloadable PDF/CSV marketing performance reports
+
+RIGHT PANEL (w-64, bg white, border-l):
+- "Attached Files" (brand guidelines, content docs)
+- "Filter by Channel" pills
+- Trending topics widget
+
+CRITICAL: NEVER use "Knowledge Base" or "Filter by Topic" — use "Attached Files" and "Filter by Channel".
+
+--- IF APP TYPE = DEV_TOOL ---
+Build a developer-facing code intelligence platform:
+
+LEFT SIDEBAR (w-56, bg #0f172a, text white):
+- Nav: Dashboard, Code Reviews, Issues, Documentation, Release Notes, Settings
+
+MAIN CONTENT:
+- Dashboard: KPI row (PRs reviewed today, open bugs, docs coverage %, avg review time) +
+  Line chart: PR velocity trend + Bar: bug count by component +
+  Donut: issue severity distribution
+- Code Reviews: PR list (title, author, repo, status, risk score badge, age) +
+  click opens diff view with AI-annotated comments panel
+- Issues: table (ID, title, severity badge, component, assignee, suggested fix) +
+  bulk triage actions
+- Documentation: file tree of documented/undocumented functions, coverage progress bar,
+  click to generate docs for a file
+- Release Notes: version list, click to view/edit/export changelog; AI-draft button
+- Settings: GitHub repo connections, review rules, notification preferences
+
+RIGHT PANEL (w-64, bg white, border-l):
+- "Attached Files" (codebase docs, style guide)
+- "Filter by Severity" pills
+- Top 5 flagged files widget
+
+CRITICAL: NEVER use "Knowledge Base" or "Filter by Topic" — use "Attached Files" and "Filter by Severity".
+
+--- IF APP TYPE = ANALYST_APP ---
+Build a financial/technology analyst workbench:
+
+LEFT SIDEBAR (w-56, bg #0f172a, text white):
+- Nav: Dashboard, Scorecard, Research, Models, Reports, Notes
+
+MAIN CONTENT:
+- Dashboard: KPI tiles (vendors tracked, criteria defined, top scorer, last updated) +
+  Radar chart: top 3 vendors overlaid + Quadrant scatter plot (user picks X/Y axes)
+- Scorecard: data-dense table — criteria rows x vendor columns, color-coded cells,
+  weighted total row, sort by score, highlight top performer
+- Research: per-vendor research panel. AI-populated fields (web search results).
+  Evidence accordion per criterion.
+- Models: financial model inputs (DCF / Market Sizing / ROI) with live calculated outputs,
+  assumption sliders with real-time chart updates
+- Reports: auto-generated analyst report with executive summary, ranked tables, charts
+  embedded. Export to PDF (jsPDF) or Excel (xlsx).
+- Notes: per-vendor/per-topic note cards with AI summary + analyst's own text
+
+RIGHT PANEL (w-64, bg white, border-l):
+- "Attached Files" (vendor docs, annual reports)
+- "Filter by Category" pills (product maturity, pricing, support, etc.)
+- Comparison quick-select widget
+
+CRITICAL: NEVER use "Knowledge Base" or "Filter by Topic" — use "Attached Files" and "Filter by Category".
+
+--- IF APP TYPE = DATA_APP ---
+Build a Business Intelligence / Data Analytics platform:
+
+LEFT SIDEBAR (w-56, bg #0f172a, text white):
+- Nav: Dashboard, Explorer, Charts, SQL Lab, Reports, Settings
+
+MAIN CONTENT:
+- Dashboard: KPI tiles + Line chart: primary metric trend + Bar chart: breakdown +
+  Scatter/heatmap: correlation view. All charts interactive (hover tooltips, click drill-down).
+- Explorer: upload CSV/Excel. Show data preview table with column stats (nulls %, distinct count,
+  min/max). Column type badges. One-click chart suggestions.
+- Charts: chart builder — pick chart type (bar/line/pie/scatter/heatmap/funnel), X axis, Y axis,
+  color dimension. Live preview. Save to dashboard.
+- SQL Lab: code editor with SQL, run button, results table, "Visualise" button on results
+- Reports: scheduled report list, download historical exports, email report config
+- Settings: data source connections, refresh schedule
+
+RIGHT PANEL (w-64, bg white, border-l):
+- "Attached Files" (data files)
+- "Filter by Dataset" pills
+- Column quick-stats widget
+
+CRITICAL: NEVER use "Knowledge Base" or "Filter by Topic" — use "Attached Files" and "Filter by Dataset".
+
+
 ==================================================
 MANDATORY NAVIGATION RULE (applies to ALL app types with a sidebar/nav)
 ==================================================
