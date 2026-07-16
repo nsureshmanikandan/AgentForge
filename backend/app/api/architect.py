@@ -962,7 +962,61 @@ root.render(<App/>);
 </html>"""
 
 
-UI_GEN_PROMPT = """You are a world-class React engineer and enterprise UX designer. Generate a COMPLETE, self-contained, production-quality HTML application using React 18 + Tailwind CSS that perfectly matches the user's requirements.
+UI_GEN_PROMPT = """==================================================
+MANDATORY ENTERPRISE UI STANDARDS (apply to ALL app types below)
+==================================================
+
+CHARTS: Use Recharts via CDN (https://unpkg.com/recharts/umd/Recharts.js).
+  Available: BarChart, LineChart, PieChart, RadarChart, AreaChart, ScatterChart, FunnelChart.
+  All charts must have: tooltips, legends, responsive container (width="100%" height={300}).
+  Destructure once at top of script: const { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
+  ResponsiveContainer, Tooltip, Legend, XAxis, YAxis, CartesianGrid, RadarChart, Radar, PolarGrid,
+  PolarAngleAxis } = Recharts;
+
+ERROR HANDLING: Every async operation must show:
+  - Loading skeleton (gray animated pulsing div) while fetching
+  - Toast notification (top-right, auto-dismiss 4s) on API error: red background, error message, X button
+  - Empty state (centered icon + message + action button) when data is empty
+  Toast component pattern:
+    const [toast, setToast] = React.useState(null);
+    const showToast = (msg, type) => { setToast({msg, type: type||'error'}); setTimeout(() => setToast(null), 4000); };
+    // In JSX: {toast && <div style={{position:'fixed',top:16,right:16,zIndex:9999,
+    //   background: toast.type==='error'?'#ef4444':'#22c55e',color:'white',padding:'12px 20px',
+    //   borderRadius:8,boxShadow:'0 4px 12px rgba(0,0,0,0.15)',display:'flex',alignItems:'center',gap:8}}>
+    //   {toast.msg}<button onClick={()=>setToast(null)} style={{background:'none',border:'none',color:'white',cursor:'pointer',fontSize:18}}>×</button></div>}
+
+EXPORT: Every app must include Export functionality:
+  - PDF: use jsPDF via CDN (https://unpkg.com/jspdf@latest/dist/jspdf.umd.min.js)
+    Pattern: const { jsPDF } = window.jspdf; const doc = new jsPDF(); doc.text("Title", 10, 10); doc.save("report.pdf");
+  - Excel: use SheetJS via CDN (https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js)
+    Pattern: const ws = XLSX.utils.json_to_sheet(data); const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Sheet1"); XLSX.writeFile(wb, "export.xlsx");
+  Export buttons: slate-800 bg, white text, download icon emoji, positioned in a toolbar or Reports page.
+
+RESPONSIVE: Sidebar collapses to hamburger at screen width < 768px using CSS media query.
+  Add toggle button: visible only on mobile via media query.
+
+COLOR SYSTEM (use as inline styles or Tailwind classes if Tailwind CDN is present):
+  Primary bg: #0f172a (slate-900)  Sidebar text: #f1f5f9
+  Content bg: #f8fafc  Card bg: white  Border: #e2e8f0
+  Primary accent: #6366f1 (indigo-500)  Success: #22c55e  Warning: #f59e0b  Danger: #ef4444
+  Badge backgrounds: indigo #eef2ff text #4f46e5, green #dcfce7 text #16a34a, red #fef2f2 text #dc2626
+
+LOADING SKELETONS:
+  Pattern: <div style={{height:20,background:'#e2e8f0',borderRadius:4,animation:'pulse 1.5s infinite'}}>
+  Add keyframe once in a <style> tag: @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+
+ACCESSIBILITY: All interactive elements must have aria-label. Color contrast ratio >= 4.5:1.
+
+CDN SCRIPTS to include in every generated HTML <head>, in this order:
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/recharts/umd/Recharts.js"></script>
+  <script src="https://unpkg.com/jspdf@latest/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+
+You are a world-class React engineer and enterprise UX designer. Generate a COMPLETE, self-contained, production-quality HTML application using React 18 + Tailwind CSS that perfectly matches the user's requirements.
 
 MANDATORY CDN (always include all 4):
 <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
