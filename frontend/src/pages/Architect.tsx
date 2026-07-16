@@ -4199,17 +4199,37 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
 
   if (uiHtml) {
     const openInBrowser = () => {
-      const blob = new Blob([uiHtml], { type: "text/html" });
-      const url = URL.createObjectURL(blob);
-      // Use anchor click instead of window.open() — bypasses popup blockers
-      const a = document.createElement("a");
-      a.href = url;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      // Open a blank tab synchronously (inside the click handler) so popup blockers
+      // allow it, then write the HTML directly into it. This avoids navigating to a
+      // blob: URL, which some browsers/extensions block with "Preview only supports
+      // localhost URLs" or similar same-origin/security policies.
+      const win = window.open("", "_blank", "noopener,noreferrer");
+      if (win) {
+        try {
+          win.document.open();
+          win.document.write(uiHtml);
+          win.document.close();
+          return;
+        } catch {
+          // fall through to blob fallback below
+        }
+      }
+      // Fallback for environments where document.write into a new tab is blocked —
+      // try the blob-URL approach as a second attempt.
+      try {
+        const blob = new Blob([uiHtml], { type: "text/html" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      } catch {
+        alert("Could not open preview in a new tab. Your browser or an extension may be blocking it.");
+      }
     };
 
     const appSlug = (plan.summary.split(" ").slice(0, 4).join("-") || "agentforge-app")
