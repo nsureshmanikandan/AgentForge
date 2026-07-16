@@ -2026,6 +2026,14 @@ Incorporate ALL of the above changes while keeping everything else from the orig
         if head_end != -1:
             html = html[:head_end + 1] + '\n<meta charset="UTF-8">' + html[head_end + 1:]
 
+    # For CUSTOM (decision/council) apps, enforce correct panel labels
+    # GPT-4o sometimes ignores the explicit instructions in UI_GEN_PROMPT
+    if detected_type == "CUSTOM":
+        html = html.replace("Knowledge Base", "Decision Library")
+        html = html.replace("knowledge base", "decision library")
+        html = html.replace("Filter by Topic", "Filter by Category")
+        html = html.replace("filter by topic", "filter by category")
+
     return {"html": html}
 
 

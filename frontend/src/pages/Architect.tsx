@@ -4128,11 +4128,18 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
 
   if (generatingUI && !uiHtml) {
     const step = progressStep ?? 0;
-    const UI_STEPS = [
+    const isRag = isRagPlan(plan ?? {} as Plan);
+    const UI_STEPS = isRag ? [
       { label: "Reading attached documents",        icon: "📄" },
       { label: "Extracting knowledge base content", icon: "🔍" },
       { label: "Generating chatbot UI",             icon: "🎨" },
       { label: "Wiring RAG & topic filters",        icon: "🔗" },
+      { label: "Sandbox ready",                     icon: "🚀" },
+    ] : [
+      { label: "Analysing app requirements",        icon: "📄" },
+      { label: "Designing layout & components",     icon: "🔍" },
+      { label: "Generating app UI",                 icon: "🎨" },
+      { label: "Wiring interactions & data",        icon: "🔗" },
       { label: "Sandbox ready",                     icon: "🚀" },
     ];
     return (
@@ -4981,11 +4988,17 @@ export default function Architect() {
     { label: "Generating tech stack plan",        icon: "⚙️" },
     { label: "Finalising plan",                   icon: "✅" },
   ];
-  const UI_STEPS = [
+  const UI_STEPS = isRagPlan(plan ?? {} as Plan) ? [
     { label: "Reading attached documents",        icon: "📄" },
     { label: "Extracting knowledge base content", icon: "🔍" },
     { label: "Generating chatbot UI",             icon: "🎨" },
     { label: "Wiring RAG & topic filters",        icon: "🔗" },
+    { label: "Sandbox ready",                     icon: "🚀" },
+  ] : [
+    { label: "Analysing app requirements",        icon: "📄" },
+    { label: "Designing layout & components",     icon: "🔍" },
+    { label: "Generating app UI",                 icon: "🎨" },
+    { label: "Wiring interactions & data",        icon: "🔗" },
     { label: "Sandbox ready",                     icon: "🚀" },
   ];
   // Drive step index from elapsed time so it animates without real backend events
