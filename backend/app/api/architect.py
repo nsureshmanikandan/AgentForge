@@ -1548,7 +1548,18 @@ Build a self-service portal:
 - Notification badge in header
 
 --- IF APP TYPE = COUNCIL_APP ---
-Build a decision intelligence / multi-agent advisor council application with this EXACT 3-column layout:
+Build a decision intelligence / multi-agent advisor council application with this EXACT 3-column layout.
+
+Your App component's top-level return statement MUST have EXACTLY this shape — 3 direct children,
+no more, no fewer (fill in real content, but do NOT add a 4th sibling element like a questions
+list, FAQ panel, or anything else alongside these 3):
+  return (
+    <div className="flex h-screen overflow-hidden app-shell">
+      <aside className="left-sidebar ...">{/* nav + branding, described below */}</aside>
+      <div className="flex-1 flex flex-col overflow-hidden">{/* header + page content, described below */}</div>
+      <aside className="right-panel ...">{/* Decision Library + filters, described below */}</aside>
+    </div>
+  );
 
 LEFT SIDEBAR (w-56, bg #0f172a, text white):
 - App logo/icon (first letter in purple circle) + app name + "Decision Intelligence" tagline
