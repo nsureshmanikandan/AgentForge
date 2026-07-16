@@ -1502,31 +1502,37 @@ Build a self-service portal:
 - Recent activity feed
 - Notification badge in header
 
---- IF APP TYPE = CUSTOM (decision intelligence / multi-agent advisor / council) ---
-Build a decision intelligence app with this EXACT 3-column layout:
+--- IF APP TYPE = CUSTOM (fallback for unclassified apps — infer domain from the prompt) ---
+Build a production-quality multi-page web application. Infer the actual domain and purpose from
+the prompt text below and adapt ALL labels, nav items, and page content to match that domain —
+do NOT default to generic decision/council/chatbot language unless the prompt is actually about
+decisions or councils.
 
 LEFT SIDEBAR (w-56, bg #0f172a, text white):
-- App logo/icon (first letter in purple circle) + app name + tagline
-- Nav buttons: Decision Intake, Decision History, Comparison View, Export Page (each clickable, highlights active in indigo-600)
-- "Live processing" section at bottom: pipeline label "Intake → 5 Advisors → Peer Review → Chairman Verdict"
+- App logo/icon (first letter in purple circle) + app name + domain-appropriate tagline
+- Nav items derived from the app's core features (4-6 items with relevant icons) — name them
+  after what the app actually does, not generic terms like "Decision Intake"
+- Status indicator at bottom relevant to the domain
 
 MAIN CONTENT (flex-1, bg white):
-- Header: app full name + subtitle + "AI Active" and "DB Connected" green badge pills + avatar circle
-- Decision Intake page (default): form with Title, Question, Context, Constraints, Stakes fields + "Submit to Council" button
-- Decision History page: searchable table with columns ID, Title, Tag, Status, Confidence, Alignment, Updated; rows with real sample data from domain
-- Comparison View page: side-by-side card comparison of 2-3 past decisions
-- Export Page: export options (PDF, CSV, Excel) with preview
+- Header: app full name + subtitle + 2 status badge pills (e.g. "AI Active", "DB Connected") + avatar
+- Dashboard (default): KPI cards relevant to the domain + at least one chart (bar or line using Recharts)
+- Feature pages: one page per major feature described in the prompt, with domain-appropriate
+  forms, tables, or views (not the council Decision Intake / Verdict pattern unless the prompt
+  is actually about decisions or councils)
+- Reports/Export page: always include an export page with PDF/CSV download buttons
 
 RIGHT PANEL (w-64, bg white, border-l):
-- Header: "Decision Library" (NOT "Knowledge Base") with count badge
-- List of uploaded files (show any attached CSV/Excel as Decision Dataset cards with name and "✓ Indexed" tag)
+- "Attached Files" header with count badge (NOT "Knowledge Base")
+- List of uploaded files as domain-relevant cards (e.g. "Dataset", "Document") with a "✓ Indexed" tag
 - "Session" section: Messages count, Last Query timestamp
-- "Filter by Category" section (NOT "Filter by Topic"): category pills from decision data (e.g. "Strategy", "Operations", "Hiring") each with count badge
+- "Filter by Category" section (NOT "Filter by Topic"): category pills derived from the domain
 
 CRITICAL:
-- NEVER use "Knowledge Base", "Filter by Topic", or chatbot-style language
-- Use "Decision Library", "Filter by Category", "Decision Dataset" instead
-- All branding and labels must reflect the app name and domain, not generic IT support
+- NEVER use "Knowledge Base", "Filter by Topic", or generic chatbot-style language
+- Use "Attached Files", "Filter by Category" instead
+- All branding, nav labels, and page content must reflect the app's actual domain and purpose
+  from the prompt — infer it, don't default to decision/council templates
 
 --- IF APP TYPE = HR_APP ---
 Build an enterprise HR application with this EXACT 3-column layout:
@@ -2318,13 +2324,70 @@ Incorporate ALL of the above changes while keeping everything else from the orig
         if head_end != -1:
             html = html[:head_end + 1] + '\n<meta charset="UTF-8">' + html[head_end + 1:]
 
-    # For CUSTOM (decision/council) apps, enforce correct panel labels
-    # GPT-4o sometimes ignores the explicit instructions in UI_GEN_PROMPT
-    if detected_type == "CUSTOM":
-        html = html.replace("Knowledge Base", "Decision Library")
-        html = html.replace("knowledge base", "decision library")
-        html = html.replace("Filter by Topic", "Filter by Category")
-        html = html.replace("filter by topic", "filter by category")
+    # Domain-specific label normalization — GPT-4o sometimes ignores prompt instructions
+    # and falls back to generic "Knowledge Base" / "Filter by Topic" chatbot labels.
+    _DOMAIN_LABEL_FIXES = {
+        "HR_APP": [
+            ("Knowledge Base", "Attached Files"),
+            ("knowledge base", "attached files"),
+            ("Filter by Topic", "Filter by Department"),
+            ("filter by topic", "filter by department"),
+        ],
+        "SALES_APP": [
+            ("Knowledge Base", "Attached Files"),
+            ("knowledge base", "attached files"),
+            ("Filter by Topic", "Filter by Stage"),
+            ("filter by topic", "filter by stage"),
+        ],
+        "LEGAL_APP": [
+            ("Knowledge Base", "Attached Files"),
+            ("knowledge base", "attached files"),
+            ("Filter by Topic", "Filter by Risk Level"),
+            ("filter by topic", "filter by risk level"),
+        ],
+        "MARKETING_APP": [
+            ("Knowledge Base", "Attached Files"),
+            ("knowledge base", "attached files"),
+            ("Filter by Topic", "Filter by Channel"),
+            ("filter by topic", "filter by channel"),
+        ],
+        "DEV_TOOL": [
+            ("Knowledge Base", "Attached Files"),
+            ("knowledge base", "attached files"),
+            ("Filter by Topic", "Filter by Severity"),
+            ("filter by topic", "filter by severity"),
+        ],
+        "ANALYST_APP": [
+            ("Knowledge Base", "Attached Files"),
+            ("knowledge base", "attached files"),
+            ("Filter by Topic", "Filter by Category"),
+            ("filter by topic", "filter by category"),
+        ],
+        "DATA_APP": [
+            ("Knowledge Base", "Attached Files"),
+            ("knowledge base", "attached files"),
+            ("Filter by Topic", "Filter by Dataset"),
+            ("filter by topic", "filter by dataset"),
+        ],
+        "COUNCIL_APP": [
+            ("Knowledge Base", "Decision Library"),
+            ("knowledge base", "decision library"),
+            ("Filter by Topic", "Filter by Category"),
+            ("filter by topic", "filter by category"),
+        ],
+        "CUSTOM": [
+            ("Knowledge Base", "Attached Files"),
+            ("knowledge base", "attached files"),
+            ("Filter by Topic", "Filter by Category"),
+            ("filter by topic", "filter by category"),
+        ],
+    }
+    # SUPPORT_APP deliberately excluded — "Knowledge Base" is a legitimate nav page there;
+    # only its right-panel usage needs fixing, which the prompt instructions already handle
+    # since the nav page and right-panel header are structurally distinct in the generated HTML.
+
+    for old, new in _DOMAIN_LABEL_FIXES.get(detected_type, []):
+        html = html.replace(old, new)
 
     return {"html": html}
 
