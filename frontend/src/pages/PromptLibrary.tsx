@@ -1876,9 +1876,25 @@ Sample data: Pre-populate with a sample completed SWOT analysis for a mid-market
     category: "Data & Analysis",
     title: "Process Efficiency Benchmarker",
     description: "Enter cycle time, cost per transaction, error rate, and throughput for your client and industry benchmarks to quantify gaps and estimate improvement value.",
-    prompt: "Build a process benchmarking tool where I can enter metrics like cycle time, cost per transaction, error rate, and throughput for my client and for industry benchmarks, see where my client is above or below standard, calculate the gap, and estimate the value of closing it.",
+    prompt: `Build a Process Efficiency Benchmarker for operations analysts and consultants.
+
+AI agents:
+1. Metrics Intake Agent — Takes client-reported metrics (cycle time, cost per transaction, error rate, throughput) alongside industry benchmark figures for the same metrics, and validates units/consistency across entries.
+2. Gap Analysis Agent — Calculates the gap between client performance and benchmark for each metric, classifies each as above/at/below standard, and ranks metrics by improvement opportunity size.
+3. Value Estimation Agent — Estimates the financial value of closing each gap (e.g. cost savings from reduced cycle time or error rate) using client-provided volume and unit-cost assumptions, and writes a short prioritized improvement narrative.
+
+Pages:
+1. Metrics Input — Form to enter client metrics and matching industry benchmark figures per process area, with unit validation.
+2. Gap Dashboard — Bar chart comparing client vs benchmark per metric, KPI tiles for the metric with the largest gap, color-coded above/at/below standard badges.
+3. Value Estimate — Table of estimated improvement value per metric, sorted by opportunity size, with the Value Estimation Agent's prioritized narrative.
+4. Report — Auto-generated benchmarking report combining the gap dashboard and value estimates, exportable as PDF or Excel for client delivery.
+
+UI: Clean light theme, benchmark comparison bars with a clear above/below reference line, professional consulting-report styling.
+
+Sample data: Pre-populate with a sample client process (order fulfillment) showing cycle time, cost per transaction, error rate, and throughput vs industry benchmark figures.`,
     tools: ["Webhook"],
     complexity: "Intermediate",
+    sampleFile: { name: "process-efficiency-benchmarker-sample.csv", url: "/samples/data-analysis/process-efficiency-benchmarker.csv" },
   },
   // ── General (additional) ──────────────────────────────────────────────────
   {
