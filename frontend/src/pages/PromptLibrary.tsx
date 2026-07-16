@@ -45,33 +45,109 @@ Database: Persist every decision run with full advisor outputs, peer reviews, ve
     category: "General",
     title: "Deep Research Assistant",
     description: "Search the web, synthesize information from multiple sources, and produce comprehensive reports with citations on any topic.",
-    prompt: "Build a research assistant agent that can search the web, synthesize information from multiple sources, and provide comprehensive reports with citations on any given topic.",
+    prompt: `Build a Deep Research Assistant that takes any research topic and produces a comprehensive, cited report.
+
+AI agents:
+1. Query Planner Agent — Breaks the research topic into 4-8 focused sub-questions, identifies what source types are needed (news, academic, market data, forums), and builds a research plan with priority order.
+2. Web Research Agent — Executes web searches for each sub-question in parallel, retrieves and scrapes top results, extracts relevant passages, and tags each finding with source URL, publish date, and credibility score (1-5).
+3. Synthesis Agent — Merges findings across all sub-questions into a coherent narrative, resolves contradictions between sources by noting disagreement explicitly, and organizes content into report sections with inline numbered citations.
+4. Fact-Check & Citation Agent — Verifies each claim in the draft report traces back to a specific source passage, flags any unsupported claims, and formats a final bibliography with clickable links.
+5. Report Formatter Agent — Produces the final deliverable: executive summary, table of contents, body sections, key findings callout boxes, and a "Confidence & Gaps" appendix noting what remains uncertain.
+
+Pages:
+1. Research Intake — Form with fields: Research Topic (required), Depth (Quick/Standard/Deep), Focus Areas (tags), Excluded domains. Submit shows a live progress stepper: Planning → Researching (per sub-question progress bars) → Synthesizing → Fact-Checking → Formatting.
+2. Report View — Full report with sticky table of contents sidebar, expandable source citations (click a citation number to see the source passage in a popover), credibility score badges per source, and a "Key Findings" highlight panel at the top.
+3. Source Explorer — Table of every source used across all sub-questions (URL, title, credibility score, sub-question it answered, retrieval date). Filter by credibility score or sub-question. Bar chart: sources by credibility tier.
+4. Research History — Live list from the database (NOT hardcoded) of past research runs: topic, date, number of sources, report length, status badge. Click to reopen a completed report.
+5. Export & Reports Page — Export any report to PDF (jsPDF, with citations and bibliography) or Word-style formatted text. Line chart: research runs over time. Table: most-researched topics.
+
+UI: Clean two-column layout — collapsible left nav (Intake, Reports, Sources, History), main content area with the report/table view. Citations rendered as small superscript numbers that open a source popover on click. Progress stepper uses animated indigo dots during the pipeline run.
+
+Database: Persist every research run with sub-questions, all sources with credibility scores, synthesized report text, and fact-check flags. History page reads live from the DB.`,
     tools: ["Web Search", "RAG", "PDF Parser"],
-    complexity: "Intermediate",
+    complexity: "Advanced",
+    sampleFile: { name: "deep-research-assistant-sample.csv", url: "/samples/general/deep-research-assistant.csv" },
   },
   {
     category: "General",
     title: "Project Manager",
     description: "Break down complex goals into actionable tasks, assign deadlines, and track progress through daily check-ins.",
-    prompt: "Build a project management agent that helps break down complex goals into actionable tasks, assigns deadlines, and tracks progress updates through daily check-ins.",
+    prompt: `Build a Project Manager agent that breaks down goals into tasks, tracks progress, and keeps the team accountable through automated check-ins.
+
+AI agents:
+1. Goal Decomposition Agent — Takes a high-level project goal and constraints (deadline, team size, budget), and breaks it into epics, tasks, and subtasks with estimated effort (story points or hours) and dependency mapping.
+2. Scheduler & Assignment Agent — Assigns tasks to team members based on stated skills/availability, sets due dates working backward from the project deadline, and flags scheduling conflicts or over-allocated team members.
+3. Check-in Agent — Sends daily/weekly automated check-in prompts to each assignee via Slack/email, collects status updates (On Track / At Risk / Blocked), and parses free-text replies into structured status.
+4. Risk & Blocker Agent — Monitors task status trends, detects tasks trending toward missed deadlines, flags blockers reported in check-ins, and proposes mitigation options (reassign, extend deadline, reduce scope).
+5. Reporting Agent — Compiles a weekly project health report: burndown chart, task completion rate, at-risk task list, and a plain-language summary for stakeholders.
+
+Pages:
+1. Project Setup — Form: Project Name, Goal Description, Deadline, Team Members (name + skills + availability), Budget (optional). Submit triggers the Goal Decomposition Agent to generate the initial task breakdown for review/edit.
+2. Task Board — Kanban board (Backlog, In Progress, At Risk, Blocked, Done) with drag-and-drop, task cards showing assignee avatar, due date, priority badge, and story points.
+3. Check-in Center — Daily check-in feed showing each team member's latest status update, with sentiment/risk flags (green/yellow/red dot) and a "Send reminder" button for overdue check-ins.
+4. Dashboard — KPI row (tasks completed this week, at-risk count, on-time completion rate, days to deadline) + burndown chart (Line) + task distribution by team member (Bar) + status breakdown (Donut).
+5. Reports Page — Weekly health report list, each with a summary card. Export any report to PDF or Excel. Historical burndown trend chart across all past reports.
+
+UI: Slate-900 sidebar, Kanban board as centerpiece with color-coded priority badges (P1 red, P2 amber, P3 gray). Check-in feed styled like a chat/activity stream with colored risk dots per entry.
+
+Database: Persist projects, tasks, assignments, check-in history, and generated reports. Dashboard and Reports read live from the DB.`,
     tools: ["Calendar", "Email", "Slack"],
-    complexity: "Intermediate",
+    complexity: "Advanced",
+    sampleFile: { name: "project-manager-sample.csv", url: "/samples/general/project-manager.csv" },
   },
   {
     category: "General",
     title: "Voice AI Receptionist",
     description: "Answer inbound calls, respond to FAQs about your business, book appointments on Google Calendar, and transfer to a human when needed.",
-    prompt: "Build a voice AI receptionist that answers inbound calls, responds to FAQs about my business, books appointments on Google Calendar, and transfers to a human when needed.",
+    prompt: `Build a Voice AI Receptionist that answers inbound business calls, handles FAQs, books appointments, and escalates to a human when needed.
+
+AI agents:
+1. Call Intake & Intent Agent — Answers the inbound call, greets the caller, transcribes speech in real time, and classifies intent (FAQ question, appointment booking, complaint, request for human, other).
+2. FAQ Answer Agent — Searches the business knowledge base (hours, services, pricing, location, policies) via RAG and responds conversationally with natural speech-friendly phrasing (short sentences, no bullet points read aloud).
+3. Appointment Booking Agent — Checks Google Calendar availability, proposes 2-3 open slots to the caller, confirms the chosen slot, collects caller name/phone/reason for visit, and creates the calendar event with a confirmation callback/SMS.
+4. Escalation Agent — Detects when the caller explicitly asks for a human, is frustrated (negative sentiment), or the FAQ Agent has low confidence (<70%), and transfers the call with a spoken summary handed to the human receptionist.
+5. Call Quality & Analytics Agent — Scores each call transcript for resolution success, logs call duration, outcome (resolved/booked/escalated/abandoned), and produces daily call volume and outcome reports.
+
+Pages:
+1. Live Calls — Real-time view of active and recent calls: caller number, duration, current intent, live transcript snippet, status (in-progress/resolved/escalated). Click to open full transcript.
+2. Call Transcript View — Full conversation transcript with speaker labels (Caller / AI), timestamps, and the detected intent + confidence score. Highlighted moments where the AI consulted the knowledge base or checked the calendar.
+3. Appointments — Table of bookings made by the AI (caller name, requested slot, confirmed slot, reason, status) synced with a calendar view. Reschedule/cancel actions.
+4. Knowledge Base Manager — Manage FAQ entries (question, answer, category). See which FAQs are asked most often, flag gaps from unanswered questions.
+5. Analytics Dashboard — KPI row (calls today, resolution rate, escalation rate, avg call duration) + Bar chart: call volume by hour + Donut: outcome distribution (resolved/booked/escalated/abandoned) + Line chart: daily call trend.
+
+UI: Dashboard-first layout with a prominent "Live Calls" ticker at the top. Transcript view styled like a chat log with a phone/waveform icon per caller turn. Knowledge Base and Appointments as standard nav pages.
+
+Database: Persist every call with full transcript, detected intent, outcome, and any appointment created. Analytics reads live from the DB.`,
     tools: ["Calendar", "Knowledge Base", "Webhook"],
     complexity: "Advanced",
+    sampleFile: { name: "voice-ai-receptionist-sample.csv", url: "/samples/general/voice-ai-receptionist.csv" },
   },
   {
     category: "General",
     title: "Career Advisor Chatbot",
     description: "Review skills and experience, generate personalized career roadmaps, suggest skill gaps to fill, and provide mock interview practice.",
-    prompt: "Build a career advisor agent that reviews a user's skills and experience, generates personalized career roadmaps, suggests skill gaps to fill, and provides mock interview practice.",
+    prompt: `Build a Career Advisor Chatbot that reviews a user's background and produces a personalized career roadmap with skill-gap analysis and mock interview practice.
+
+AI agents:
+1. Profile Analysis Agent — Parses the user's resume/LinkedIn profile and self-reported skills, extracts current role, years of experience, skills, and stated career goal, and produces a structured profile summary.
+2. Market Research Agent — Searches the web for target-role job postings and industry trend reports to identify in-demand skills, typical career progression paths, and realistic salary bands for the target role.
+3. Roadmap Generation Agent — Compares the user's current profile against market requirements, generates a phased career roadmap (0-3mo, 3-6mo, 6-12mo, 1-2yr) with specific milestones, and flags the top 3-5 skill gaps to close first.
+4. Mock Interview Agent — Conducts a simulated interview for the target role: asks behavioral and technical questions one at a time, evaluates each answer against a rubric (clarity, structure, relevance, depth), and gives specific improvement feedback.
+5. Progress Tracking Agent — Tracks which roadmap milestones and recommended courses/certifications the user has marked complete, and recalculates readiness score toward the target role over time.
+
+Pages:
+1. Profile Intake — Upload resume (PDF/DOCX) or fill a form (current role, skills, years experience, target role, target timeline). Submit triggers profile analysis and market research.
+2. Career Roadmap — Visual timeline (0-3mo/3-6mo/6-12mo/1-2yr phases) with milestone cards, each showing recommended actions (course, certification, project, networking). Readiness score gauge at the top.
+3. Skill Gap Analysis — Radar chart comparing user's current skill levels vs. target-role requirements. Table of top gaps ranked by impact, each with 2-3 recommended resources.
+4. Mock Interview — Chat-style interview simulator. After each answer, shows a scorecard (clarity/structure/relevance/depth bars) and written feedback. Session summary at the end with overall score trend across sessions.
+5. Progress Dashboard — KPI row (milestones completed, readiness score, interview sessions done, avg interview score) + Line chart: readiness score over time + checklist view of roadmap milestones with completion toggles.
+
+UI: Friendly, encouraging tone throughout (progress bars, celebratory badges on milestone completion). Sidebar nav: Profile, Roadmap, Skill Gaps, Mock Interview, Progress. Radar chart and readiness gauge in brand indigo.
+
+Database: Persist user profile, roadmap, skill gap analysis, interview session transcripts/scores, and milestone completion status.`,
     tools: ["RAG", "Web Search"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "career-advisor-chatbot-sample.csv", url: "/samples/general/career-advisor-chatbot.csv" },
   },
   {
     category: "General",
@@ -94,88 +170,279 @@ UI: Clean sidebar with document list on the left, chat on the right. Citations a
 Sample data: Pre-load with 3 sample company documents (HR Policy, IT Security Guidelines, Benefits Guide) so the agent is ready to answer questions immediately.`,
     tools: ["RAG", "Knowledge Base", "PDF Parser"],
     complexity: "Starter",
+    sampleFile: { name: "knowledge-base-qa-bot-sample.csv", url: "/samples/general/knowledge-base-qa-bot.csv" },
   },
   // ── Marketing ─────────────────────────────────────────────────────────────
   {
     category: "Marketing",
     title: "Content Marketing Team",
     description: "Write blog posts, create social media content, perform SEO analysis, and generate graphics for your brand.",
-    prompt: "Build a marketing team of agents that can write blog posts, create social media content, perform SEO analysis, and generate graphics for my brand.",
+    prompt: `Build a Content Marketing Team — a coordinated group of agents that plan, write, optimize, and schedule brand content.
+
+AI agents:
+1. Content Strategist Agent — Takes the brand's content goals, target audience, and pillars, and generates a monthly content calendar of blog and social topics mapped to funnel stage (awareness/consideration/conversion).
+2. Blog Writer Agent — Drafts full blog posts from the calendar (intro, body sections with subheads, conclusion, CTA) in the brand's specified tone of voice, with placeholder image briefs for the Graphics Agent.
+3. Social Content Agent — Repurposes each blog post into platform-specific social posts (LinkedIn, Twitter/X, Instagram caption) with hashtags and optimal posting time suggestions.
+4. SEO Analyst Agent — Reviews each draft for target keyword usage, meta title/description, readability score, and internal linking opportunities; returns a scored checklist with fixes.
+5. Graphics Brief Agent — Generates image/graphic briefs per piece (concept description, dimensions, brand colors, text overlay suggestions) ready to hand to a designer or image generator.
+
+Pages:
+1. Content Calendar — Monthly calendar grid showing scheduled blog posts and social posts, color-coded by funnel stage, drag-and-drop rescheduling, status badges (idea/drafting/review/scheduled/published).
+2. Draft Workspace — Split view: blog draft on the left with inline SEO score annotations, generated social variants on the right (LinkedIn/Twitter/Instagram tabs), graphics brief panel below.
+3. SEO Scorecard — Table of all content pieces with SEO score (0-100), keyword usage, readability grade, and flagged issues. Bar chart: average SEO score trend over time.
+4. Performance Dashboard — KPI row (pieces published this month, avg SEO score, social posts scheduled, top-performing piece) + Line chart: content output over time + Donut: content mix by funnel stage.
+5. Reports Page — Export monthly content performance report to PDF/Excel with calendar summary, SEO scorecard, and social scheduling summary.
+
+UI: Calendar-first landing page. Draft Workspace uses a document-editor feel (serif font for blog body) with a floating SEO score badge. Social variant tabs styled like platform mockups (LinkedIn card, tweet card, Instagram caption card).
+
+Database: Persist the content calendar, all drafts and revisions, SEO scores, and social variants per piece.`,
     tools: ["Web Search", "Email", "Webhook"],
     complexity: "Advanced",
+    sampleFile: { name: "content-marketing-team-sample.csv", url: "/samples/marketing/content-marketing-team.csv" },
   },
   {
     category: "Marketing",
     title: "Competitor Analysis Agent",
     description: "Monitor competitors' websites, social media, and news mentions to provide weekly strategic reports.",
-    prompt: "Build a competitor analysis agent that monitors my competitors' websites, social media, and news mentions to provide weekly strategic reports.",
+    prompt: `Build a Competitor Analysis Agent that continuously monitors named competitors and produces weekly strategic intelligence reports.
+
+AI agents:
+1. Web Monitoring Agent — Crawls each tracked competitor's website (pricing page, product pages, blog) on a schedule, diffs content against the last snapshot, and flags meaningful changes (new feature, price change, new page).
+2. Social & Press Monitoring Agent — Searches for competitor mentions across social media and news/press outlets, classifies each mention by sentiment and topic (product launch, funding, hiring, controversy).
+3. Share-of-Voice Agent — Aggregates mention volume and sentiment across all tracked competitors plus the user's own brand, and computes relative share-of-voice and sentiment trend.
+4. Strategic Synthesis Agent — Combines website changes, mentions, and share-of-voice data into a weekly strategic brief: key moves, threats, opportunities, and 3 recommended actions.
+5. Report Distribution Agent — Formats the weekly brief into an email-ready summary and a full PDF report, and sends it to configured stakeholders on a schedule.
+
+Pages:
+1. Competitor Roster — Manage tracked competitors (name, website URL, social handles). Add/remove/edit. Last-crawled timestamp per competitor.
+2. Change Feed — Chronological feed of detected website changes and mentions per competitor, with type badges (Pricing Change/New Feature/Press/Social) and a diff view for website changes.
+3. Share-of-Voice Dashboard — Radar chart comparing share-of-voice across all tracked competitors + your brand. Line chart: sentiment trend per competitor over time. Bar chart: mention volume by source.
+4. Weekly Brief — List of past weekly strategic briefs, each expandable to show key moves, threats/opportunities, and recommended actions. Export any brief to PDF.
+5. Settings — Configure crawl frequency, keyword watchlist, and stakeholder email distribution list.
+
+UI: Change Feed styled like an activity/timeline stream with competitor logos/initials as avatars. Share-of-Voice dashboard uses radar + line charts prominently on the main dashboard. Weekly Brief pages formatted like a clean executive memo.
+
+Database: Persist competitor roster, all detected changes/mentions with timestamps and sentiment, and generated weekly briefs.`,
     tools: ["Web Search", "Email", "Webhook"],
-    complexity: "Intermediate",
+    complexity: "Advanced",
+    sampleFile: { name: "competitor-analysis-agent-sample.csv", url: "/samples/marketing/competitor-analysis-agent.csv" },
   },
   {
     category: "Marketing",
     title: "SEO Content Optimizer",
     description: "Audit website content, identify keyword opportunities, and generate optimized meta titles, descriptions, and internal linking suggestions.",
-    prompt: "Build an SEO agent that audits my website content, identifies keyword opportunities, generates optimized meta titles and descriptions, and suggests internal linking improvements.",
+    prompt: `Build an SEO Content Optimizer that audits an entire website's content and produces a prioritized optimization plan.
+
+AI agents:
+1. Site Crawler Agent — Crawls the target website's URLs, extracts existing meta titles/descriptions, headings, word count, and internal link structure for every page.
+2. Keyword Opportunity Agent — Researches search volume and difficulty for keywords relevant to each page's topic, identifies gap keywords (high volume, low current ranking), and maps opportunity keywords to specific pages.
+3. On-Page Audit Agent — Scores each page on-page SEO factors (title length/keyword presence, meta description quality, heading structure, keyword density, readability) and produces a 0-100 SEO score with specific fixes.
+4. Meta Rewrite Agent — Generates optimized meta title and description variants (2-3 options each) for pages scoring below threshold, respecting character limits and including the target keyword naturally.
+5. Internal Linking Agent — Analyzes the site's link graph, identifies orphaned or under-linked high-value pages, and suggests specific internal link additions (source page, anchor text, target page).
+
+Pages:
+1. Site Audit — Table of all crawled pages with SEO score, word count, primary keyword, and issue count. Sort/filter by score. Bar chart: score distribution across the site.
+2. Keyword Opportunities — Table of gap keywords (keyword, search volume, difficulty, current ranking page if any, opportunity score). Scatter plot: volume vs. difficulty with best opportunities highlighted.
+3. Page Detail — Per-page deep dive: current vs. suggested meta title/description (side by side), heading structure tree, keyword density chart, and a checklist of on-page fixes with priority.
+4. Internal Linking Map — Visual link graph (nodes = pages, edges = internal links) highlighting orphaned pages in red. Table of suggested new links (source, anchor text, target, expected impact).
+5. Reports Page — Export a full site audit report to PDF/Excel with score summary, top opportunities, and a prioritized action plan ranked by expected traffic impact.
+
+UI: Data-dense audit table as the landing page (typical SEO-tool feel). Page Detail view uses a before/after comparison layout for meta tags. Link graph rendered as an interactive node diagram.
+
+Database: Persist crawled page data, SEO scores, keyword opportunities, and suggested internal links, with re-audit history so score trends can be tracked over time.`,
     tools: ["Web Search", "Webhook"],
-    complexity: "Intermediate",
+    complexity: "Advanced",
+    sampleFile: { name: "seo-content-optimizer-sample.csv", url: "/samples/marketing/seo-content-optimizer.csv" },
   },
   {
     category: "Marketing",
     title: "Newsletter Intelligence Hub",
     description: "Monitor industry news daily, curate top stories, draft a polished newsletter edition, and publish it on schedule.",
-    prompt: "Build an automated newsletter agent that monitors industry news daily, curates the top stories, drafts a polished newsletter edition, and publishes it on schedule.",
+    prompt: `Build a Newsletter Intelligence Hub that monitors industry news daily and produces a polished, ready-to-send newsletter edition.
+
+AI agents:
+1. News Monitoring Agent — Continuously scans configured news sources, RSS feeds, and topic keywords for new industry articles, and scores each for relevance to the newsletter's stated focus.
+2. Curation Agent — Selects the top 5-8 stories for the current edition based on relevance score, recency, and topic diversity (avoids running 4 stories on the same sub-topic).
+3. Summarization & Voice Agent — Writes a 2-3 sentence summary of each selected story in the newsletter's brand voice, plus a punchy one-line "why it matters" takeaway.
+4. Newsletter Assembly Agent — Composes the full edition: subject line options (3 variants with predicted open-rate style), intro blurb, curated story blocks in order, and a closing CTA.
+5. Publishing Agent — Formats the assembled edition into responsive HTML email, schedules the send at the configured time, and logs delivery status.
+
+Pages:
+1. Story Feed — Live feed of monitored articles with relevance score, topic tag, and source. Approve/reject stories manually to override AI curation before an edition locks.
+2. Edition Builder — Current draft edition: subject line variants (select one), intro blurb (editable), ordered story blocks with summary + "why it matters" (drag to reorder, edit inline).
+3. Edition Preview — Rendered email preview (desktop and mobile view toggle) exactly as subscribers will see it, with a "Send Test" button.
+4. Archive & Analytics — List of past editions with open rate, click rate, and subscriber count charts. Line chart: open rate trend across editions. Table: top-clicked stories all-time.
+5. Settings — Manage news sources/keywords, newsletter send schedule, and brand voice guidelines.
+
+UI: Story Feed styled as a news-ticker card list. Edition Builder uses a drag-and-drop block editor. Edition Preview renders inside a phone/desktop frame mockup for realism.
+
+Database: Persist monitored stories with relevance scores, assembled editions with full content, and send/open/click analytics per edition.`,
     tools: ["Web Search", "Email", "Webhook"],
-    complexity: "Intermediate",
+    complexity: "Advanced",
+    sampleFile: { name: "newsletter-intelligence-hub-sample.csv", url: "/samples/marketing/newsletter-intelligence-hub.csv" },
   },
   {
     category: "Marketing",
     title: "Social Media Manager",
     description: "Generate a week's worth of platform-specific posts for LinkedIn, Twitter, and Instagram with hashtags and optimal posting times.",
-    prompt: "Build a social media agent that generates a week's worth of platform-specific posts for LinkedIn, Twitter, and Instagram, complete with hashtags, captions, and optimal posting times.",
+    prompt: `Build a Social Media Manager that plans, drafts, and schedules a full week of platform-specific content across LinkedIn, Twitter/X, and Instagram.
+
+AI agents:
+1. Content Planning Agent — Takes the brand's themes/campaigns for the week and generates a content plan: which day gets which theme, and which platform(s) each theme is best suited for.
+2. Platform Copywriter Agent — Drafts platform-native copy for each planned post: LinkedIn (professional tone, longer form), Twitter/X (punchy, character-limited, thread-capable), Instagram (caption + emoji-friendly, line breaks).
+3. Hashtag & Trend Agent — Researches trending and niche-relevant hashtags per platform and post topic, and appends an optimal hashtag set (avoiding overused/banned tags).
+4. Scheduling Agent — Determines the optimal posting time per platform based on the brand's audience timezone and platform best practices, and queues each post to publish at that time.
+5. Engagement Monitoring Agent — After posts go live, tracks likes/comments/shares/impressions per post, and flags posts underperforming their platform average for a manual boost/repost decision.
+
+Pages:
+1. Weekly Content Plan — Calendar grid (Mon-Sun columns x platform rows) showing theme and status per slot. Click a slot to open the draft.
+2. Draft Editor — Per-post editor with platform preview mockup (LinkedIn card / tweet card / Instagram post), character counter, hashtag suggestions panel, and optimal posting time indicator.
+3. Publishing Queue — List of all scheduled posts across platforms with countdown to publish time, status (queued/published/failed), and manual "publish now" override.
+4. Engagement Dashboard — KPI row (posts this week, total engagement, avg engagement rate, best-performing platform) + Bar chart: engagement by platform + Line chart: engagement trend + table of top 5 posts by engagement.
+5. Reports Page — Export a weekly performance report to PDF/Excel with the content calendar, engagement summary, and top hashtags used.
+
+UI: Weekly calendar grid as the landing page with platform icon badges. Draft editor renders an accurate mini-mockup of each platform's post appearance. Engagement dashboard uses platform brand colors for the bar chart series (LinkedIn blue, Twitter/X black, Instagram gradient).
+
+Database: Persist the weekly plan, all drafts, publishing status, and engagement metrics pulled per post.`,
     tools: ["Web Search", "Webhook"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "social-media-manager-sample.csv", url: "/samples/marketing/social-media-manager.csv" },
   },
   // ── Sales ─────────────────────────────────────────────────────────────────
   {
     category: "Sales",
     title: "Sales Outreach Specialist",
     description: "Find leads on LinkedIn, enrich their data, and draft personalized cold emails based on their recent activity.",
-    prompt: "Build a sales outreach agent that can find leads on LinkedIn, enrich their data, and draft personalized cold emails based on their recent activity.",
+    prompt: `Build a Sales Outreach Specialist that finds, enriches, and personally engages prospects at scale.
+
+AI agents:
+1. Prospecting Agent — Searches LinkedIn and company websites for leads matching the target criteria (industry, title, company size), and compiles a raw lead list with name, title, company, and profile URL.
+2. Enrichment Agent — Enriches each lead with company firmographics (size, industry, funding stage), recent activity (posts, job changes, company news), and contact info where available.
+3. Personalization Agent — Reads each lead's recent activity and company news to identify a specific personalization hook (a post they made, a company milestone, a shared connection), and drafts a cold email/LinkedIn message referencing it.
+4. Sequencing Agent — Builds a multi-touch outreach sequence per lead (initial email → follow-up 1 → follow-up 2 → breakup email) with recommended send-day spacing, and stops the sequence automatically on reply.
+5. Reply & Sentiment Agent — Classifies inbound replies (interested/not interested/referred/out-of-office) and routes interested replies to the sales rep with a suggested next step.
+
+Pages:
+1. Lead List — Table of prospected leads (name, title, company, enrichment status, personalization hook, sequence stage). Bulk actions: enrich, start sequence, export.
+2. Lead Detail — Full enrichment profile (firmographics, recent activity feed, personalization hook highlighted) plus the drafted outreach sequence for that lead, editable before sending.
+3. Sequence Tracker — Kanban-style view of all leads by sequence stage (Not Started, Touch 1, Touch 2, Touch 3, Replied, Booked, Closed). Drag to advance manually.
+4. Reply Inbox — Classified replies with sentiment badge (Interested/Not Interested/Referred/OOO) and suggested next action. One-click "book meeting" or "mark closed."
+5. Performance Dashboard — KPI row (leads prospected, emails sent, reply rate, meetings booked) + Funnel chart: prospected → contacted → replied → booked + Bar chart: reply rate by personalization hook type.
+
+UI: Lead List as the landing page with avatar initials and company logos (placeholder). Lead Detail styled as a rich profile card. Sequence Tracker uses a Kanban board with sequence-stage color coding.
+
+Database: Persist leads, enrichment data, drafted sequences, send history, and classified replies. Dashboard reads live from the DB.`,
     tools: ["Web Search", "Email", "CRM"],
-    complexity: "Intermediate",
+    complexity: "Advanced",
+    sampleFile: { name: "sales-outreach-specialist-sample.csv", url: "/samples/sales/sales-outreach-specialist.csv" },
   },
   {
     category: "Sales",
     title: "CRM Data Manager",
     description: "Automatically update deal stages, log communications, and flag stale leads in your CRM.",
-    prompt: "Build a CRM management agent that automatically updates deal stages, logs communications, and flags stale leads in my CRM.",
+    prompt: `Build a CRM Data Manager that keeps deal data accurate and current without manual upkeep by the sales team.
+
+AI agents:
+1. Communication Logging Agent — Monitors connected email/calendar/call transcripts, matches each communication to the correct CRM contact/deal, and logs a structured activity entry (type, summary, sentiment, next step mentioned).
+2. Deal Stage Inference Agent — Reads logged communications and explicit signals (contract sent, verbal commitment, pricing discussed) to infer the deal's true current stage, and proposes a stage update when it differs from the CRM's recorded stage.
+3. Data Hygiene Agent — Scans all deals/contacts for missing required fields, duplicate records, and stale data (no activity in X days), and either auto-fixes safe issues or flags risky ones for rep review.
+4. Stale Lead Agent — Identifies leads/deals with no activity beyond a configurable threshold, computes a risk-of-loss score, and generates a re-engagement task or auto-drafted nudge email for the rep.
+5. Forecast Rollup Agent — Aggregates deal stage, value, and probability across the pipeline into a rolling revenue forecast, flagging deals that moved backward in stage as forecast risks.
+
+Pages:
+1. Deal Health Board — Table/Kanban of all deals with CRM-recorded stage vs. AI-inferred stage side by side (flagged when mismatched), last activity date, and a "Approve stage update" one-click action.
+2. Activity Log — Chronological feed of all auto-logged communications per contact/deal, with type icons (email/call/meeting) and AI-generated summaries.
+3. Data Hygiene Report — List of flagged issues (missing fields, duplicates, stale records) grouped by severity, with bulk "auto-fix" and "dismiss" actions.
+4. Stale Leads — Table of at-risk leads ranked by risk-of-loss score, with a suggested re-engagement action and a "Send nudge" button that opens the drafted email for review.
+5. Forecast Dashboard — KPI row (pipeline value, weighted forecast, deals at risk, data health score) + Bar chart: pipeline by stage + Line chart: forecast trend over time + table of deals that regressed in stage.
+
+UI: Deal Health Board as the landing page, with a red/yellow/green mismatch indicator column. Activity Log styled as a timeline. Forecast Dashboard uses indigo/green/amber for on-track vs at-risk deal coloring.
+
+Database: Persist all deals, contacts, logged activities, stage-change history, and hygiene flags. Forecast recalculates live from current DB state.`,
     tools: ["CRM", "Email", "Webhook"],
-    complexity: "Intermediate",
+    complexity: "Advanced",
+    sampleFile: { name: "crm-data-manager-sample.csv", url: "/samples/sales/crm-data-manager.csv" },
   },
   {
     category: "Sales",
     title: "Product Recommendation Agent",
     description: "Take a customer's budget and requirements, then suggest optimal product bundles and upsell opportunities.",
-    prompt: "Build a product recommendation agent that takes a customer's budget and requirements, then suggests optimal product bundles and upsell opportunities to maximize deal value.",
+    prompt: `Build a Product Recommendation Agent that turns a customer's budget and requirements into an optimal product bundle and upsell plan.
+
+AI agents:
+1. Requirements Intake Agent — Parses the customer's stated budget, use case, and must-have requirements (from a form or a sales rep's notes) into a structured requirement profile.
+2. Catalog Matching Agent — Searches the product catalog (via RAG over product specs/pricing) to find products that satisfy the requirement profile, ranking matches by fit score.
+3. Bundle Optimization Agent — Combines matched products into 2-3 candidate bundles that fit within budget, balancing coverage of requirements against total cost, and computes a value score per bundle.
+4. Upsell & Cross-sell Agent — Identifies complementary add-ons or premium tier upgrades that increase deal value without breaking budget tolerance, tagging each with expected margin impact.
+5. Proposal Draft Agent — Assembles the recommended bundle plus upsell options into a customer-facing comparison table with pricing, and a one-paragraph rationale per bundle tailored to the stated use case.
+
+Pages:
+1. Customer Intake — Form: budget, use case description, must-have requirements (tags), nice-to-haves. Submit triggers the matching and bundling pipeline.
+2. Bundle Comparison — Side-by-side comparison of 2-3 recommended bundles: contents, total price, requirement coverage (checkmarks per requirement), and value score. Highlight the "Best Fit" bundle.
+3. Upsell Opportunities — Table of suggested add-ons/upgrades per bundle with price delta, margin impact, and a one-line reason ("Customers with this use case typically also need X").
+4. Product Catalog Explorer — Browsable/searchable catalog with specs, pricing, and a "fit score" indicator when a customer profile is active.
+5. Deal Value Dashboard — KPI row (avg bundle value, upsell attach rate, avg margin lift) + Bar chart: bundle value distribution + Pie chart: product mix in accepted bundles + table of top-selling bundles.
+
+UI: Bundle Comparison as the centerpiece with card-based layout, "Best Fit" bundle highlighted with an indigo border and badge. Requirement coverage shown as green check / gray X icons per requirement row.
+
+Database: Persist customer intake profiles, generated bundles, upsell suggestions, and which bundle/upsells were ultimately accepted for deal-value analytics.`,
     tools: ["RAG", "CRM", "Webhook"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "product-recommendation-agent-sample.csv", url: "/samples/sales/product-recommendation-agent.csv" },
   },
   {
     category: "Sales",
     title: "Lead Scoring & Qualification",
     description: "Analyze incoming leads, score them based on engagement and fit, and route high-intent leads to sales reps instantly.",
-    prompt: "Build a lead scoring agent that analyzes incoming leads from my website and email campaigns, scores them based on engagement and fit, and routes high-intent leads to sales reps instantly.",
+    prompt: `Build a Lead Scoring & Qualification agent that scores incoming leads in real time and instantly routes the hottest ones to sales reps.
+
+AI agents:
+1. Lead Capture Agent — Ingests new leads from website forms, email campaign clicks, and chat widget conversations, normalizing them into a single lead record with source attribution.
+2. Fit Scoring Agent — Scores each lead's fit (0-100) against the ideal customer profile using firmographic data (industry, company size, title seniority) and stated needs.
+3. Engagement Scoring Agent — Scores each lead's engagement (0-100) based on behavioral signals: pages visited, content downloaded, email opens/clicks, and time-on-site, decaying older signals over time.
+4. Qualification & Routing Agent — Combines fit + engagement into a composite score, classifies the lead (Hot/Warm/Cold), and for Hot leads instantly notifies the right sales rep (round-robin or territory-based) with full context.
+5. Feedback Loop Agent — Tracks what happened to routed leads (converted/lost/no response) and periodically recalibrates the scoring weights based on which signals actually correlated with conversion.
+
+Pages:
+1. Lead Inbox — Real-time feed of incoming leads with fit score, engagement score, composite score, and classification badge (Hot/Warm/Cold). New Hot leads pulse/highlight and trigger a toast notification.
+2. Lead Detail — Full scoring breakdown: fit factors (radar chart), engagement timeline (activity feed with score contribution per action), composite score gauge, and routing history.
+3. Routing Rules — Configure territory/round-robin assignment rules per rep, score thresholds for Hot/Warm/Cold, and notification channels (email/Slack/webhook).
+4. Scoring Model Dashboard — KPI row (leads scored today, hot lead conversion rate, avg time-to-first-touch) + scatter plot: fit vs engagement colored by classification + Bar chart: conversion rate by classification tier.
+5. Calibration Report — Historical accuracy report: which scoring factors best predicted actual conversion, with a "Recalibrate weights" action and before/after comparison chart.
+
+UI: Lead Inbox as the landing page with a live-updating feed and color-coded classification badges (Hot = red-orange, Warm = amber, Cold = blue-gray). Lead Detail radar chart and score gauge in indigo/green.
+
+Database: Persist all leads, scoring history (fit/engagement/composite over time), routing events, and outcome tracking for the feedback loop.`,
     tools: ["CRM", "Email", "Webhook"],
-    complexity: "Intermediate",
+    complexity: "Advanced",
+    sampleFile: { name: "lead-scoring-qualification-sample.csv", url: "/samples/sales/lead-scoring-qualification.csv" },
   },
   {
     category: "Sales",
     title: "Proposal & Quote Generator",
     description: "Take deal context and client requirements, then produce a polished sales proposal with pricing, timeline, and scope of work.",
-    prompt: "Build a proposal generation agent that takes deal context and client requirements, then produces a polished sales proposal with pricing, timeline, and scope of work.",
+    prompt: `Build a Proposal & Quote Generator that turns deal context and client requirements into a polished, ready-to-send sales proposal.
+
+AI agents:
+1. Requirements Extraction Agent — Parses deal notes, discovery call transcripts, and CRM fields to extract the client's stated requirements, budget range, timeline expectations, and any special terms discussed.
+2. Scope & Pricing Agent — Maps extracted requirements to catalog line items/service packages, computes pricing (with configurable discount rules and approval thresholds for large discounts), and drafts a scope-of-work outline.
+3. Timeline Agent — Generates a realistic project/delivery timeline broken into phases with milestones, based on the scope complexity and historical delivery data for similar deals.
+4. Proposal Drafting Agent — Assembles the full proposal document: cover page, executive summary tailored to the client's stated pain points, scope of work, pricing table, timeline, terms, and next steps.
+5. Approval & Send Agent — Routes proposals above the discount/value threshold to a manager for approval, tracks approval status, and once approved, sends the proposal via email with e-signature-ready formatting and tracks open/view status.
+
+Pages:
+1. Deal Intake — Form/import from CRM: client name, requirements, budget range, discovery notes. Submit triggers requirement extraction and scope/pricing generation for review.
+2. Proposal Builder — Editable draft view: executive summary, scope-of-work line items (add/remove/reorder), pricing table with discount slider (flags when discount exceeds approval threshold), and timeline gantt-style view.
+3. Approval Queue — List of proposals pending manager approval, showing discount %, deal value, and requester. Approve/reject with comment.
+4. Sent Proposals Tracker — Table of sent proposals with status (sent/viewed/accepted/expired), view timestamp, and days since sent. Line chart: proposal-to-close conversion rate over time.
+5. Reports Page — Export any proposal to a polished PDF. Dashboard: KPI row (proposals sent this month, avg deal value, win rate, avg approval time) + Bar chart: win rate by discount tier.
+
+UI: Proposal Builder styled like a document editor with a live pricing summary sidebar that updates as line items/discounts change. Approval Queue uses amber "pending" badges. Sent Proposals Tracker uses status pill badges (sent=blue, viewed=indigo, accepted=green, expired=gray).
+
+Database: Persist deal intake data, proposal drafts and versions, approval history, and sent/viewed/accepted tracking per proposal.`,
     tools: ["RAG", "CRM", "Email"],
-    complexity: "Intermediate",
+    complexity: "Advanced",
+    sampleFile: { name: "proposal-quote-generator-sample.csv", url: "/samples/sales/proposal-quote-generator.csv" },
   },
   // ── Legal ─────────────────────────────────────────────────────────────────
   {
