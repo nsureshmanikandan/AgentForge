@@ -991,14 +991,18 @@ EXPORT: Every app must include Export functionality:
   - Excel: use SheetJS via CDN (https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js)
     Pattern: const ws = XLSX.utils.json_to_sheet(data); const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Sheet1"); XLSX.writeFile(wb, "export.xlsx");
-  - PowerPoint: use PptxGenJS via CDN (https://unpkg.com/pptxgenjs@3/dist/pptxgen.bundle.js) — ALWAYS
-    implement a REAL .pptx export with this library if the prompt mentions PowerPoint/PPT/slides
-    export. NEVER fake it with a toast/placeholder message — a working library is provided.
+  - PowerPoint: use PptxGenJS via CDN (https://unpkg.com/pptxgenjs@3/dist/pptxgen.bundle.js) —
+    implement a REAL .pptx export with this library. NEVER fake it with a toast/placeholder
+    message — a working library is provided.
     Pattern: const pres = new PptxGenJS(); const slide = pres.addSlide();
     slide.addText("Title", {x:0.5, y:0.3, fontSize:24, bold:true});
     slide.addText("Body content", {x:0.5, y:1.2, fontSize:14});
     pres.writeFile({ fileName: "export.pptx" });
   Export buttons: slate-800 bg, white text, download icon emoji, positioned in a toolbar or Reports page.
+  MANDATORY: whenever the app has ANY dedicated Export/Reports page, that page must ALWAYS show
+  all THREE export buttons together — PDF, Excel, AND PowerPoint — even if a specific APP TYPE
+  section below only calls out one or two of them by name. Domain-specific export descriptions
+  elsewhere in this document are illustrative examples, never an exhaustive/limiting list.
   CRITICAL: Every export button must call a REAL library function (jsPDF/XLSX/PptxGenJS) that
   actually produces and downloads a file. NEVER implement an export button as just a toast/alert
   saying the export is "prepared" or "available in the enterprise build" — that is a fake,
@@ -1561,7 +1565,8 @@ MAIN CONTENT (flex-1, bg white):
   badge, tags, date, status (running/completed)
 - Comparison View: select 2-3 past decisions side by side — alignment scores, recommendation
   summaries, advisor agreement patterns
-- Export Page: export any completed decision to Excel (.xlsx) or PowerPoint (.pptx), download button
+- Export Page: export any completed decision to Excel (.xlsx), PowerPoint (.pptx), AND PDF (.pdf) —
+  all THREE download buttons must always be present, matching the mandatory EXPORT section above
 
 RIGHT PANEL (w-64, bg white, border-l):
 - "Decision Library" header with count badge (uploaded context files as Decision Dataset cards
@@ -2825,7 +2830,10 @@ RULES:
   * A "form" feature → render a real <form> with labeled <input>/<textarea> fields, a submit button, and call the relevant POST endpoint on submit (show loading state + success/error feedback)
   * An "upload" feature → render a real file input or drag-and-drop zone, call the upload endpoint with FormData, show filename + parsed preview on success
   * A "view/history/list" feature → fetch data from the relevant GET endpoint on mount (useEffect), render it as a table or card list with real field values, show empty state if no data
-  * An "export" feature → render buttons for each export format, call the export endpoint and trigger a file download via URL.createObjectURL
+  * An "export" feature → render THREE buttons (Excel, PowerPoint, PDF), each calling its matching
+    backend endpoint (/api/export/{id}/excel, /api/export/{id}/ppt, /api/export/{id}/pdf) and
+    triggering a file download via URL.createObjectURL — never omit one of the three, and never
+    show a toast/alert instead of an actual download
   * An "analytics/dashboard" feature → fetch data from the relevant GET endpoint on mount, render stat tiles and a data table with real values
 - FORBIDDEN: feature pages that show the plan feature description as their heading content — the heading should be a short label like "Decision Intake" not the full feature spec text
 - FORBIDDEN: feature pages that only show an "API: POST /api/..." monospace line as their content
@@ -2970,7 +2978,7 @@ RULES:
 - Always use selectinload() for SQLAlchemy async relationship loading
 - All endpoints must be fully implemented with real DB queries — no placeholder functions
 - Include __init__.py in backend/app/, backend/app/api/, backend/app/agents/
-- requirements.txt MUST include these exact Python-3.13-compatible versions (ALL have pre-built cp313 Windows wheels — no C/Rust compiler needed): fastapi==0.115.8, uvicorn[standard]==0.34.0, pydantic==2.10.6, pydantic-settings==2.7.1, sqlalchemy==2.0.36, asyncpg==0.30.0, psycopg2-binary==2.9.10, openai==1.86.0, python-multipart==0.0.20, python-dotenv==1.0.1, PyPDF2==3.0.1, python-docx>=1.1.0, faiss-cpu==1.10.0, numpy==2.1.3, tiktoken==0.8.0, sentence-transformers==3.3.1, openpyxl==3.1.2, python-pptx==0.6.23, pandas==2.2.3, greenlet>=3.0.0, alembic==1.14.1. NEVER use: numpy==1.26.4 or pandas==2.2.2 (no cp313 wheels), faiss-cpu==1.8.0 (does not exist on PyPI), openai==1.30.1 (proxies conflict with httpx on Python 3.13), asyncpg==0.29.0 or psycopg2-binary==2.9.9 (no cp313 wheels, require Visual C++ 14.0).
+- requirements.txt MUST include these exact Python-3.13-compatible versions (ALL have pre-built cp313 Windows wheels — no C/Rust compiler needed): fastapi==0.115.8, uvicorn[standard]==0.34.0, pydantic==2.10.6, pydantic-settings==2.7.1, sqlalchemy==2.0.36, asyncpg==0.30.0, psycopg2-binary==2.9.10, openai==1.86.0, python-multipart==0.0.20, python-dotenv==1.0.1, PyPDF2==3.0.1, python-docx>=1.1.0, faiss-cpu==1.10.0, numpy==2.1.3, tiktoken==0.8.0, sentence-transformers==3.3.1, openpyxl==3.1.2, python-pptx==0.6.23, reportlab==4.2.5, pandas==2.2.3, greenlet>=3.0.0, alembic==1.14.1. NEVER use: numpy==1.26.4 or pandas==2.2.2 (no cp313 wheels), faiss-cpu==1.8.0 (does not exist on PyPI), openai==1.30.1 (proxies conflict with httpx on Python 3.13), asyncpg==0.29.0 or psycopg2-binary==2.9.9 (no cp313 wheels, require Visual C++ 14.0).
 - Document extraction agent MUST handle .docx (python-docx), .pdf (PyMuPDF/fitz OR PyPDF2), and plain text — never skip .docx
 - .env.example DATABASE_URL MUST be sqlite+aiosqlite:///./app.db (not postgres) — postgres is for docker-compose only
 - RESERVED COLUMN NAMES — NEVER use these as SQLAlchemy column names (they shadow SQLAlchemy internals and crash on startup): metadata, registry, __mapper_cls__. Use alternatives: doc_metadata, extra_data, meta_info
@@ -3093,9 +3101,43 @@ RULES:
       return StreamingResponse(buf,
           media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
           headers={"Content-Disposition": f"attachment; filename=report_{record_id}.pptx"})
+
+  @router.get("/export/{record_id}/pdf")
+  async def export_pdf(record_id: int, db: AsyncSession = Depends(get_db)):
+      from reportlab.lib.pagesizes import letter
+      from reportlab.pdfgen import canvas
+      result = await db.execute(select(Decision).where(Decision.id == record_id))
+      record = result.scalar_one_or_none()
+      if not record: raise HTTPException(404, "Not found")
+      buf = io.BytesIO()
+      c = canvas.Canvas(buf, pagesize=letter)
+      c.setFont("Helvetica-Bold", 16)
+      c.drawString(50, 750, getattr(record, "title", "Decision Report"))
+      c.setFont("Helvetica", 11)
+      c.drawString(50, 725, f"Question: {getattr(record, 'question', '')}"[:100])
+      c.drawString(50, 705, f"Status: {getattr(record, 'status', '')}")
+      c.drawString(50, 685, f"Created: {getattr(record, 'created_at', '')}")
+      y = 655
+      raw = getattr(record, "result", None) or getattr(record, "advisor_outputs", None)
+      if raw:
+          import json
+          try:
+              data = json.loads(raw) if isinstance(raw, str) else raw
+              text = json.dumps(data, indent=2)[:1500]
+              for line in text.split("\n"):
+                  if y < 50:
+                      c.showPage(); c.setFont("Helvetica", 9); y = 750
+                  c.drawString(50, y, line[:110]); y -= 14
+          except Exception: pass
+      c.save(); buf.seek(0)
+      return StreamingResponse(buf, media_type="application/pdf",
+          headers={"Content-Disposition": f"attachment; filename=report_{record_id}.pdf"})
   ```
   In main.py add: `from app.api.export import router as export_router` and `app.include_router(export_router, prefix="/api")`.
-  In requirements.txt add BOTH `openpyxl` and `python-pptx` on separate lines — these are REQUIRED, do not omit them.
+  In requirements.txt add ALL THREE of `openpyxl`, `python-pptx`, AND `reportlab` on separate lines —
+  these are REQUIRED, do not omit any of them. Every Export/Reports page in the frontend MUST call
+  all three endpoints (Excel, PPT, PDF) — never omit one, and never fake an export with a toast
+  message when the real backend endpoint above is available.
 - RETRY LOGIC — All Azure OpenAI calls MUST use a retry wrapper: `import time; def _call_with_retry(fn, retries=3, delay=2): ...` that catches `openai.RateLimitError` and `openai.APIStatusError` with status 429/503, sleeps `delay * (attempt+1)` seconds, and re-raises after retries exhausted. Every `self.client.chat.completions.create(...)` call MUST be wrapped with this helper.
 - STRUCTURED LOGGING — Every FastAPI endpoint MUST log request start and completion using Python's `logging` module: `import logging; logger = logging.getLogger(__name__)`. At endpoint entry log `logger.info("POST /api/decisions id=%s", decision_id)`. On exception log `logger.error("...", exc_info=True)`. In main.py configure: `logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")`.
 - SSE PROGRESS — If the plan includes live progress updates: implement `GET /api/{resource}/{id}/stream` as a Server-Sent Events endpoint using FastAPI `StreamingResponse` with `media_type="text/event-stream"`. Yield `data: {json}\n\n` strings. Example: `async def stream_progress(id: int, db=Depends(get_db)): async def gen(): yield f"data: {json.dumps({'stage': 'advisor_1', 'pct': 20})}\n\n"; return StreamingResponse(gen(), media_type="text/event-stream")`. Frontend connects with `new EventSource("/api/decisions/1/stream")`.
