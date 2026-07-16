@@ -1528,6 +1528,114 @@ CRITICAL:
 - Use "Decision Library", "Filter by Category", "Decision Dataset" instead
 - All branding and labels must reflect the app name and domain, not generic IT support
 
+--- IF APP TYPE = HR_APP ---
+Build an enterprise HR application with this EXACT 3-column layout:
+
+LEFT SIDEBAR (w-56, bg #0f172a, text white):
+- App logo + name + "HR Platform" tagline
+- Nav: Dashboard, Employees, Recruitment, Onboarding, Performance, Reports
+- Bottom: logged-in HR manager name + avatar
+
+MAIN CONTENT (flex-1, bg #f8fafc):
+- Header: app name + "HR Active" green badge + "DB Connected" badge + employee count badge
+- Dashboard (default): KPI row (headcount, open roles, onboarding this month, avg tenure) +
+  Bar chart: headcount by department + Line chart: hiring trend last 12 months +
+  Donut chart: employee status (active/on-leave/terminated)
+- Employees page: searchable/filterable table (Name, Role, Department, Start Date, Status, Manager) +
+  row click opens employee detail drawer
+- Recruitment page: Kanban board with columns New, Screening, Interview, Offer, Hired, Rejected --
+  each card shows candidate name, role, date applied
+- Onboarding page: checklist view per new employee -- tasks with due dates and completion status
+- Performance page: review cycles table, per-employee score over time line chart
+- Reports page: export buttons (PDF, CSV, Excel) for headcount, attrition, time-to-hire
+
+RIGHT PANEL (w-64, bg white, border-l):
+- "Attached Files" header with count badge
+- File cards with "✓ Indexed" status
+- "Filter by Department" pills with employee counts
+- Quick stats: Avg Tenure, Attrition Rate this quarter
+
+CRITICAL: NEVER use "Knowledge Base" or "Filter by Topic" -- use "Attached Files" and "Filter by Department".
+
+--- IF APP TYPE = SALES_APP ---
+Build an enterprise Sales Intelligence application:
+
+LEFT SIDEBAR (w-56, bg #0f172a, text white):
+- App logo + name + "Sales Intelligence" tagline
+- Nav: Dashboard, Leads, Pipeline, Outreach, Proposals, Reports
+- Bottom: rep name + quota progress bar (e.g. 73% of $2.4M)
+
+MAIN CONTENT (flex-1, bg #f8fafc):
+- Header: app name + "AI Active" badge + "CRM Synced" badge + open deal count
+- Dashboard: KPI row (pipeline value, leads this week, win rate, avg deal size) +
+  Bar chart: pipeline by stage + Line chart: revenue trend + Funnel chart: conversion rates
+- Leads page: table (Name, Company, Score badge 0-100, Stage, Assigned To, Last Contact) +
+  bulk actions + AI score explanation tooltip
+- Pipeline page: Kanban board -- Prospecting, Qualification, Proposal, Negotiation, Closed Won/Lost
+- Outreach page: AI-drafted email composer. Left: lead list. Right: personalized email draft with
+  subject, body, send button, and "Regenerate" option
+- Proposals page: list of generated proposals with status, download PDF button
+- Reports page: win/loss analysis chart, rep performance table, export options
+
+RIGHT PANEL (w-64, bg white, border-l):
+- "Attached Files" header
+- "Filter by Stage" pills
+- Top 5 deals by value widget
+
+CRITICAL: NEVER use "Knowledge Base" or "Filter by Topic" -- use "Attached Files" and "Filter by Stage".
+
+--- IF APP TYPE = LEGAL_APP ---
+Build an enterprise Legal Intelligence application:
+
+LEFT SIDEBAR (w-56, bg #1e293b, text white):
+- App logo + name + "Legal AI" tagline
+- Nav: Dashboard, Contracts, Compliance, NDA Tracker, Policy Docs, IP Watch
+
+MAIN CONTENT (flex-1, bg #f8fafc):
+- Header: app name + "Analysis Active" badge + document count
+- Dashboard: KPI row (contracts under review, compliance gaps, NDAs expiring this month, IP alerts) +
+  Donut chart: risk distribution (High/Medium/Low) + Bar: contract types breakdown +
+  Timeline: upcoming expirations
+- Contracts page: table (Title, Party, Value, Risk Level badge, Status, Expiry Date) +
+  upload button + AI risk analysis panel with highlighted clause list
+- Compliance page: regulation checklist with status icons, gap analysis chart, alert timeline
+- NDA Tracker: table (counterparty, type, signed date, expiry, status) + reminder badges
+- Policy Docs: document list with Q&A interface -- type a question, get clause-level answer
+- IP Watch: alerts table (filing type, brand match %, date, action required)
+
+RIGHT PANEL (w-64, bg white, border-l):
+- "Attached Files" + risk score summary
+- "Filter by Risk Level" pills (High/Medium/Low) with counts
+- Upcoming deadlines widget
+
+CRITICAL: NEVER use "Knowledge Base" or "Filter by Topic" -- use "Attached Files" and "Filter by Risk Level".
+
+--- IF APP TYPE = SUPPORT_APP ---
+Build a Zendesk-style enterprise support platform:
+
+LEFT SIDEBAR (w-56, bg #0f172a, text white):
+- App logo + name + "Support Hub" tagline
+- Nav: Inbox, Open Tickets, Knowledge Base, Analytics, Settings
+- Unread badge on Inbox nav item
+
+MAIN CONTENT:
+- Unified Inbox (default): ticket list with channel icon (email/chat/social), subject, category badge,
+  priority (P1-P3) color dot, assignee avatar, time ago. Click opens Conversation View.
+- Conversation View: full thread. AI-suggested reply in light blue panel with Accept/Edit/Reject buttons.
+  Customer info sidebar (right within main). One-click escalate.
+- Knowledge Base: article list with search, most-retrieved articles chart, flag gaps button
+- Analytics: line chart resolution rate trend, bar chart volume by channel, CSAT gauge,
+  escalation rate donut, first-response time histogram
+- Settings: routing rules, auto-response templates
+
+RIGHT PANEL:
+- "Attached Files" (knowledge base docs)
+- "Filter by Category" pills with ticket counts
+- Live stats: open P1s, avg response time today
+
+NOTE: For SUPPORT_APP specifically, "Knowledge Base" as a NAV PAGE NAME is allowed (it's a real feature
+of a support tool), but the RIGHT PANEL header must still say "Attached Files", not "Knowledge Base".
+
 ==================================================
 MANDATORY NAVIGATION RULE (applies to ALL app types with a sidebar/nav)
 ==================================================
