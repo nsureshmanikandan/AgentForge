@@ -1543,9 +1543,9 @@ MAIN CONTENT (flex-1, bg #f8fafc):
   Donut chart: employee status (active/on-leave/terminated)
 - Employees page: searchable/filterable table (Name, Role, Department, Start Date, Status, Manager) +
   row click opens employee detail drawer
-- Recruitment page: Kanban board with columns New, Screening, Interview, Offer, Hired, Rejected --
+- Recruitment page: Kanban board with columns New, Screening, Interview, Offer, Hired, Rejected —
   each card shows candidate name, role, date applied
-- Onboarding page: checklist view per new employee -- tasks with due dates and completion status
+- Onboarding page: checklist view per new employee — tasks with due dates and completion status
 - Performance page: review cycles table, per-employee score over time line chart
 - Reports page: export buttons (PDF, CSV, Excel) for headcount, attrition, time-to-hire
 
@@ -1555,7 +1555,7 @@ RIGHT PANEL (w-64, bg white, border-l):
 - "Filter by Department" pills with employee counts
 - Quick stats: Avg Tenure, Attrition Rate this quarter
 
-CRITICAL: NEVER use "Knowledge Base" or "Filter by Topic" -- use "Attached Files" and "Filter by Department".
+CRITICAL: NEVER use "Knowledge Base" or "Filter by Topic" — use "Attached Files" and "Filter by Department".
 
 --- IF APP TYPE = SALES_APP ---
 Build an enterprise Sales Intelligence application:
@@ -1571,7 +1571,7 @@ MAIN CONTENT (flex-1, bg #f8fafc):
   Bar chart: pipeline by stage + Line chart: revenue trend + Funnel chart: conversion rates
 - Leads page: table (Name, Company, Score badge 0-100, Stage, Assigned To, Last Contact) +
   bulk actions + AI score explanation tooltip
-- Pipeline page: Kanban board -- Prospecting, Qualification, Proposal, Negotiation, Closed Won/Lost
+- Pipeline page: Kanban board — Prospecting, Qualification, Proposal, Negotiation, Closed Won/Lost
 - Outreach page: AI-drafted email composer. Left: lead list. Right: personalized email draft with
   subject, body, send button, and "Regenerate" option
 - Proposals page: list of generated proposals with status, download PDF button
@@ -1582,7 +1582,7 @@ RIGHT PANEL (w-64, bg white, border-l):
 - "Filter by Stage" pills
 - Top 5 deals by value widget
 
-CRITICAL: NEVER use "Knowledge Base" or "Filter by Topic" -- use "Attached Files" and "Filter by Stage".
+CRITICAL: NEVER use "Knowledge Base" or "Filter by Topic" — use "Attached Files" and "Filter by Stage".
 
 --- IF APP TYPE = LEGAL_APP ---
 Build an enterprise Legal Intelligence application:
@@ -1600,7 +1600,7 @@ MAIN CONTENT (flex-1, bg #f8fafc):
   upload button + AI risk analysis panel with highlighted clause list
 - Compliance page: regulation checklist with status icons, gap analysis chart, alert timeline
 - NDA Tracker: table (counterparty, type, signed date, expiry, status) + reminder badges
-- Policy Docs: document list with Q&A interface -- type a question, get clause-level answer
+- Policy Docs: document list with Q&A interface — type a question, get clause-level answer
 - IP Watch: alerts table (filing type, brand match %, date, action required)
 
 RIGHT PANEL (w-64, bg white, border-l):
@@ -1608,7 +1608,7 @@ RIGHT PANEL (w-64, bg white, border-l):
 - "Filter by Risk Level" pills (High/Medium/Low) with counts
 - Upcoming deadlines widget
 
-CRITICAL: NEVER use "Knowledge Base" or "Filter by Topic" -- use "Attached Files" and "Filter by Risk Level".
+CRITICAL: NEVER use "Knowledge Base" or "Filter by Topic" — use "Attached Files" and "Filter by Risk Level".
 
 --- IF APP TYPE = SUPPORT_APP ---
 Build a Zendesk-style enterprise support platform:
