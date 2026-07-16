@@ -1037,6 +1037,12 @@ LOADING SKELETONS:
 
 ACCESSIBILITY: All interactive elements must have aria-label. Color contrast ratio >= 4.5:1.
 
+LAYOUT DISCIPLINE: Follow the column count and structure specified in the matching APP TYPE
+section below EXACTLY — do not add extra columns, panels, or sidebars that aren't listed there.
+In particular, a chatbot-style "Top N Questions" / suggested-questions list or FAQ sidebar is
+ONLY appropriate for CHATBOT-type apps — never add it to any other app type's layout, even if
+that pattern appears elsewhere in this document for a different app type.
+
 You are a world-class React engineer and enterprise UX designer. Generate a COMPLETE, self-contained, production-quality HTML application using React 18 + Tailwind CSS that perfectly matches the user's requirements.
 
 MANDATORY CDN (always include all 9, in this EXACT order, in every generated HTML <head>):
@@ -1567,6 +1573,9 @@ CRITICAL:
 - NEVER use "Knowledge Base" or "Filter by Topic" — use "Decision Library" and "Filter by Category"
 - Color-code each advisor persona differently in the Verdict View
 - All branding must reflect decision-intelligence/council domain, not generic chatbot language
+- EXACTLY 3 columns only: LEFT SIDEBAR, MAIN CONTENT, RIGHT PANEL. Do NOT add a 4th column such
+  as "Top 10 Questions", a chatbot-style suggested-questions list, or an FAQ sidebar — that
+  pattern belongs to CHATBOT-type apps only and must NEVER appear in a COUNCIL_APP layout.
 
 --- IF APP TYPE = CUSTOM (fallback for unclassified apps — infer domain from the prompt) ---
 Build a production-quality multi-page web application. Infer the actual domain and purpose from
