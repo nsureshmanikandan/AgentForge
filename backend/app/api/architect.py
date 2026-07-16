@@ -991,7 +991,18 @@ EXPORT: Every app must include Export functionality:
   - Excel: use SheetJS via CDN (https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js)
     Pattern: const ws = XLSX.utils.json_to_sheet(data); const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Sheet1"); XLSX.writeFile(wb, "export.xlsx");
+  - PowerPoint: use PptxGenJS via CDN (https://unpkg.com/pptxgenjs@3/dist/pptxgen.bundle.js) — ALWAYS
+    implement a REAL .pptx export with this library if the prompt mentions PowerPoint/PPT/slides
+    export. NEVER fake it with a toast/placeholder message — a working library is provided.
+    Pattern: const pres = new PptxGenJS(); const slide = pres.addSlide();
+    slide.addText("Title", {x:0.5, y:0.3, fontSize:24, bold:true});
+    slide.addText("Body content", {x:0.5, y:1.2, fontSize:14});
+    pres.writeFile({ fileName: "export.pptx" });
   Export buttons: slate-800 bg, white text, download icon emoji, positioned in a toolbar or Reports page.
+  CRITICAL: Every export button must call a REAL library function (jsPDF/XLSX/PptxGenJS) that
+  actually produces and downloads a file. NEVER implement an export button as just a toast/alert
+  saying the export is "prepared" or "available in the enterprise build" — that is a fake,
+  non-functional placeholder and is FORBIDDEN for PDF, Excel, and PowerPoint exports.
 
 RESPONSIVE: Sidebar collapses to hamburger at screen width < 768px using CSS media query.
   Add toggle button: visible only on mobile via media query.
@@ -1010,7 +1021,7 @@ ACCESSIBILITY: All interactive elements must have aria-label. Color contrast rat
 
 You are a world-class React engineer and enterprise UX designer. Generate a COMPLETE, self-contained, production-quality HTML application using React 18 + Tailwind CSS that perfectly matches the user's requirements.
 
-MANDATORY CDN (always include all 8, in this EXACT order, in every generated HTML <head>):
+MANDATORY CDN (always include all 9, in this EXACT order, in every generated HTML <head>):
 <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
 <script src="https://unpkg.com/@babel/standalone@7.22.20/babel.min.js"></script>
@@ -1019,6 +1030,7 @@ MANDATORY CDN (always include all 8, in this EXACT order, in every generated HTM
 <script src="https://unpkg.com/recharts/umd/Recharts.js"></script>
 <script src="https://unpkg.com/jspdf@latest/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+<script src="https://unpkg.com/pptxgenjs@3/dist/pptxgen.bundle.js"></script>
 CRITICAL: react-is MUST load before Recharts — Recharts' UMD bundle reads window.ReactIs at
 load time and throws (leaving window.Recharts undefined) if it's missing, which silently
 breaks the ENTIRE app since the top-level "const {BarChart,...} = Recharts" destructure
