@@ -1901,17 +1901,49 @@ Sample data: Pre-populate with a sample client process (order fulfillment) showi
     category: "General",
     title: "Meeting Cost Calculator",
     description: "Enter attendees, hourly cost, duration, and frequency to calculate the true weekly, monthly, and annual cost of a meeting across the organisation.",
-    prompt: "Build a meeting cost calculator where I can enter the number of attendees, their average hourly cost, meeting duration, and frequency per week, and calculate the weekly, monthly, and annual cost of this meeting and what it adds up to across the organisation.",
+    prompt: `Build a Meeting Cost Calculator for operations and productivity analysts.
+
+AI agents:
+1. Cost Calculation Agent — Takes attendee count, average hourly cost per attendee, meeting duration, and weekly frequency, and calculates the true cost of the meeting per occurrence, per week, per month, and annually.
+2. Benchmark Agent — Compares the calculated annual cost against typical org-wide meeting overhead benchmarks and flags meetings that represent unusually high recurring cost.
+3. Reduction Advisor Agent — Suggests concrete cost-reduction options (shorter duration, fewer attendees, lower frequency) and recalculates the resulting annual savings for each option.
+
+Pages:
+1. Meeting Input — Form: meeting name, attendee count, average hourly cost, duration, frequency per week.
+2. Cost Breakdown — KPI tiles for per-occurrence, weekly, monthly, and annual cost; bar chart comparing this meeting's annual cost against a benchmark reference line.
+3. Reduction Scenarios — Table of suggested changes (shorter duration, fewer attendees, lower frequency) with resulting annual savings per option, sorted by impact.
+4. Report — Exportable summary combining cost breakdown and reduction scenarios as PDF or Excel.
+
+UI: Clean light theme, prominent annual-cost KPI tile, bar chart with benchmark reference line.
+
+Sample data: Pre-populate with a sample weekly leadership meeting (12 attendees, $85/hr average cost, 60 minutes, weekly) showing a high annual cost example.`,
     tools: ["Webhook"],
     complexity: "Starter",
+    sampleFile: { name: "meeting-cost-calculator-sample.csv", url: "/samples/general/meeting-cost-calculator.csv" },
   },
   {
     category: "General",
     title: "Client Health Scorecard",
     description: "Score each consulting client on satisfaction, engagement, contract value, renewal likelihood, and growth potential with at-risk flags and a portfolio view.",
-    prompt: "Build a client health scorecard where I can score each client on dimensions like satisfaction, engagement level, contract value, renewal likelihood, and growth potential, get an overall health score per client, flag at-risk accounts, and see a portfolio view to prioritise attention.",
+    prompt: `Build a Client Health Scorecard for consulting and account management teams.
+
+AI agents:
+1. Scoring Agent — Takes analyst-entered scores for each client across satisfaction, engagement level, account value, renewal likelihood, and growth potential, and calculates a weighted overall health score.
+2. Risk Flagging Agent — Flags clients whose overall score or any single dimension drops below a configurable threshold as at-risk, and identifies which dimension is driving the flag.
+3. Portfolio Summary Agent — Rolls up all clients into a portfolio-level view, writing a short summary of overall book-of-business health and which accounts need attention first.
+
+Pages:
+1. Client Scoring — Form/table to score each client across the five dimensions with supporting notes.
+2. Health Dashboard — Card per client showing overall health score gauge, dimension breakdown, and at-risk badge; sortable by score.
+3. Portfolio View — Bar chart of health scores across all clients, donut chart of at-risk vs healthy distribution, Portfolio Summary Agent's narrative.
+4. Reports — Export the full portfolio scorecard as PDF or Excel for internal account reviews.
+
+UI: Clean light theme, client cards with health gauge, at-risk badges in red, healthy badges in green.
+
+Sample data: Pre-populate with 8 sample consulting clients with varied health scores, including 2 flagged at-risk.`,
     tools: ["CRM", "Webhook"],
     complexity: "Intermediate",
+    sampleFile: { name: "client-health-scorecard-sample.csv", url: "/samples/general/client-health-scorecard.csv" },
   },
 ];
 
