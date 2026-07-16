@@ -971,7 +971,7 @@ CHARTS: Use Recharts via CDN (https://unpkg.com/recharts/umd/Recharts.js).
   All charts must have: tooltips, legends, responsive container (width="100%" height={300}).
   Destructure once at top of script: const { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   ResponsiveContainer, Tooltip, Legend, XAxis, YAxis, CartesianGrid, RadarChart, Radar, PolarGrid,
-  PolarAngleAxis } = Recharts;
+  PolarAngleAxis, FunnelChart, Funnel, AreaChart, Area, ScatterChart, Scatter } = Recharts;
 
 ERROR HANDLING: Every async operation must show:
   - Loading skeleton (gray animated pulsing div) while fetching
