@@ -1890,7 +1890,13 @@ FINAL OUTPUT RULES
   DO NOT use the deprecated ReactDOM.render() â€" it causes console warnings in React 18
 - ABSOLUTELY NO placeholder comments like "// Add more questions", "/* 10 questions */", "// TODO"
   Every array entry must be fully written out with real data from the uploaded documents
-- SELF-CHECK before outputting: confirm TOPIC_QUESTIONS keys exactly match APP_CONFIG.topics strings
+- FINAL SELF-CHECK (do this last, right before returning your answer): re-read the column/panel
+  list you just generated. If APP TYPE is NOT "CHATBOT" and you included ANY column, sidebar, or
+  panel titled "Top Questions", "Top N Questions", "Suggested Questions", or an FAQ list — DELETE
+  IT NOW. That pattern is exclusive to CHATBOT apps and must never appear in any other app type's
+  layout, even if it seems helpful. Re-verify your layout has ONLY the columns explicitly listed
+  in the matching APP TYPE section above — nothing extra.
+- SELF-CHECK (CHATBOT type only): confirm TOPIC_QUESTIONS keys exactly match APP_CONFIG.topics strings
 """
 
 
