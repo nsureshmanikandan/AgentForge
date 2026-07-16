@@ -1721,10 +1721,10 @@ LEFT SIDEBAR (w-56, bg #0f172a, text white):
 
 MAIN CONTENT:
 - Dashboard: KPI tiles + Line chart: primary metric trend + Bar chart: breakdown +
-  Scatter/heatmap: correlation view. All charts interactive (hover tooltips, click drill-down).
+  Scatter chart: correlation view. All charts interactive (hover tooltips, click drill-down).
 - Explorer: upload CSV/Excel. Show data preview table with column stats (nulls %, distinct count,
   min/max). Column type badges. One-click chart suggestions.
-- Charts: chart builder — pick chart type (bar/line/pie/scatter/heatmap/funnel), X axis, Y axis,
+- Charts: chart builder — pick chart type (bar/line/pie/scatter/funnel), X axis, Y axis,
   color dimension. Live preview. Save to dashboard.
 - SQL Lab: code editor with SQL, run button, results table, "Visualise" button on results
 - Reports: scheduled report list, download historical exports, email report config
@@ -1736,7 +1736,6 @@ RIGHT PANEL (w-64, bg white, border-l):
 - Column quick-stats widget
 
 CRITICAL: NEVER use "Knowledge Base" or "Filter by Topic" — use "Attached Files" and "Filter by Dataset".
-
 
 ==================================================
 MANDATORY NAVIGATION RULE (applies to ALL app types with a sidebar/nav)
