@@ -449,82 +449,263 @@ Database: Persist deal intake data, proposal drafts and versions, approval histo
     category: "Legal",
     title: "Contract Review Assistant",
     description: "Review contracts, highlight potential risks, summarize key clauses, and suggest redlines based on standard legal playbooks.",
-    prompt: "Build a legal assistant agent that reviews contracts, highlights potential risks, summarizes key clauses, and suggests redlines based on standard legal playbooks.",
+    prompt: `Build a Contract Review Assistant that ingests contracts, flags risk, and drafts redlines against a standard legal playbook.
+
+AI agents:
+1. IntakeAgent — Accepts PDF/DOCX contract uploads, extracts full text, identifies contract type (NDA, MSA, vendor agreement, employment, lease), and pulls out parties, effective date, and term length.
+2. ClauseAnalyzerAgent — Segments the contract into clauses (indemnification, liability cap, termination, IP assignment, governing law, auto-renewal, etc.), summarizes each in plain English, and flags non-standard or missing clauses against the playbook.
+3. RiskScoringAgent — Scores each clause and the overall contract on a risk scale (Low/Medium/High/Critical), citing the specific playbook rule violated and the business exposure.
+4. RedlineAgent — Generates suggested redline language for every flagged clause, with a rationale, and produces a track-changes-style comparison against the original text.
+5. ApprovalRoutingAgent — Routes contracts above a risk threshold to the right legal reviewer, tracks approval status, and sends reminders for contracts stuck in review.
+
+Pages:
+1. Contract Upload & Queue — Drag-and-drop upload, live parsing status, table of all contracts (name, type, counterparty, risk score badge, status, uploaded date). Filterable by type and risk level.
+2. Clause Review — Side-by-side original text and AI-suggested redline, per-clause risk badge, accept/reject/edit controls, comment thread per clause.
+3. Risk Dashboard — Donut chart of contracts by risk tier, bar chart of most-flagged clause types across all contracts, trend line of average risk score over time.
+4. Approval Kanban — Columns: Submitted → In Legal Review → Redlines Sent → Countersigned. Drag cards between stages; each card shows counterparty, risk score, and days in stage.
+5. Playbook Manager — Table of standard clauses and acceptable fallback positions; edit rules that drive the RiskScoringAgent and RedlineAgent.
+
+UI: Clean two-pane document workspace (original left, redline right) with a risk-colored sidebar (green/amber/red). Kanban board uses drag handles and colored priority chips.
+
+Database: Persist every contract, extracted clauses, risk scores, redline history, approval status, and reviewer comments. All tables and charts read live from the database.`,
     tools: ["RAG", "PDF Parser", "Email"],
     complexity: "Advanced",
+    sampleFile: { name: "contract-review-assistant-sample.csv", url: "/samples/legal/contract-review-assistant.csv" },
   },
   {
     category: "Legal",
     title: "Compliance Monitor",
     description: "Track changes in regulations relevant to your industry and alert you to potential compliance gaps in current policies.",
-    prompt: "Build a compliance monitoring agent that tracks changes in regulations relevant to my industry and alerts me to potential compliance gaps in our current policies.",
+    prompt: `Build a Compliance Monitor that tracks regulatory changes and continuously checks internal policies for gaps.
+
+AI agents:
+1. RegulatoryWatchAgent — Monitors regulatory sources (agency bulletins, industry news, legal feeds) for changes relevant to configured jurisdictions and industries, and summarizes each change in plain language.
+2. GapAnalysisAgent — Compares each regulatory change against ingested internal policies, identifies specific clauses that are now non-compliant or ambiguous, and estimates severity.
+3. RemediationAgent — Drafts suggested policy language updates to close each identified gap, with a rationale tied to the specific regulation.
+4. AlertAgent — Sends prioritized alerts to policy owners based on severity and deadline, tracks acknowledgment, and escalates unresolved critical gaps.
+
+Pages:
+1. Regulatory Feed — Chronological table of detected regulatory changes: source, jurisdiction, summary, date detected, affected policy count. Filter by jurisdiction/industry.
+2. Gap Analysis Board — Table of open gaps: policy name, regulation triggering it, severity badge, owner, due date, status. Click a row to see the AI's side-by-side comparison.
+3. Remediation Workspace — For each gap, shows current policy text, suggested new language, and an accept/edit/reject workflow with version history.
+4. Compliance Dashboard — Donut chart of gaps by severity, bar chart of gaps by department/policy area, line chart of open vs. resolved gaps over time, and an overall compliance health score.
+5. Policy Library — Searchable table of all ingested policies with last-reviewed date and current compliance status badge.
+
+UI: Regulatory-grade dense tables with severity color coding (green/amber/red/critical-black). Dashboard uses a top KPI strip (open gaps, avg resolution time, compliance score) above the charts.
+
+Database: Persist all regulatory changes, gap records, remediation drafts, approvals, and alert history. Dashboard and feed are fully database-driven, not mocked.`,
     tools: ["Web Search", "Email", "Webhook"],
     complexity: "Advanced",
+    sampleFile: { name: "compliance-monitor-sample.csv", url: "/samples/legal/compliance-monitor.csv" },
   },
   {
     category: "Legal",
     title: "NDA Workflow Manager",
     description: "Draft NDAs from templates, route them for approval, track signing status, and maintain a centralized repository.",
-    prompt: "Build an NDA management agent that drafts NDAs from templates, routes them for approval, tracks signing status, sends reminders for expiring agreements, and maintains a centralized repository.",
+    prompt: `Build an NDA Workflow Manager that drafts, routes, tracks, and archives non-disclosure agreements end to end.
+
+AI agents:
+1. DraftingAgent — Selects the correct NDA template (mutual, one-way, employee) based on request type, auto-fills party details, term, and jurisdiction, and flags any custom clauses requested.
+2. ApprovalRoutingAgent — Routes the draft to the correct internal approver based on counterparty risk and agreement value, tracks approval decisions, and re-routes on rejection with comments.
+3. SigningTrackerAgent — Monitors e-signature status for all parties, sends automated reminders to outstanding signers, and updates the record the moment full execution completes.
+4. ExpirationWatchAgent — Scans the repository daily for NDAs nearing expiration or auto-renewal deadlines and notifies the requesting owner with renewal or termination options.
+
+Pages:
+1. New NDA Request — Form: counterparty name, type (mutual/one-way/employee), jurisdiction, term length, custom clause notes. Submitting triggers DraftingAgent and shows live generation progress.
+2. Approval Queue Kanban — Columns: Draft → Pending Approval → Sent for Signature → Executed → Expired. Drag cards between stages; each card shows counterparty, requester, and days pending.
+3. Signature Tracker — Table of all NDAs in signing: signer name, channel, sent date, signed status per party, reminder count. One-click "send reminder now."
+4. Repository — Searchable, filterable table of all executed NDAs: counterparty, execution date, expiration date, status badge (Active/Expiring Soon/Expired). Download original PDF.
+5. Analytics — Bar chart of NDAs by type, line chart of average time-to-execution over months, donut chart of current repository status mix.
+
+UI: Kanban-first workflow view as the primary screen, with a document repository table as the secondary view. Expiring-soon rows highlighted in amber, expired in red.
+
+Database: Persist every NDA request, draft version, approval decision, signature event, and expiration check. Repository and kanban board read live from the database.`,
     tools: ["Email", "Webhook", "PDF Parser"],
-    complexity: "Intermediate",
+    complexity: "Advanced",
+    sampleFile: { name: "nda-workflow-manager-sample.csv", url: "/samples/legal/nda-workflow-manager.csv" },
   },
   {
     category: "Legal",
     title: "Policy Document Analyzer",
     description: "Ingest company policies and regulatory documents, then answer natural language questions about obligations and rights.",
-    prompt: "Build a policy analysis agent that ingests company policies, employment agreements, and regulatory documents, then answers natural language questions about obligations and rights.",
+    prompt: `Build a Policy Document Analyzer that ingests policy documents and answers natural-language questions about obligations and rights with grounded citations.
+
+AI agents:
+1. IngestionAgent — Accepts PDF/DOCX policies, employment agreements, and regulatory documents, chunks and embeds them into a vector store, and tags each chunk by policy area (leave, conduct, compensation, data privacy, etc.).
+2. QueryAgent — Takes a natural-language question, retrieves the most relevant chunks via semantic search, and synthesizes a grounded answer with exact clause citations.
+3. ObligationMappingAgent — Extracts every obligation and right mentioned across ingested documents into a structured register (who owes what, to whom, under what condition).
+4. ConflictDetectionAgent — Cross-checks newly ingested documents against the existing register to flag contradictory or superseding clauses between policies.
+
+Pages:
+1. Document Library — Upload and manage policies/agreements. Ingestion status per document, tag by policy area, delete/re-ingest controls.
+2. Ask a Question — Chat interface for natural-language questions; each answer shows inline citations linking back to the exact clause and document.
+3. Obligation Register — Table of all extracted obligations/rights: party, obligation description, source document, clause reference, category. Filterable and searchable.
+4. Conflict Report — Table of detected conflicts between documents: conflicting clauses side by side, severity, recommended resolution.
+5. Analytics — Bar chart of obligations by category, donut chart of documents by policy area, line chart of questions asked over time with top unanswered queries.
+
+UI: Document list on the left, chat on the right (same pattern as a knowledge-base Q&A app), with citations as expandable footnotes. Obligation register as a dense, sortable data table.
+
+Database: Persist ingested documents, extracted obligations, detected conflicts, and full question/answer history for analytics. All pages read live from the database.`,
     tools: ["RAG", "Knowledge Base", "PDF Parser"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "policy-document-analyzer-sample.csv", url: "/samples/legal/policy-document-analyzer.csv" },
   },
   {
     category: "Legal",
     title: "IP & Trademark Watcher",
     description: "Track new trademark filings, patent publications, and domain registrations related to your brand and alert on potential infringements.",
-    prompt: "Build an intellectual property monitoring agent that tracks new trademark filings, patent publications, and domain registrations related to my brand and alerts me to potential infringements.",
+    prompt: `Build an IP & Trademark Watcher that continuously monitors filings and registrations for potential infringement of a brand's marks.
+
+AI agents:
+1. FilingWatchAgent — Monitors trademark filings, patent publications, and new domain registrations for names/marks similar to the protected brand portfolio.
+2. SimilarityScoringAgent — Scores each detected filing/domain for visual, phonetic, and semantic similarity to protected marks, and classifies risk (Watch/Investigate/Likely Infringement).
+3. InvestigationAgent — For flagged items, pulls filer/registrant details, jurisdiction, filing class, and prior related disputes to build an investigation dossier.
+4. AlertAgent — Sends prioritized alerts to legal/brand owners based on similarity score and mark importance, and tracks the resolution action taken (monitor/cease-and-desist/opposition filed).
+
+Pages:
+1. Watchlist — Table of all protected marks/brands being monitored, with jurisdiction and registration class. Add/edit/remove marks.
+2. Detections Feed — Chronological table of new filings/domains detected: mark, source (USPTO/WIPO/domain registrar), similarity score badge, date detected.
+3. Investigation Case — Full dossier per flagged item: filer details, similarity breakdown, prior dispute history, recommended action, status (Open/Escalated/Resolved).
+4. Analytics Dashboard — Bar chart of detections by source, donut chart of risk classification mix, line chart of detection volume over time by brand.
+5. Action Log Kanban — Columns: New → Under Investigation → Legal Action Sent → Resolved. Cards show mark name and similarity score.
+
+UI: Watch-and-alert dashboard feel — top KPI strip (active watches, new detections this week, open cases) above the detections table. Risk badges color-coded green/amber/red.
+
+Database: Persist watched marks, all detections, similarity scores, investigation dossiers, and resolution actions. Dashboard, feed, and kanban board are fully database-driven.`,
     tools: ["Web Search", "Email", "Webhook"],
     complexity: "Advanced",
+    sampleFile: { name: "ip-trademark-watcher-sample.csv", url: "/samples/legal/ip-trademark-watcher.csv" },
   },
   // ── HR ────────────────────────────────────────────────────────────────────
   {
     category: "HR",
     title: "AI Recruiter",
     description: "Screen incoming resumes against job descriptions, rank candidates, and automatically coordinate interview schedules.",
-    prompt: "Build a recruitment agent that screens incoming resumes against job descriptions, ranks candidates, and automatically coordinates interview schedules with hiring managers.",
+    prompt: `Build an AI Recruiter that screens resumes against open roles, ranks candidates, and coordinates interview scheduling automatically.
+
+AI agents:
+1. JobIntakeAgent — Ingests job descriptions, extracts required/preferred skills, experience level, and must-have qualifications into a structured rubric.
+2. ResumeScreeningAgent — Parses incoming resumes (PDF/DOCX), extracts skills/experience/education, and scores each candidate against the job rubric with a match percentage and rationale.
+3. RankingAgent — Ranks all candidates per open role, groups them into tiers (Strong Match / Possible / Not a Fit), and highlights standout differentiators.
+4. SchedulingAgent — For shortlisted candidates, finds mutual availability between candidate and hiring manager, books the interview, and sends calendar invites and reminders to both sides.
+
+Pages:
+1. Job Requisitions — Table of open roles: title, department, applicant count, status (Open/Screening/Interviewing/Filled). Add a new requisition with a form.
+2. Candidate Pipeline Kanban — Columns: Applied → Screened → Shortlisted → Interviewing → Offer. Cards show candidate name, match score badge, and role.
+3. Candidate Detail — Resume preview, match score breakdown by rubric criterion, AI rationale, interview schedule status, notes from hiring manager.
+4. Scheduling Board — Calendar view of upcoming interviews with candidate/interviewer pairs; conflict warnings shown inline.
+5. Analytics — Funnel chart of candidates by pipeline stage, bar chart of average match score by role, line chart of time-to-hire trend over months.
+
+UI: Kanban pipeline as the primary recruiter view with drag-and-drop stage changes. Match scores shown as colored percentage badges (green ≥80%, amber 50-79%, gray <50%).
+
+Database: Persist requisitions, parsed resumes, match scores, pipeline stage history, and scheduled interviews. All boards and charts read live from the database.`,
     tools: ["Email", "Calendar", "PDF Parser"],
-    complexity: "Intermediate",
+    complexity: "Advanced",
+    sampleFile: { name: "ai-recruiter-sample.csv", url: "/samples/hr/ai-recruiter.csv" },
   },
   {
     category: "HR",
     title: "Employee Onboarding Buddy",
     description: "Guide new employees through paperwork, answer common policy questions, and schedule introductory meetings with key team members.",
-    prompt: "Build an HR onboarding agent that guides new employees through paperwork, answers common policy questions, and schedules introductory meetings with key team members.",
+    prompt: `Build an Employee Onboarding Buddy that guides new hires through paperwork, policy questions, and introductory meetings from offer acceptance through day 30.
+
+AI agents:
+1. OnboardingPlanAgent — Generates a personalized onboarding checklist (paperwork, equipment requests, training modules, intro meetings) based on the new hire's role, department, and location.
+2. PaperworkAssistantAgent — Walks the new hire through required forms (tax, benefits, equipment), validates completion, and flags anything missing before the start date.
+3. PolicyQAAgent — Answers the new hire's natural-language questions about company policy using the knowledge base, with source citations.
+4. IntroSchedulerAgent — Identifies key team members (manager, buddy, cross-functional stakeholders) and auto-schedules 1:1 intro meetings across the first two weeks.
+
+Pages:
+1. New Hire Dashboard — Personalized checklist with progress bar, upcoming intro meetings list, quick-access policy chat.
+2. Paperwork Tracker — Table of required documents per new hire: form name, status (Not Started/In Progress/Complete), due date. HR view across all current hires.
+3. Policy Chat — Conversational Q&A interface with cited answers linking to source policy documents.
+4. Intro Meeting Schedule — Calendar/list view of scheduled meetings with team members, topic, and confirmation status.
+5. HR Cohort Dashboard — Bar chart of onboarding completion rate by department, donut chart of current cohort status mix (On Track/At Risk/Complete), line chart of average time-to-full-onboarding over recent cohorts.
+
+UI: Friendly, welcoming new-hire dashboard with a progress ring at the top. HR cohort dashboard is denser and data-table-driven for people-ops users.
+
+Database: Persist onboarding plans, paperwork status, policy Q&A history, and meeting schedules per new hire. Dashboards read live from the database, not hardcoded cohorts.`,
     tools: ["Knowledge Base", "Email", "Calendar"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "employee-onboarding-buddy-sample.csv", url: "/samples/hr/employee-onboarding-buddy.csv" },
   },
   {
     category: "HR",
     title: "Resume Parser & Standardizer",
     description: "Accept PDF or Word resumes, extract key fields like skills, experience, and education, and output standardized JSON profiles for your ATS.",
-    prompt: "Build a resume parsing agent that accepts PDF or Word resumes, extracts key fields like skills, experience, and education, and outputs standardized JSON profiles ready for my ATS.",
+    prompt: `Build a Resume Parser & Standardizer that converts unstructured resumes into clean, standardized candidate profiles ready for any ATS.
+
+AI agents:
+1. ExtractionAgent — Accepts PDF/DOCX resumes, extracts contact info, work history, education, skills, and certifications, handling varied formats and layouts.
+2. NormalizationAgent — Standardizes extracted data into a consistent schema: normalizes job titles, dates, skill names (e.g. "JS" -> "JavaScript"), and education levels.
+3. QualityCheckAgent — Flags parsing gaps or low-confidence fields (missing dates, ambiguous titles) for manual review before export.
+4. ExportAgent — Outputs standardized JSON profiles and pushes them to the ATS via webhook, or offers bulk CSV/JSON export for batch review.
+
+Pages:
+1. Upload Queue — Drag-and-drop bulk resume upload, table showing parse status per file (Pending/Parsed/Needs Review/Exported).
+2. Profile Editor — Side-by-side original resume and extracted standardized profile fields; manual correction with inline validation.
+3. Review Queue — Table of all low-confidence extractions flagged by QualityCheckAgent, sorted by confidence score, with quick accept/fix actions.
+4. Export Center — Select profiles and export as JSON/CSV, or trigger the ATS webhook push; shows export history log.
+5. Analytics — Bar chart of parse confidence distribution, donut chart of resumes by status, line chart of daily parsing volume.
+
+UI: Efficient batch-processing workspace — table-first with a document preview panel that slides in on row click. Confidence scores shown as small colored dots (green/amber/red).
+
+Database: Persist every uploaded resume, extracted fields, correction history, and export log. Review queue and analytics are fully database-driven.`,
     tools: ["PDF Parser", "Email", "Webhook"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "resume-parser-standardizer-sample.csv", url: "/samples/hr/resume-parser-standardizer.csv" },
   },
   {
     category: "HR",
     title: "Employee Engagement Pulse",
     description: "Send periodic pulse surveys, analyze sentiment trends across teams, and recommend actionable steps to improve workplace satisfaction.",
-    prompt: "Build an employee engagement agent that sends periodic pulse surveys, analyzes sentiment trends across teams, and recommends actionable steps to improve workplace satisfaction.",
+    prompt: `Build an Employee Engagement Pulse platform that runs recurring surveys, tracks sentiment trends, and recommends concrete actions to leaders.
+
+AI agents:
+1. SurveyDesignAgent — Generates pulse survey question sets (rotating themes: workload, management, growth, belonging) and schedules recurring send cadences per team.
+2. SentimentAnalysisAgent — Analyzes open-text responses for sentiment and theme clustering, and computes quantitative eNPS and satisfaction scores per team/department.
+3. TrendDetectionAgent — Compares current-cycle scores against historical trends, flags statistically significant drops, and identifies which teams are diverging from the org average.
+4. RecommendationAgent — For flagged teams, generates specific, actionable recommendations (e.g. workload rebalancing, 1:1 cadence increase) tied to the underlying survey themes, and drafts a manager briefing.
+
+Pages:
+1. Survey Builder — Configure question sets, cadence, and target teams; preview and schedule the next pulse send.
+2. Response Dashboard — Live eNPS score, response rate, sentiment breakdown by theme, all filterable by team/department/time range.
+3. Team Trend View — Line chart of engagement score over time per team, with flagged inflection points annotated.
+4. Action Recommendations — List of flagged teams with AI-generated recommendation, supporting theme evidence, and a manager sign-off/track-progress workflow.
+5. Org-Wide Analytics — Bar chart of eNPS by department, donut chart of sentiment theme distribution, funnel chart of survey send -> open -> complete rates.
+
+UI: Executive dashboard feel — top KPI strip (org eNPS, response rate, flagged teams) above trend charts. Recommendation cards use a soft highlight color to stand out.
+
+Database: Persist survey definitions, every response (anonymized), computed scores, trend flags, and recommendation/action tracking. All dashboards read live from the database.`,
     tools: ["Email", "Slack", "Webhook"],
     complexity: "Intermediate",
+    sampleFile: { name: "employee-engagement-pulse-sample.csv", url: "/samples/hr/employee-engagement-pulse.csv" },
   },
   {
     category: "HR",
     title: "Performance Review Assistant",
     description: "Collect peer feedback, summarize key themes for each employee, and draft balanced review narratives that managers can refine and approve.",
-    prompt: "Build a performance review agent that collects peer feedback, summarizes key themes for each employee, and drafts balanced review narratives that managers can refine and approve.",
+    prompt: `Build a Performance Review Assistant that collects 360 feedback, synthesizes themes, and drafts balanced review narratives for managers to refine.
+
+AI agents:
+1. FeedbackCollectionAgent — Sends structured 360 feedback requests to peers, direct reports, and managers, tracks response completion, and sends reminders for outstanding requests.
+2. ThemeSynthesisAgent — Analyzes all collected feedback per employee, clusters comments into themes (strengths, growth areas, collaboration, impact), and identifies consensus vs. outlier opinions.
+3. NarrativeDraftingAgent — Drafts a balanced, evidence-backed review narrative per employee, citing anonymized feedback themes and tying them to the company's performance rubric/rating scale.
+4. CalibrationAgent — Compares draft ratings across a manager's team (and across peer manager teams) to flag rating inconsistencies or leniency/severity bias before final approval.
+
+Pages:
+1. Review Cycle Setup — Configure the review period, select participants, and launch feedback requests; track collection progress per employee.
+2. Feedback Collection Tracker — Table of feedback requests: reviewer, subject, relationship (peer/manager/report), status (Sent/Reminded/Completed).
+3. Draft Review Editor — Per-employee draft narrative with theme evidence panel alongside, manager edit controls, and approve/send-back workflow.
+4. Calibration Dashboard — Bar chart of rating distribution per manager/team, flagged outlier reviews highlighted, side-by-side rating comparison view.
+5. Cycle Analytics — Donut chart of review completion status org-wide, line chart of average rating trend across cycles, funnel chart of feedback requested -> collected -> reviewed -> approved.
+
+UI: Narrative editor is the centerpiece — clean document-style layout with a collapsible feedback-evidence sidebar. Calibration dashboard uses a dense comparison grid across managers.
+
+Database: Persist review cycles, all feedback submissions (with reviewer anonymization for subjects), draft/approved narratives, and calibration flags. All dashboards read live from the database.`,
     tools: ["Email", "Slack", "Knowledge Base"],
-    complexity: "Intermediate",
+    complexity: "Advanced",
+    sampleFile: { name: "performance-review-assistant-sample.csv", url: "/samples/hr/performance-review-assistant.csv" },
   },
   // ── Support ───────────────────────────────────────────────────────────────
   {
@@ -550,38 +731,111 @@ UI: Familiar helpdesk layout similar to Intercom/Zendesk. Dark sidebar, white co
 Sample data: Pre-populate with 10 sample support tickets across all three channels showing different resolution states.`,
     tools: ["RAG", "Knowledge Base", "Email", "Slack"],
     complexity: "Advanced",
+    sampleFile: { name: "omni-channel-support-sample.csv", url: "/samples/support/omni-channel-support.csv" },
   },
   {
     category: "Support",
     title: "User Onboarding Guide",
     description: "Monitor new user activity and send proactive tips and tutorials when they seem stuck or inactive.",
-    prompt: "Build a user onboarding agent that monitors new user activity and sends proactive tips and tutorials when they seem stuck or inactive.",
+    prompt: `Build a User Onboarding Guide that monitors in-product activity and proactively nudges users toward activation with the right tip at the right moment.
+
+AI agents:
+1. ActivityMonitorAgent — Ingests product usage events per user, tracks progress against key activation milestones, and detects stuck/inactive patterns (e.g. no login in 3 days, feature started but not completed).
+2. SegmentationAgent — Groups users into onboarding segments (New/Activating/Stuck/Churning Risk) based on activity patterns and plan type.
+3. NudgeAgent — Selects and sends the most relevant tip, tutorial, or in-app message for each user's current blocker, personalized to their segment and last action taken.
+4. EffectivenessAgent — Tracks whether each nudge led to the intended next action, and continuously improves nudge selection using response data.
+
+Pages:
+1. User Activity Table — All users with activation milestone progress bar, current segment badge, last active date, last nudge sent.
+2. User Detail — Full activity timeline, milestones completed/pending, nudge history with response outcome for that user.
+3. Nudge Library — Manage tip/tutorial content mapped to specific blockers or milestones; edit copy and trigger conditions.
+4. Segment Kanban — Columns: New → Activating → Stuck → Activated → Churn Risk. Cards show user name, plan, and days in segment.
+5. Analytics Dashboard — Funnel chart of activation milestone completion, bar chart of nudge effectiveness by type, line chart of overall activation rate over time.
+
+UI: Lightweight admin console feel — activity table as primary view, segment kanban as a secondary strategic view. Nudge effectiveness shown with green/red response indicators.
+
+Database: Persist user activity events, segment assignments, nudge sends, and outcome tracking. All views and charts read live from the database.`,
     tools: ["Email", "Slack", "Webhook"],
-    complexity: "Starter",
+    complexity: "Intermediate",
+    sampleFile: { name: "user-onboarding-guide-sample.csv", url: "/samples/support/user-onboarding-guide.csv" },
   },
   {
     category: "Support",
     title: "Voice Customer Support",
     description: "Handle inbound customer calls, triage issues through guided conversation, resolve common problems, and create tickets for complex cases.",
-    prompt: "Build a voice support agent that handles inbound customer calls, triages issues through guided conversation, resolves common problems, and creates tickets for complex cases.",
+    prompt: `Build a Voice Customer Support agent that handles inbound calls, triages through guided conversation, resolves common issues, and escalates complex ones with a full ticket handoff.
+
+AI agents:
+1. CallIntakeAgent — Answers inbound calls, verifies caller identity, and captures the initial issue description via guided voice prompts.
+2. TriageAgent — Classifies the issue (billing, technical, account, general), determines urgency, and decides whether it can be resolved on the call or needs escalation.
+3. ResolutionAgent — For resolvable issues, walks the caller through a guided troubleshooting or self-service flow using the knowledge base, confirming resolution before ending the call.
+4. TicketHandoffAgent — For unresolved or complex issues, creates a structured ticket with call transcript, classification, and suggested next steps, and routes it to the right team.
+
+Pages:
+1. Live Calls Monitor — Real-time view of active calls: caller, duration, current triage category, live transcript excerpt.
+2. Call Log — Table of completed calls: caller, issue category, resolution status (Resolved/Escalated), duration, timestamp. Click through to full transcript.
+3. Ticket Handoffs — Table of tickets created from calls: linked transcript, category, urgency, assigned team, status.
+4. Knowledge Base Manager — Manage the guided troubleshooting scripts and articles the ResolutionAgent uses, with usage/success-rate stats per article.
+5. Analytics Dashboard — Bar chart of call volume by category, donut chart of resolved-on-call vs. escalated, line chart of average call duration and resolution rate over time.
+
+UI: Call-center style monitor with a live-calls strip at the top and a searchable call log table below. Transcript viewer shows a clean two-column speaker layout (Caller / Agent).
+
+Database: Persist every call, transcript, triage classification, resolution outcome, and any resulting ticket. All dashboards and logs read live from the database.`,
     tools: ["Knowledge Base", "Webhook", "Email"],
     complexity: "Advanced",
+    sampleFile: { name: "voice-customer-support-sample.csv", url: "/samples/support/voice-customer-support.csv" },
   },
   {
     category: "Support",
     title: "Ticket Triage & Routing",
     description: "Read incoming support tickets, classify by category and urgency, assign to the right team, and send an instant acknowledgment to the customer.",
-    prompt: "Build a ticket triage agent that reads incoming support tickets, classifies them by category and urgency, assigns them to the right team, and sends an instant acknowledgment to the customer.",
+    prompt: `Build a Ticket Triage & Routing agent that classifies, prioritizes, and assigns incoming support tickets with an instant customer acknowledgment.
+
+AI agents:
+1. IntakeAgent — Ingests tickets from email, web form, and chat, normalizes them into a common schema, and captures customer, subject, and description.
+2. ClassificationAgent — Categorizes each ticket (billing, technical, account, feature request) and assigns an urgency level (P1–P4) based on keywords, customer tier, and sentiment.
+3. RoutingAgent — Assigns the ticket to the correct team/agent based on category, current workload, and skill match, rebalancing when a team is overloaded.
+4. AcknowledgmentAgent — Sends an instant, personalized acknowledgment to the customer with expected response time based on urgency and current queue depth.
+
+Pages:
+1. Ticket Queue — Table of all tickets: subject, category, urgency badge, assigned team/agent, status, age. Filterable and sortable.
+2. Ticket Detail — Full ticket content, AI classification rationale, routing history, and acknowledgment sent log.
+3. Team Workload Board — Kanban-style view per team showing assigned ticket counts and capacity; drag tickets to manually reassign.
+4. Routing Rules Manager — Configure category-to-team mapping, urgency thresholds, and workload rebalancing rules.
+5. Analytics Dashboard — Bar chart of tickets by category, donut chart of tickets by urgency, funnel chart of ticket status progression (New -> Assigned -> In Progress -> Resolved), line chart of average acknowledgment time.
+
+UI: Dense, sortable ticket queue as the primary view (helpdesk style), with urgency shown as colored left-border stripes on each row. Team workload board as a secondary drag-and-drop view.
+
+Database: Persist every ticket, classification result, routing decision, workload snapshots, and acknowledgment log. Queue and dashboards read live from the database.`,
     tools: ["Email", "Slack", "Webhook"],
     complexity: "Intermediate",
+    sampleFile: { name: "ticket-triage-routing-sample.csv", url: "/samples/support/ticket-triage-routing.csv" },
   },
   {
     category: "Support",
     title: "Self-Serve FAQ Builder",
     description: "Analyze past support conversations, identify the most common questions, and auto-generate help center articles with step-by-step solutions.",
-    prompt: "Build an FAQ agent that analyzes past support conversations, identifies the most common questions, and auto-generates help center articles with step-by-step solutions.",
+    prompt: `Build a Self-Serve FAQ Builder that mines past support conversations to auto-generate and maintain a help center.
+
+AI agents:
+1. ConversationMiningAgent — Ingests historical support tickets/chats/calls and clusters them by underlying question or issue, ranking clusters by frequency and resolution cost.
+2. ArticleDraftingAgent — For each high-frequency cluster, drafts a help center article with a clear title, step-by-step solution, and screenshots/placeholders where relevant, sourced from the highest-quality historical resolutions.
+3. GapDetectionAgent — Identifies recurring questions that have no existing or adequate help article, and flags them as content gaps.
+4. FreshnessAgent — Periodically re-checks published articles against recent support conversations to detect when an article's steps have gone stale (e.g. product UI changed) and flags it for review.
+
+Pages:
+1. Question Clusters — Table of mined question clusters: representative question, frequency count, average resolution cost, has-article status.
+2. Article Editor — Draft/edit help center articles with step-by-step formatting, linked source conversations for reference, and a publish/unpublish toggle.
+3. Content Gap Report — Table of high-frequency clusters with no article, sorted by frequency, with a one-click "generate draft" action.
+4. Article Health Dashboard — Table of published articles flagged as stale, with the reason (e.g. "12 recent tickets contradict these steps") and last-reviewed date.
+5. Analytics — Bar chart of top question clusters by volume, donut chart of article coverage (Covered/Gap/Stale), line chart of ticket deflection rate over time since publishing new articles.
+
+UI: Content-management style workspace — article list with status badges (Published/Draft/Stale/Gap) on the left, rich text editor on the right showing source conversation excerpts in a collapsible panel.
+
+Database: Persist mined clusters, source conversation links, drafted/published articles, gap flags, staleness checks, and deflection metrics. All dashboards and reports read live from the database.`,
     tools: ["RAG", "Knowledge Base", "Webhook"],
     complexity: "Intermediate",
+    sampleFile: { name: "self-serve-faq-builder-sample.csv", url: "/samples/support/self-serve-faq-builder.csv" },
   },
   // ── Productivity ──────────────────────────────────────────────────────────
   {
