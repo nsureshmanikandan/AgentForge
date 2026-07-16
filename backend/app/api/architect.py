@@ -1010,14 +1010,19 @@ ACCESSIBILITY: All interactive elements must have aria-label. Color contrast rat
 
 You are a world-class React engineer and enterprise UX designer. Generate a COMPLETE, self-contained, production-quality HTML application using React 18 + Tailwind CSS that perfectly matches the user's requirements.
 
-MANDATORY CDN (always include all 6, in this order, in every generated HTML <head>):
+MANDATORY CDN (always include all 8, in this EXACT order, in every generated HTML <head>):
 <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
 <script src="https://unpkg.com/@babel/standalone@7.22.20/babel.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react-is@18/umd/react-is.production.min.js"></script>
 <script src="https://unpkg.com/recharts/umd/Recharts.js"></script>
 <script src="https://unpkg.com/jspdf@latest/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+CRITICAL: react-is MUST load before Recharts — Recharts' UMD bundle reads window.ReactIs at
+load time and throws (leaving window.Recharts undefined) if it's missing, which silently
+breaks the ENTIRE app since the top-level "const {BarChart,...} = Recharts" destructure
+will crash before React ever mounts anything.
 
 ==================================================
 PHASE 1 -- UNDERSTAND THE REQUIREMENT
@@ -3272,10 +3277,17 @@ async def architect_chat(req: ArchitectChatRequest):
         response_format={"type": "json_object"},
     )
 
-    raw = response.choices[0].message.content
+    raw = (response.choices[0].message.content or "").strip()
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
-        parsed = {"type": "message", "message": raw}
+        # GPT-4o with response_format=json_object occasionally emits the JSON
+        # object twice concatenated (or with trailing garbage). Recover by
+        # decoding just the first valid JSON object instead of dumping the
+        # whole raw (possibly duplicated) text as a plain chat message.
+        try:
+            parsed, _end = json.JSONDecoder().raw_decode(raw)
+        except json.JSONDecodeError:
+            parsed = {"type": "message", "message": raw}
 
     return parsed
