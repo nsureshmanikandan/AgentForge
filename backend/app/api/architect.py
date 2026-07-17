@@ -2758,6 +2758,276 @@ def get_agent() -> {safe_name}:
     return new_files
 
 
+# ── Domain detection + SQL schema selection ─────────────────────────────────
+
+_SQL_SCHEMAS: dict[str, str] = {
+    "HR_APP": """\
+CREATE TABLE IF NOT EXISTS employees (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT UNIQUE NOT NULL,
+  role TEXT,
+  department TEXT,
+  start_date DATE,
+  status TEXT DEFAULT 'active',
+  manager_id INTEGER REFERENCES employees(id),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS onboarding_tasks (
+  id SERIAL PRIMARY KEY,
+  employee_id INTEGER REFERENCES employees(id),
+  task_name TEXT NOT NULL,
+  due_date DATE,
+  completed BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);""",
+
+    "SALES_APP": """\
+CREATE TABLE IF NOT EXISTS leads (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  company TEXT,
+  email TEXT,
+  phone TEXT,
+  score INTEGER DEFAULT 0,
+  stage TEXT DEFAULT 'new',
+  assigned_to TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  last_contact TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS deals (
+  id SERIAL PRIMARY KEY,
+  lead_id INTEGER REFERENCES leads(id),
+  title TEXT,
+  value NUMERIC(12,2),
+  stage TEXT DEFAULT 'prospecting',
+  close_date DATE,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);""",
+
+    "LEGAL_APP": """\
+CREATE TABLE IF NOT EXISTS contracts (
+  id SERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  party TEXT,
+  contract_value NUMERIC(15,2),
+  risk_level TEXT DEFAULT 'medium',
+  status TEXT DEFAULT 'under_review',
+  file_path TEXT,
+  expiry_date DATE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS clauses (
+  id SERIAL PRIMARY KEY,
+  contract_id INTEGER REFERENCES contracts(id),
+  clause_type TEXT,
+  content TEXT,
+  risk_flag BOOLEAN DEFAULT false,
+  redline_suggestion TEXT
+);""",
+
+    "SUPPORT_APP": """\
+CREATE TABLE IF NOT EXISTS tickets (
+  id SERIAL PRIMARY KEY,
+  channel TEXT NOT NULL,
+  subject TEXT,
+  body TEXT,
+  category TEXT,
+  priority TEXT DEFAULT 'P3',
+  sentiment TEXT,
+  status TEXT DEFAULT 'open',
+  assignee TEXT,
+  customer_email TEXT,
+  csat_score INTEGER,
+  resolved_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);""",
+
+    "MARKETING_APP": """\
+CREATE TABLE IF NOT EXISTS campaigns (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  channel TEXT,
+  budget NUMERIC(12,2),
+  status TEXT DEFAULT 'draft',
+  start_date DATE,
+  end_date DATE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS campaign_metrics (
+  id SERIAL PRIMARY KEY,
+  campaign_id INTEGER REFERENCES campaigns(id),
+  impressions INTEGER DEFAULT 0,
+  clicks INTEGER DEFAULT 0,
+  conversions INTEGER DEFAULT 0,
+  spend NUMERIC(12,2) DEFAULT 0,
+  recorded_at TIMESTAMPTZ DEFAULT NOW()
+);""",
+
+    "PRODUCTIVITY_APP": """\
+CREATE TABLE IF NOT EXISTS tasks (
+  id SERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  description TEXT,
+  assignee TEXT,
+  due_date DATE,
+  priority TEXT DEFAULT 'medium',
+  status TEXT DEFAULT 'todo',
+  project_id INTEGER,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS projects (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  owner TEXT,
+  deadline DATE,
+  status TEXT DEFAULT 'active',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);""",
+
+    "DEV_TOOL": """\
+CREATE TABLE IF NOT EXISTS repositories (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  url TEXT,
+  language TEXT,
+  last_scanned TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS scan_results (
+  id SERIAL PRIMARY KEY,
+  repo_id INTEGER REFERENCES repositories(id),
+  severity TEXT,
+  finding TEXT,
+  line_number INTEGER,
+  file_path TEXT,
+  resolved BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);""",
+
+    "FINANCE_APP": """\
+CREATE TABLE IF NOT EXISTS transactions (
+  id SERIAL PRIMARY KEY,
+  amount NUMERIC(15,2) NOT NULL,
+  currency TEXT DEFAULT 'USD',
+  type TEXT,
+  category TEXT,
+  description TEXT,
+  account_id INTEGER,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS accounts (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  type TEXT,
+  balance NUMERIC(15,2) DEFAULT 0,
+  currency TEXT DEFAULT 'USD',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);""",
+
+    "ANALYST_APP": """\
+CREATE TABLE IF NOT EXISTS data_sources (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  type TEXT,
+  connection_string TEXT,
+  last_synced TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS reports (
+  id SERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  query TEXT,
+  result_json JSONB,
+  source_id INTEGER REFERENCES data_sources(id),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);""",
+
+    "DATA_APP": """\
+CREATE TABLE IF NOT EXISTS datasets (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  file_path TEXT,
+  row_count INTEGER,
+  schema_json JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS pipelines (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  steps_json JSONB,
+  status TEXT DEFAULT 'idle',
+  last_run TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);""",
+
+    "CHATBOT": """\
+CREATE TABLE IF NOT EXISTS conversations (
+  id SERIAL PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  user_message TEXT,
+  bot_response TEXT,
+  intent TEXT,
+  confidence NUMERIC(5,2),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS documents (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  content TEXT,
+  indexed BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);""",
+
+    "CUSTOM": """\
+CREATE TABLE IF NOT EXISTS items (
+  id SERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  description TEXT,
+  status TEXT DEFAULT 'active',
+  metadata JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS events (
+  id SERIAL PRIMARY KEY,
+  item_id INTEGER REFERENCES items(id),
+  event_type TEXT,
+  payload JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);""",
+}
+
+
+def _detect_domain(summary: str) -> str:
+    """Return one of the _SQL_SCHEMAS keys based on keywords in summary."""
+    s = summary.lower()
+    if any(k in s for k in ["employee", "hr ", "human resource", "onboard", "payroll", "talent", "workforce"]):
+        return "HR_APP"
+    if any(k in s for k in ["sales", "lead", "crm", "deal", "pipeline", "prospect", "revenue", "quota"]):
+        return "SALES_APP"
+    if any(k in s for k in ["legal", "contract", "clause", "compliance", "nda", "redline", "regulatory"]):
+        return "LEGAL_APP"
+    if any(k in s for k in ["support", "ticket", "helpdesk", "service desk", "customer service", "csat", "triage"]):
+        return "SUPPORT_APP"
+    if any(k in s for k in ["marketing", "campaign", "brand", "ad spend", "impression", "conversion"]):
+        return "MARKETING_APP"
+    if any(k in s for k in ["productivity", "task", "project manage", "kanban", "sprint", "backlog", "todo"]):
+        return "PRODUCTIVITY_APP"
+    if any(k in s for k in ["devtool", "dev tool", "code review", "repository", "github", "scan", "ci/cd"]):
+        return "DEV_TOOL"
+    if any(k in s for k in ["finance", "account", "invoice", "expense", "budget", "transaction", "bookkeep"]):
+        return "FINANCE_APP"
+    if any(k in s for k in ["analyst", "insight", "bi ", "business intelligence", "kpi", "report"]):
+        return "ANALYST_APP"
+    if any(k in s for k in ["data pipeline", "etl", "dataset", "data process", "data platform"]):
+        return "DATA_APP"
+    if any(k in s for k in ["chatbot", "rag", "knowledge base", "faq", "conversational"]):
+        return "CHATBOT"
+    return "CUSTOM"
+
+
 PROJECT_FRONTEND_PROMPT = """You are a senior React engineer. Generate a complete React 18 + TypeScript + Vite + TailwindCSS frontend for the application described below.
 
 CRITICAL UI REQUIREMENT — EXACT 3-PANEL CHAT INTERFACE:
