@@ -3821,14 +3821,22 @@ requirements."""
         import re as _re3
         _service_slug = _re3.sub(r"[^a-z0-9]+", "-", req.app_name.lower()).strip("-") or "app"
 
-        all_files[".env.example"] = (
-            f"DATABASE_URL=postgresql://postgres:postgres@localhost:5432/app\n"
-            f"OTEL_EXPORTER=jaeger\n"
-            f"OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318\n"
-            f"OTEL_SERVICE_NAME={_service_slug}\n"
-            f"AZURE_OPENAI_API_KEY=your-key-here\n"
-            f"AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com\n"
-        )
+        # Merge with any .env.example the LLM already generated (e.g. it may
+        # contain real SSO_ENABLED/AZURE_TENANT_ID/AZURE_CLIENT_ID vars) rather
+        # than overwriting it wholesale -- only add keys that aren't already
+        # present, so neither set of vars clobbers the other.
+        _existing_env = all_files.get(".env.example", "")
+        _existing_keys = {line.split("=", 1)[0] for line in _existing_env.splitlines() if "=" in line}
+        _otel_defaults = [
+            ("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/app"),
+            ("OTEL_EXPORTER", "jaeger"),
+            ("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318"),
+            ("OTEL_SERVICE_NAME", _service_slug),
+            ("AZURE_OPENAI_API_KEY", "your-key-here"),
+            ("AZURE_OPENAI_ENDPOINT", "https://your-resource.openai.azure.com"),
+        ]
+        _new_lines = [f"{k}={v}" for k, v in _otel_defaults if k not in _existing_keys]
+        all_files[".env.example"] = _existing_env.rstrip("\n") + ("\n" if _existing_env else "") + "\n".join(_new_lines) + ("\n" if _new_lines else "")
 
         # Patch package.json scripts to add db:init
         _pkg_path = next((p for p in all_files if p.endswith("package.json") and "backend" not in p), None)
