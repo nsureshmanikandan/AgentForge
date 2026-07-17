@@ -2244,7 +2244,29 @@ CRITICAL RULES:
 - NEVER use placeholder content â€" all data from documents above
 """
     else:
-        doc_instruction = f"""
+        # Non-CHATBOT app types don't run the KB-extraction pass above, but if
+        # real documents were uploaded (e.g. a Prompt Library sample CSV), their
+        # actual content should still seed the dashboard/table data instead of
+        # the model inventing plausible-looking numbers from scratch.
+        real_docs = [d for d in (req.documents or []) if d.text and d.text.strip()]
+        if real_docs:
+            real_data_excerpt = "\n\n".join(
+                f"=== {d.name} ===\n{d.text[:3000]}" for d in real_docs
+            )
+            doc_instruction = f"""
+REAL UPLOADED DATA (use this, do not invent numbers):
+{real_data_excerpt}
+
+CRITICAL RULES:
+- Derive KPI values, table rows, and chart data from the REAL DATA above -- count/aggregate
+  actual rows, do not fabricate different numbers
+- If the data has more rows than fit in the UI, show a representative sample plus an accurate
+  total count derived from the real row count
+- Field/column names in tables must match the real data's actual columns
+- Only fall back to realistic invented data for parts the uploaded data doesn't cover
+"""
+        else:
+            doc_instruction = f"""
 If building a CHATBOT:
   - FAQ questions = what a REAL {company} end user/agent asks about their product/service/policy
   - NEVER write questions about AI technology, RAG, FAISS, embeddings, or how the app works
