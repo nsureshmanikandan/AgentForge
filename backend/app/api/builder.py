@@ -41,6 +41,10 @@ class SuggestIdeasRequest(BaseModel):
     partial_name: str
 
 
+class SuggestInputRequest(BaseModel):
+    nodes: list[dict]
+
+
 class WorkflowSaveRequest(BaseModel):
     name: str
     nodes: list[dict]
@@ -308,6 +312,29 @@ async def suggest_ideas(body: SuggestIdeasRequest):
     except Exception:
         return {"ideas": []}
     return {"ideas": ideas[:4]}
+
+
+@router.post("/suggest-input")
+async def suggest_input(body: SuggestInputRequest):
+    """Given a workflow's nodes, generate one realistic example input to trigger it with."""
+    client = AzureOpenAIClient()
+    node_summary = "\n".join(
+        f"- {n.get('data', {}).get('label', n.get('id'))} "
+        f"({n.get('data', {}).get('role', 'agent')}): "
+        f"{n.get('data', {}).get('description', '')}"
+        for n in body.nodes
+    )
+    messages = [
+        {"role": "system", "content": (
+            "You are helping a user test an AI agent pipeline. Given the pipeline's nodes below, "
+            "write ONE realistic, specific example input a real user might submit to trigger this "
+            "exact pipeline. Return ONLY the example input text, no quotes, no explanation, no "
+            "markdown."
+        )},
+        {"role": "user", "content": f"Pipeline nodes:\n{node_summary}"},
+    ]
+    raw = await client.chat(messages, temperature=0.5)
+    return {"suggested_input": raw.strip()}
 
 
 @router.post("/workflows")

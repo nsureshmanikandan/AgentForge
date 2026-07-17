@@ -33,3 +33,21 @@ async def test_suggest_ideas_returns_empty_list_on_invalid_json():
             res = await ac.post("/api/builder/suggest-ideas", json={"partial_name": "Expense"})
     assert res.status_code == 200
     assert res.json() == {"ideas": []}
+
+
+@pytest.mark.asyncio
+async def test_suggest_input_returns_generated_text():
+    with patch("app.api.builder.AzureOpenAIClient") as MockClient:
+        instance = MockClient.return_value
+        instance.chat = AsyncMock(return_value="Reimburse $430 for a client dinner in Chicago.")
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            res = await ac.post(
+                "/api/builder/suggest-input",
+                json={"nodes": [
+                    {"id": "n1", "data": {"label": "Input", "role": "input", "description": "Receives expense claim"}},
+                    {"id": "n2", "data": {"label": "Classifier", "role": "classifier", "description": "Classifies expense type"}},
+                ]},
+            )
+    assert res.status_code == 200
+    assert res.json()["suggested_input"] == "Reimburse $430 for a client dinner in Chicago."
