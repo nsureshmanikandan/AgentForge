@@ -51,3 +51,18 @@ async def test_suggest_input_returns_generated_text():
             )
     assert res.status_code == 200
     assert res.json()["suggested_input"] == "Reimburse $430 for a client dinner in Chicago."
+
+
+@pytest.mark.asyncio
+async def test_suggest_input_handles_node_with_none_data():
+    with patch("app.api.builder.AzureOpenAIClient") as MockClient:
+        instance = MockClient.return_value
+        instance.chat = AsyncMock(return_value="Some generated input.")
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            res = await ac.post(
+                "/api/builder/suggest-input",
+                json={"nodes": [{"id": "n1", "data": None}]},
+            )
+    assert res.status_code == 200
+    assert res.json()["suggested_input"] == "Some generated input."

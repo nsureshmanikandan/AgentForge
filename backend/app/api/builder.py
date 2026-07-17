@@ -319,9 +319,9 @@ async def suggest_input(body: SuggestInputRequest):
     """Given a workflow's nodes, generate one realistic example input to trigger it with."""
     client = AzureOpenAIClient()
     node_summary = "\n".join(
-        f"- {n.get('data', {}).get('label', n.get('id'))} "
-        f"({n.get('data', {}).get('role', 'agent')}): "
-        f"{n.get('data', {}).get('description', '')}"
+        f"- {(n.get('data') or {}).get('label', n.get('id'))} "
+        f"({(n.get('data') or {}).get('role', 'agent')}): "
+        f"{(n.get('data') or {}).get('description', '')}"
         for n in body.nodes
     )
     messages = [
