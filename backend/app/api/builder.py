@@ -4,11 +4,14 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.azure_openai import AzureOpenAIClient
+from app.core.email import send_email
 from app.database import get_db, AsyncSessionLocal
 from app.models.workflow import Workflow, WorkflowRun
+from app.config import settings
 import uuid
 import time
 import json
+import secrets
 from simpleeval import simple_eval
 
 router = APIRouter()
@@ -174,45 +177,109 @@ Rules:
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async def _run_pipeline(nodes: list[dict], edges: list[dict], initial_input: str = "") -> tuple[list[WorkflowRunLog], str]:
-    """Execute nodes in topological order with GPT-4o. Returns (logs, final_output)."""
-    ordered = _topo_sort(nodes, edges)
+PAUSED = "waiting_approval"
+
+
+async def _run_pipeline_from(
+    ordered_nodes: list[dict],
+    edges: list[dict],
+    start_index: int,
+    previous_output: str,
+    run_id: str = "",
+) -> dict:
+    """Execute nodes starting at start_index in the given order. Returns a dict:
+    {"status": "completed" | PAUSED, "logs": [...], "final_output": str,
+     "paused_at_node_id": str | None}.
+    Stops immediately (without executing later nodes) when it reaches an approval node.
+    Follows only the matching labeled edge when it reaches a condition node.
+    """
     client = AzureOpenAIClient()
     logs: list[WorkflowRunLog] = []
-    previous_output: str = initial_input
+    node_by_id = {n["id"]: n for n in ordered_nodes}
+    remaining = ordered_nodes[start_index:]
 
-    for node in ordered:
+    i = 0
+    while i < len(remaining):
+        node = remaining[i]
         node_id = node.get("id", "unknown")
         node_label = node.get("data", {}).get("label") or node.get("label", node_id)
         node_role = node.get("data", {}).get("role") or node.get("role", "agent")
         node_description = node.get("data", {}).get("description") or node.get("description", "")
 
-        # Pass-through nodes — no LLM call needed
         if node.get("type") in ("input",):
             log = WorkflowRunLog(
-                node_id=node_id,
-                node_label=node_label,
-                status="done",
-                output=previous_output or "Pipeline started. Awaiting user input.",
-                duration_ms=0,
+                node_id=node_id, node_label=node_label, status="done",
+                output=previous_output or "Pipeline started. Awaiting user input.", duration_ms=0,
             )
             logs.append(log)
             previous_output = log.output
+            i += 1
             continue
 
         if node.get("type") in ("output",):
             log = WorkflowRunLog(
-                node_id=node_id,
-                node_label=node_label,
-                status="done",
-                output=f"Pipeline complete. Final output: {previous_output}",
-                duration_ms=0,
+                node_id=node_id, node_label=node_label, status="done",
+                output=f"Pipeline complete. Final output: {previous_output}", duration_ms=0,
             )
             logs.append(log)
             previous_output = log.output
+            i += 1
             continue
 
-        # Agent node — call LLM
+        if node_role == "condition":
+            rule = node.get("data", {}).get("rule") or node.get("rule", "")
+            variables = await _extract_variables(previous_output, client)
+            result = _evaluate_condition(rule, variables)
+            branch_label = "true" if result else "false"
+            log = WorkflowRunLog(
+                node_id=node_id, node_label=node_label, status="done",
+                output=f"Rule '{rule}' evaluated to {result} with variables {variables}. Taking '{branch_label}' branch.",
+                duration_ms=0,
+            )
+            logs.append(log)
+            next_edge = next(
+                (e for e in edges if e.get("source") == node_id and e.get("label") == branch_label),
+                None,
+            )
+            if next_edge is None:
+                break  # no matching branch edge -- stop the run here
+            next_node = node_by_id.get(next_edge.get("target"))
+            if next_node is None:
+                break
+            # Exclude sibling branch targets (the condition's other outgoing edges) entirely
+            sibling_targets = {
+                e.get("target") for e in edges
+                if e.get("source") == node_id and e is not next_edge
+            }
+            cond_index = ordered_nodes.index(node)
+            # Jump remaining execution to the chosen branch's node, skipping the other branch entirely
+            remaining = [next_node] + [
+                n for n in ordered_nodes
+                if n["id"] not in ({node_id, next_edge.get("target")} | sibling_targets)
+                and ordered_nodes.index(n) > cond_index
+            ]
+            i = 0
+            continue
+
+        if node_role == "approval":
+            approver_email = node.get("data", {}).get("approver_email") or node.get("approver_email", "")
+            approval_token = secrets.token_urlsafe(32)
+            link = f"{settings.frontend_base_url}/approvals/{run_id}"
+            send_email(
+                approver_email,
+                f"Approval required: {node_label}",
+                f"<p>A workflow run requires your approval.</p><p>Context: {previous_output}</p>"
+                f'<p><a href="{link}">Review and respond</a></p>',
+            )
+            return {
+                "status": PAUSED,
+                "logs": logs,
+                "final_output": previous_output,
+                "paused_at_node_id": node_id,
+                "approval_token": approval_token,
+            }
+
+        # Agent node -- call LLM
         try:
             messages = [
                 {
@@ -223,34 +290,19 @@ async def _run_pipeline(nodes: list[dict], edges: list[dict], initial_input: str
                         "Process the input and return a brief output (2-3 sentences)."
                     ),
                 },
-                {
-                    "role": "user",
-                    "content": previous_output or "Start the pipeline.",
-                },
+                {"role": "user", "content": previous_output or "Start the pipeline."},
             ]
             start = time.time()
             output = await client.chat(messages, temperature=0.3)
             duration_ms = int((time.time() - start) * 1000)
-
-            log = WorkflowRunLog(
-                node_id=node_id,
-                node_label=node_label,
-                status="done",
-                output=output,
-                duration_ms=duration_ms,
-            )
+            log = WorkflowRunLog(node_id=node_id, node_label=node_label, status="done", output=output, duration_ms=duration_ms)
             previous_output = output
         except Exception as exc:
-            log = WorkflowRunLog(
-                node_id=node_id,
-                node_label=node_label,
-                status="error",
-                output=f"Error: {str(exc)}",
-                duration_ms=0,
-            )
+            log = WorkflowRunLog(node_id=node_id, node_label=node_label, status="error", output=f"Error: {str(exc)}", duration_ms=0)
         logs.append(log)
+        i += 1
 
-    return logs, previous_output
+    return {"status": "completed", "logs": logs, "final_output": previous_output, "paused_at_node_id": None}
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
@@ -446,9 +498,10 @@ async def deploy_workflow(workflow_id: str, db: AsyncSession = Depends(get_db)):
         wf = _wf_to_dict(db_wf)
         _workflows[workflow_id] = wf
 
-    logs, final_output = await _run_pipeline(wf["nodes"], wf["edges"])
-    await _persist_run(db, workflow_id, "", logs, final_output)
-    return {"logs": [log.model_dump() for log in logs]}
+    ordered = _topo_sort(wf["nodes"], wf["edges"])
+    result = await _run_pipeline_from(ordered, wf["edges"], 0, "")
+    await _persist_run(db, workflow_id, "", result["logs"], result["final_output"])
+    return {"logs": [log.model_dump() for log in result["logs"]]}
 
 
 @router.post("/workflows/{workflow_id}/trigger")
@@ -463,12 +516,39 @@ async def trigger_workflow(workflow_id: str, body: TriggerRequest, db: AsyncSess
         wf = _wf_to_dict(db_wf)
         _workflows[workflow_id] = wf
 
-    logs, final_output = await _run_pipeline(wf["nodes"], wf["edges"], initial_input=body.input)
-    run = await _persist_run(db, workflow_id, body.input, logs, final_output)
+    ordered = _topo_sort(wf["nodes"], wf["edges"])
+    run_id_placeholder = str(uuid.uuid4())
+    result = await _run_pipeline_from(ordered, wf["edges"], 0, body.input, run_id=run_id_placeholder)
+
+    if result["status"] == PAUSED:
+        run = WorkflowRun(
+            id=run_id_placeholder,
+            workflow_id=workflow_id,
+            trigger_input=body.input,
+            final_output=result["final_output"],
+            status=PAUSED,
+            node_logs=[log.model_dump() for log in result["logs"]],
+            total_duration_ms=float(sum(log.duration_ms for log in result["logs"])),
+            paused_at_node_id=result["paused_at_node_id"],
+            paused_context=json.dumps(result["final_output"]),
+            approval_token=result["approval_token"],
+        )
+        db.add(run)
+        await db.commit()
+        await db.refresh(run)
+        return {
+            "run_id": run.id,
+            "logs": [log.model_dump() for log in result["logs"]],
+            "final_output": result["final_output"],
+            "status": PAUSED,
+        }
+
+    run = await _persist_run(db, workflow_id, body.input, result["logs"], result["final_output"])
     return {
         "run_id": run.id,
-        "logs": [log.model_dump() for log in logs],
-        "final_output": final_output,
+        "logs": [log.model_dump() for log in result["logs"]],
+        "final_output": result["final_output"],
+        "status": "completed",
     }
 
 
