@@ -519,6 +519,46 @@ function PlanProgressState({ messages, loading, qAnswers = {}, qLocked = false, 
 }
 
 function PlanTab({ plan, promptHistory, messages, loading, qAnswers, qLocked, pickAnswer, submitAnswers, hasAnswers }: { plan?: Plan; promptHistory?: PromptVersion[]; messages: Message[]; loading: boolean; qAnswers?: Record<string, string>; qLocked?: boolean; pickAnswer?: (qId: string, opt: string) => void; submitAnswers?: () => void; hasAnswers?: boolean }) {
+  const [feedback, setFeedback] = useState<1 | -1 | null>(null);
+  const [feedbackComment, setFeedbackComment] = useState<string | null>(null);
+  const [feedbackSent, setFeedbackSent] = useState(false);
+
+  const submitFeedback = async (rating: 1 | -1) => {
+    if (!plan) return;
+    setFeedback(rating);
+    if (rating === -1) {
+      setFeedbackComment("");  // show comment input on thumbs-down
+      return;
+    }
+    await _sendFeedback(rating, plan, null);
+  };
+
+  const saveFeedbackComment = async () => {
+    if (!plan) return;
+    await _sendFeedback(feedback ?? -1, plan, feedbackComment);
+  };
+
+  const _sendFeedback = async (rating: 1 | -1, p: Plan, comment: string | null) => {
+    try {
+      await fetch("/api/architect/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: "",
+          plan_id: p.summary.slice(0, 40),
+          rating,
+          comment: comment ?? undefined,
+          prompt_text: p.summary,
+          plan_summary: p.summary,
+          detected_type: "CUSTOM",
+        }),
+      });
+      setFeedbackSent(true);
+    } catch {
+      // fail silently — feedback is best-effort
+    }
+  };
+
   if (!plan) return <PlanProgressState messages={messages} loading={loading} qAnswers={qAnswers} qLocked={qLocked} pickAnswer={pickAnswer} submitAnswers={submitAnswers} hasAnswers={hasAnswers} />;
   return (
     <div className="p-6 space-y-6 overflow-y-auto h-full">
@@ -594,6 +634,28 @@ function PlanTab({ plan, promptHistory, messages, loading, qAnswers, qLocked, pi
           </div>
         </section>
       )}
+      {/* Layer 5: Feedback widget */}
+      <div className="mt-4 p-3 bg-slate-50 rounded-lg border border-slate-200 flex items-center gap-3 flex-wrap">
+        <span className="text-xs text-slate-500 font-medium">Was this plan helpful?</span>
+        <button
+          onClick={() => submitFeedback(1)}
+          className={`p-1.5 rounded-md text-sm ${feedback === 1 ? "bg-green-100 text-green-700" : "hover:bg-slate-200 text-slate-500"}`}
+        >👍</button>
+        <button
+          onClick={() => submitFeedback(-1)}
+          className={`p-1.5 rounded-md text-sm ${feedback === -1 ? "bg-red-100 text-red-700" : "hover:bg-slate-200 text-slate-500"}`}
+        >👎</button>
+        {feedbackComment !== null && (
+          <input
+            className="flex-1 text-xs border border-slate-200 rounded px-2 py-1 min-w-0"
+            placeholder="Optional comment... (press Enter to send)"
+            value={feedbackComment}
+            onChange={(e) => setFeedbackComment(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && saveFeedbackComment()}
+          />
+        )}
+        {feedbackSent && <span className="text-xs text-green-600 font-medium">Thanks!</span>}
+      </div>
     </div>
   );
 }
