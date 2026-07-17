@@ -9,6 +9,7 @@ from app.models.workflow import Workflow, WorkflowRun
 import uuid
 import time
 import json
+from simpleeval import simple_eval
 
 router = APIRouter()
 
@@ -106,6 +107,31 @@ def _wf_to_dict(wf: Workflow) -> dict:
         "created_at": wf.created_at.isoformat() if wf.created_at else None,
         "updated_at": wf.updated_at.isoformat() if wf.updated_at else None,
     }
+
+
+def _evaluate_condition(rule: str, variables: dict) -> bool:
+    """Safely evaluate a boolean rule string against extracted variables. Never uses eval()."""
+    try:
+        return bool(simple_eval(rule, names=variables))
+    except Exception:
+        return False  # fail closed -- an unparseable rule or missing variable takes the false branch
+
+
+async def _extract_variables(text: str, client: "AzureOpenAIClient") -> dict:
+    """Ask GPT-4o to extract a flat JSON object of named numeric/string variables from text."""
+    messages = [
+        {"role": "system", "content": (
+            "Extract all named numeric and short string values mentioned in the text below as "
+            'a flat JSON object (e.g. {"amount": 430, "department": "Sales"}). '
+            "Return ONLY the JSON object, no explanation."
+        )},
+        {"role": "user", "content": text},
+    ]
+    raw = await client.chat(messages, temperature=0.0)
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {}
 
 
 ROLE_COLORS: dict[str, dict] = {
