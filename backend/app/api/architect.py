@@ -17,6 +17,10 @@ def trace_status(level: str, desc: str = ""):
     return _OtelStatus(status_code=code, description=desc)
 
 # ── Layer 5: Feedback store ───────────────────────────────────────────────────
+# TODO: in-memory only — resets on restart and is NOT shared across multiple
+# worker processes. Fine for single-worker demo use; replace with a DB table
+# or Redis before deploying with >1 worker, since Task 6's few-shot injection
+# reads from this store and needs consistent results across requests.
 _feedback_store: list[dict] = []
 
 
@@ -3505,10 +3509,9 @@ async def save_feedback(req: FeedbackRequest):
 
 @router.get("/feedback/top")
 async def get_top_feedback():
-    """Return up to 5 positively-rated prompt+plan pairs for few-shot injection."""
+    """Return up to 5 most recent positively-rated prompt+plan pairs for few-shot injection."""
     positive = [f for f in _feedback_store if f["rating"] == 1]
-    positive.sort(key=lambda x: x.get("rating", 0), reverse=True)
-    return positive[:5]
+    return list(reversed(positive))[:5]
 
 
 @router.post("/score")
@@ -3549,9 +3552,8 @@ async def score_plan(req: ScorerRequest):
             _score_span.record_exception(_e_score)
             _score_span.set_status(trace_status("ERROR", str(_e_score)))
             raise
-    import json as _json2
     try:
-        return _json2.loads(_score_resp.choices[0].message.content or "{}")
+        return json.loads(_score_resp.choices[0].message.content or "{}")
     except Exception:
         return {"overall": 5, "suggestions": ["Could not parse score"]}
 
