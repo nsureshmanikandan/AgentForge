@@ -4673,6 +4673,13 @@ export default function Architect() {
       // Clear history state without re-rendering (navigate() would abort the in-flight request)
       window.history.replaceState({}, '', location.pathname);
 
+      // Always start a fresh session for an incoming prompt, so it never
+      // gets appended into whatever session happened to be open already.
+      // newSession() returns the new id synchronously — pass it straight
+      // into send() rather than relying on activeSid's state update to
+      // flush first (setActiveSid() doesn't take effect until the next
+      // render, so send() would otherwise still see the old session).
+      const newSid = newSession();
       setInput(queued);
       if (sampleFile) {
         const csvUrl = sampleFile.url.replace(/\.xlsx$/, ".csv");
@@ -4683,14 +4690,14 @@ export default function Architect() {
             if (text.trim()) {
               const preloaded = [{ name: csvName, text }];
               setFiles(preloaded);
-              setTimeout(() => send(queued + QUESTIONS_SUFFIX, preloaded), 80);
+              setTimeout(() => send(queued + QUESTIONS_SUFFIX, preloaded, newSid), 80);
             } else {
-              setTimeout(() => send(queued + QUESTIONS_SUFFIX), 80);
+              setTimeout(() => send(queued + QUESTIONS_SUFFIX, undefined, newSid), 80);
             }
           })
-          .catch(() => setTimeout(() => send(queued + QUESTIONS_SUFFIX), 80));
+          .catch(() => setTimeout(() => send(queued + QUESTIONS_SUFFIX, undefined, newSid), 80));
       } else {
-        setTimeout(() => send(queued + QUESTIONS_SUFFIX), 80);
+        setTimeout(() => send(queued + QUESTIONS_SUFFIX, undefined, newSid), 80);
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4766,6 +4773,7 @@ export default function Architect() {
     setPendingFileNames([]);
     setVisualFiles([]);
     setInput("");
+    return id;
   }
 
   function deleteSession(sid: string) {
@@ -4779,14 +4787,16 @@ export default function Architect() {
   const PLAN_SUFFIX = "\n\nNow generate the full architecture plan immediately. Do not ask any more questions.";
   const QUESTIONS_SUFFIX = "\n\n[SYSTEM: You MUST respond with {\"type\":\"questions\",...} asking exactly 2 clarifying questions. Do NOT generate a plan on this message. This is your only valid response format right now.]";
 
-  async function send(overrideContent?: string, overrideFiles?: { name: string; text: string }[]) {
+  async function send(overrideContent?: string, overrideFiles?: { name: string; text: string }[], overrideSid?: string) {
     const rawText = overrideContent ?? input.trim();
     const activeFiles = overrideFiles ?? files;
     if (!rawText && activeFiles.length === 0 && visualFiles.length === 0) return;
     // Strip hidden suffixes for display only — preserve them for API content
     const hasQSuffix = rawText.includes(QUESTIONS_SUFFIX);
     const displayText = rawText.replace(PLAN_SUFFIX, "").replace(QUESTIONS_SUFFIX, "").trim();
-    let sid = activeSid;
+    // overrideSid lets callers (e.g. a just-created session) target a session
+    // synchronously, without waiting for activeSid's state update to flush.
+    let sid = overrideSid ?? activeSid;
     if (!sid) {
       const id = crypto.randomUUID();
       const n = nextCtr();
