@@ -64,6 +64,7 @@ export const architectApi = {
     api_endpoints?: string[];
     database_schema?: string;
     tech_stack?: object;
+    documents?: { name: string; text: string }[];
   }) => api.post<{ files: Record<string, string>; file_count: number }>("/architect/generate-project", payload),
   extractDocText: (file: File) => {
     const form = new FormData();

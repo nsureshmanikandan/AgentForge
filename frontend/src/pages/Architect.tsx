@@ -2752,7 +2752,7 @@ ${featurePageComponents}
 
 // ─── Source ZIP builder — calls GPT-4o via /api/architect/generate-project ───
 
-async function buildSourceZip(html: string, plan: Plan): Promise<Blob> {
+async function buildSourceZip(html: string, plan: Plan, documents?: { name: string; text: string }[]): Promise<Blob> {
   const zip = new JSZip();
   const appTitle = extractAppTitle(plan.summary);
   const appName = (plan.summary.split(" ").slice(0, 4).join("-") || "agentforge-app").toLowerCase().replace(/[^a-z0-9-]/g, "-");
@@ -2768,6 +2768,7 @@ async function buildSourceZip(html: string, plan: Plan): Promise<Blob> {
       api_endpoints: plan.api_endpoints ?? [],
       database_schema: plan.database_schema ?? "",
       tech_stack: plan.tech_stack ?? {},
+      documents: documents?.length ? documents : undefined,
     });
     aiFiles = res.data.files ?? {};
   } catch (err) {
@@ -4165,13 +4166,14 @@ class ChatMessage(Base):
   return zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
 }
 
-function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressStep }: {
+function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressStep, documents }: {
   plan?: Plan;
   uiHtml?: string;
   onGenerateUI: () => void;
   generatingUI: boolean;
   progressStep?: number;
   uiError?: string;
+  documents?: { name: string; text: string }[];
 }) {
   const [downloadingRag, setDownloadingRag] = useState(false);
   const [downloadingCustom, setDownloadingCustom] = useState(false);
@@ -4180,7 +4182,7 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
     if (downloadingCustom || !plan) return;
     setDownloadingCustom(true);
     try {
-      const blob = await buildSourceZip(uiHtml, plan);
+      const blob = await buildSourceZip(uiHtml, plan, documents);
       const url = URL.createObjectURL(blob);
       const appSlug = (plan.summary.split(" ").slice(0, 4).join("-") || "agentforge-app")
         .toLowerCase().replace(/[^a-z0-9-]/g, "-");
@@ -4556,7 +4558,7 @@ export default function Architect() {
     if (downloadingCustom || !plan) return;
     setDownloadingCustom(true);
     try {
-      const blob = await buildSourceZip(uiHtml, plan);
+      const blob = await buildSourceZip(uiHtml, plan, active?.documents);
       const url = URL.createObjectURL(blob);
       const appSlug = (plan.summary.split(" ").slice(0, 4).join("-") || "agentforge-app")
         .toLowerCase().replace(/[^a-z0-9-]/g, "-");
@@ -5802,7 +5804,7 @@ export default function Architect() {
           )}
           {tab === "plan" && <PlanTab plan={plan} promptHistory={active?.promptHistory} messages={active?.messages ?? []} loading={loading} qAnswers={qAnswers} qLocked={qLocked} pickAnswer={pickAnswer} submitAnswers={submitAnswers} hasAnswers={hasAnswers} />}
           {tab === "agents" && <AgentsTab plan={plan} />}
-          {tab === "app" && <AppTab plan={plan} uiHtml={uiHtml} onGenerateUI={() => handleGenerateUI()} generatingUI={generatingUI} uiError={uiError} progressStep={progressStep} />}
+          {tab === "app" && <AppTab plan={plan} uiHtml={uiHtml} onGenerateUI={() => handleGenerateUI()} generatingUI={generatingUI} uiError={uiError} progressStep={progressStep} documents={active?.documents} />}
           {tab === "database" && <DatabaseTab plan={plan} />}
         </div>
       </div>

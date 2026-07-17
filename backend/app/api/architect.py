@@ -2593,6 +2593,7 @@ class GenerateProjectRequest(BaseModel):
     api_endpoints: Optional[List[str]] = None
     database_schema: Optional[str] = None
     tech_stack: Optional[dict] = None
+    documents: Optional[List[DocContent]] = None  # real uploaded/sample file content
 
 
 def _fix_python_file(path: str, content: str, app_name: str = "") -> str:
@@ -3626,6 +3627,23 @@ async def generate_project(req: GenerateProjectRequest):
         )
 
         description = f"App: {req.app_name}\nSummary: {req.summary}\nFeatures:\n" + "\n".join(f"- {f}" for f in req.features)
+
+        # Real uploaded/sample document data (e.g. a Prompt Library sample CSV)
+        # should seed the initial DB migration/seed data for both the frontend
+        # mock data and the backend seed script -- not invented placeholder rows.
+        real_docs = [d for d in (req.documents or []) if d.text and d.text.strip()]
+        if real_docs:
+            real_data_excerpt = "\n\n".join(
+                f"=== {d.name} ===\n{d.text[:3000]}" for d in real_docs
+            )
+            description += (
+                f"\n\nREAL UPLOADED DATA (use this to seed initial DB rows/mock data, "
+                f"do not invent different numbers):\n{real_data_excerpt}\n\n"
+                "Derive seed data, initial table rows, and any dashboard mock values from "
+                "the real data above -- count/aggregate actual rows rather than fabricating "
+                "different numbers. Only invent realistic data for parts the upload doesn't cover."
+            )
+
         agents_text = json.dumps(req.agents or [], indent=2)
         endpoints_text = "\n".join(req.api_endpoints or [])
         db_text = req.database_schema or "Design appropriate tables for the application"
