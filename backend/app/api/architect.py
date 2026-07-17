@@ -3601,7 +3601,7 @@ async def generate_project(req: GenerateProjectRequest):
 
         # Derive a URL-safe slug from the app name for OTEL_SERVICE_NAME
         import re as _re3
-        _service_slug = _re3.sub(r"[^a-z0-9]+", "-", req.app_name.lower()).strip("-")
+        _service_slug = _re3.sub(r"[^a-z0-9]+", "-", req.app_name.lower()).strip("-") or "app"
 
         all_files[".env.example"] = (
             f"DATABASE_URL=postgresql://postgres:postgres@localhost:5432/app\n"
