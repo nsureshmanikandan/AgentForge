@@ -3730,8 +3730,12 @@ requirements."""
                     response_format={"type": "json_object"},
                 )
                 fe_data = json.loads(fe_response.choices[0].message.content or "{}")
-                all_files.update(fe_data.get("files", {}))
-                fe_span.set_attribute("frontend.file_count", len(fe_data.get("files", {})))
+                # Normalize whitespace-mangled paths (e.g. " .env.example" vs
+                # ".env.example") so duplicate files don't silently split
+                # across two dict keys with different content.
+                fe_files = {path.strip(): content for path, content in fe_data.get("files", {}).items()}
+                all_files.update(fe_files)
+                fe_span.set_attribute("frontend.file_count", len(fe_files))
             except Exception as e:
                 fe_span.record_exception(e)
                 fe_span.set_status(trace_status("ERROR", str(e)))
@@ -3757,8 +3761,13 @@ requirements."""
                     response_format={"type": "json_object"},
                 )
                 be_data = json.loads(be_response.choices[0].message.content or "{}")
-                all_files.update(be_data.get("files", {}))
-                be_span.set_attribute("backend.file_count", len(be_data.get("files", {})))
+                # Normalize whitespace-mangled paths, same as the frontend
+                # pass above -- backend files are merged second, so a
+                # backend-provided ".env.example" correctly overwrites/merges
+                # with any earlier frontend-provided one.
+                be_files = {path.strip(): content for path, content in be_data.get("files", {}).items()}
+                all_files.update(be_files)
+                be_span.set_attribute("backend.file_count", len(be_files))
             except Exception as e:
                 be_span.record_exception(e)
                 be_span.set_status(trace_status("ERROR", str(e)))
