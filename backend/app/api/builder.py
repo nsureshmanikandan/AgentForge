@@ -849,6 +849,8 @@ async def approve_run(
     run = result.scalar_one_or_none()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
+    # Note: check-then-act (not row-locked) -- acceptable for a human-driven approval click flow;
+    # a full fix would need SELECT ... FOR UPDATE if concurrent approval clicks become a real risk.
     if run.status != PAUSED:
         raise HTTPException(status_code=409, detail=f"Run already resolved (status: {run.status})")
 
@@ -870,6 +872,23 @@ async def approve_run(
     run.final_output = outcome["final_output"]
     run.node_logs = (run.node_logs or []) + [log.model_dump() for log in outcome["logs"]]
     run.total_duration_ms = (run.total_duration_ms or 0.0) + float(sum(log.duration_ms for log in outcome["logs"]))
+
+    if outcome["status"] == PAUSED:
+        # Resumed execution hit ANOTHER approval node further down the pipeline --
+        # persist the new pause point so get_approval_info / the next /approve call
+        # operate on the correct node instead of stale (first) pause state.
+        run.paused_at_node_id = outcome["paused_at_node_id"]
+        run.paused_context = json.dumps(outcome["final_output"])
+        run.approval_token = outcome.get("approval_token")
+        # This approval only resolved the FIRST gate; the run is still in-flight
+        # awaiting a new decision at the new gate, so it is not yet finally resolved.
+        run.approved_by = None
+        run.resolved_at = None
+    else:
+        run.paused_at_node_id = None
+        run.paused_context = None
+        run.approval_token = None
+
     await db.commit()
     await db.refresh(run)
 
@@ -887,6 +906,8 @@ async def reject_run(
     run = result.scalar_one_or_none()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
+    # Note: check-then-act (not row-locked) -- acceptable for a human-driven approval click flow;
+    # a full fix would need SELECT ... FOR UPDATE if concurrent approval clicks become a real risk.
     if run.status != PAUSED:
         raise HTTPException(status_code=409, detail=f"Run already resolved (status: {run.status})")
 
