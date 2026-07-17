@@ -3666,12 +3666,16 @@ mock login screen, not decorative comments. Generate exactly this:
 BACKEND:
 - Create backend/app/auth/sso.py: a FastAPI dependency function (e.g.
   get_current_user) that reads the "Authorization: Bearer <token>" header,
-  fetches and caches Azure AD's JWKS from
-  https://login.microsoftonline.com/{tenant_id}/discovery/v2.0/keys, and
+  fetches Azure AD's JWKS from
+  https://login.microsoftonline.com/{tenant_id}/discovery/v2.0/keys, caching
+  the keys in memory keyed by "kid" and refetching on a cache-miss (unknown
+  kid) or after a 24-hour TTL, and
   verifies the JWT's signature, "aud" claim (must match AZURE_CLIENT_ID from
-  settings), and "iss" claim (must match the tenant's issuer URL) using the
-  python-jose library. Raise HTTPException(401) on any verification failure
-  (expired token, bad signature, wrong audience, missing header).
+  settings), "iss" claim (must match the tenant's issuer URL), and "exp"
+  claim (reject expired tokens) using the python-jose library's default
+  expiry validation -- do NOT pass options={"verify_exp": False} or otherwise
+  disable expiry checking. Raise HTTPException(401) on any verification
+  failure (expired token, bad signature, wrong audience, missing header).
 - This dependency MUST be a no-op pass-through (always authorize, skip all
   token checks) when settings.SSO_ENABLED is False -- so the app is runnable
   locally without any real Azure AD tenant.
