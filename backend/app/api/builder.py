@@ -37,6 +37,10 @@ class AutoBuildRequest(BaseModel):
     name: str = "My Workflow"
 
 
+class SuggestIdeasRequest(BaseModel):
+    partial_name: str
+
+
 class WorkflowSaveRequest(BaseModel):
     name: str
     nodes: list[dict]
@@ -277,6 +281,33 @@ async def auto_build_workflow(body: AutoBuildRequest):
         })
 
     return {"nodes": rf_nodes, "edges": rf_edges, "name": data.get("name", body.name)}
+
+
+@router.post("/suggest-ideas")
+async def suggest_ideas(body: SuggestIdeasRequest):
+    """Return 3-4 realistic agentic workflow ideas related to the partial name typed so far."""
+    client = AzureOpenAIClient()
+    messages = [
+        {"role": "system", "content": (
+            "You are helping a user brainstorm an AI agent workflow. Given a partial workflow "
+            "name/topic, return 3-4 distinct, realistic agentic pipeline ideas as a JSON array. "
+            'Each item: {"title": "<short title>", "description": "<1-2 sentence pipeline '
+            'description suitable for an Auto-Build description field>"}. Return ONLY the JSON '
+            "array, no markdown fences, no explanation."
+        )},
+        {"role": "user", "content": f"Partial workflow name/topic: {body.partial_name}"},
+    ]
+    raw = await client.chat(messages, temperature=0.6)
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    try:
+        ideas = json.loads(raw.strip())
+    except Exception:
+        return {"ideas": []}
+    return {"ideas": ideas[:4]}
 
 
 @router.post("/workflows")
