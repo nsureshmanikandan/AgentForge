@@ -27,3 +27,15 @@ def test_no_sso_keywords_returns_false():
 
 def test_empty_summary_returns_false():
     assert _detect_sso_required("") is False
+
+
+def test_avoids_false_positive_substring_processor():
+    assert _detect_sso_required("We need a payment processor and order fulfillment service") is False
+
+
+def test_avoids_false_positive_substring_espresso():
+    assert _detect_sso_required("A cafe ordering app for espresso and pastries") is False
+
+
+def test_sso_still_detected_at_word_boundary_with_punctuation():
+    assert _detect_sso_required("Requires SSO, MFA, and audit logging") is True

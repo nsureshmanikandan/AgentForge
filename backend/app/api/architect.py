@@ -3609,13 +3609,22 @@ async def score_plan(req: ScorerRequest):
         return {"overall": 5, "suggestions": ["Could not parse score"]}
 
 
+import re as _re_sso
+
 _SSO_KEYWORDS = ["sso", "azure ad", "entra id", "okta", "single sign-on", "single sign on"]
+_SSO_KEYWORD_PATTERN = _re_sso.compile(
+    "|".join(r"\b" + _re_sso.escape(kw) + r"\b" for kw in _SSO_KEYWORDS)
+)
 
 
 def _detect_sso_required(summary: str) -> bool:
-    """Keyword-detect whether a plan's summary indicates real SSO auth is wanted."""
-    summary_lower = summary.lower()
-    return any(kw in summary_lower for kw in _SSO_KEYWORDS)
+    """Keyword-detect whether a plan's summary indicates real SSO auth is wanted.
+
+    Uses word-boundary matching (not raw substring containment) so short
+    keywords like "sso" don't false-positive inside unrelated words such as
+    "processor" or "possessor".
+    """
+    return bool(_SSO_KEYWORD_PATTERN.search(summary.lower()))
 
 
 @router.post("/generate-project")
