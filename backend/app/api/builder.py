@@ -100,6 +100,21 @@ def _topo_sort(nodes: list[dict], edges: list[dict]) -> list[dict]:
     return result
 
 
+def _reachable_from(start_id: str, edges: list[dict]) -> set[str]:
+    """Return all node ids reachable from start_id by following edges forward (BFS)."""
+    seen = {start_id}
+    queue = [start_id]
+    while queue:
+        current = queue.pop(0)
+        for e in edges:
+            if e.get("source") == current:
+                tgt = e.get("target")
+                if tgt and tgt not in seen:
+                    seen.add(tgt)
+                    queue.append(tgt)
+    return seen
+
+
 def _wf_to_dict(wf: Workflow) -> dict:
     """Convert a Workflow ORM object to a plain dict."""
     return {
@@ -246,16 +261,22 @@ async def _run_pipeline_from(
             next_node = node_by_id.get(next_edge.get("target"))
             if next_node is None:
                 break
-            # Exclude sibling branch targets (the condition's other outgoing edges) entirely
-            sibling_targets = {
-                e.get("target") for e in edges
-                if e.get("source") == node_id and e is not next_edge
-            }
+            # Exclude the ENTIRE untaken branch (every node reachable only through it),
+            # not just the sibling edges' immediate targets.
+            nodes_to_exclude: set[str] = set()
+            for e in edges:
+                if e.get("source") == node_id and e is not next_edge:
+                    sibling_target = e.get("target")
+                    if sibling_target:
+                        nodes_to_exclude |= _reachable_from(sibling_target, edges)
+            # Don't exclude nodes that the chosen branch also reaches (converging paths).
+            chosen_reachable = _reachable_from(next_node["id"], edges)
+            nodes_to_exclude_only_untaken = nodes_to_exclude - chosen_reachable - {node_id}
             cond_index = ordered_nodes.index(node)
-            # Jump remaining execution to the chosen branch's node, skipping the other branch entirely
+            # Jump remaining execution to the chosen branch's node, skipping the untaken branch entirely
             remaining = [next_node] + [
                 n for n in ordered_nodes
-                if n["id"] not in ({node_id, next_edge.get("target")} | sibling_targets)
+                if n["id"] not in ({node_id, next_node["id"]} | nodes_to_exclude_only_untaken)
                 and ordered_nodes.index(n) > cond_index
             ]
             i = 0

@@ -71,6 +71,35 @@ async def test_condition_node_routes_false_branch():
 
 
 @pytest.mark.asyncio
+async def test_condition_node_skips_entire_untaken_branch_including_downstream_nodes():
+    """Regression test: an untaken branch with MULTIPLE chained nodes must have
+    ALL of its nodes skipped, not just the immediate sibling target."""
+    nodes = [
+        {"id": "n1", "type": "input", "data": {"label": "Input", "role": "input"}},
+        {"id": "cond", "type": "condition", "data": {"label": "Amount Check", "role": "condition", "rule": "amount < 25"}},
+        {"id": "auto", "type": "output", "data": {"label": "Auto-Approved", "role": "output"}},
+        {"id": "manual1", "type": "agent", "data": {"label": "Manager Notify", "role": "agent", "description": "notify manager"}},
+        {"id": "manual2", "type": "output", "data": {"label": "Manual Review Complete", "role": "output"}},
+    ]
+    edges = [
+        {"source": "n1", "target": "cond"},
+        {"source": "cond", "target": "auto", "label": "true"},
+        {"source": "cond", "target": "manual1", "label": "false"},
+        {"source": "manual1", "target": "manual2"},
+    ]
+    ordered = _topo_sort(nodes, edges)
+    with patch("app.api.builder.AzureOpenAIClient") as MockClient, \
+         patch("app.api.builder._extract_variables", new=AsyncMock(return_value={"amount": 10})):
+        instance = MockClient.return_value
+        instance.chat = AsyncMock(return_value="ignored")
+        result = await _run_pipeline_from(ordered, edges, 0, "Expense of $10")
+    visited_ids = [log.node_id for log in result["logs"]]
+    assert "auto" in visited_ids
+    assert "manual1" not in visited_ids
+    assert "manual2" not in visited_ids
+
+
+@pytest.mark.asyncio
 async def test_approval_node_pauses_and_does_not_run_later_nodes():
     nodes = [
         {"id": "n1", "type": "input", "data": {"label": "Input", "role": "input"}},
