@@ -25,7 +25,12 @@ class WorkflowRun(Base):
     workflow_id: Mapped[str] = mapped_column(String, ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False)
     trigger_input: Mapped[str] = mapped_column(Text, default="")
     final_output: Mapped[str] = mapped_column(Text, default="")
-    status: Mapped[str] = mapped_column(String, default="completed")  # completed | failed
+    status: Mapped[str] = mapped_column(String, default="completed")  # completed | failed | waiting_approval | rejected
     node_logs: Mapped[list] = mapped_column(JSON, default=list)       # full per-node trace
     total_duration_ms: Mapped[float] = mapped_column(Float, default=0.0)
     triggered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    paused_at_node_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    paused_context: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON-encoded previous_output
+    approval_token: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    approved_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
