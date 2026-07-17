@@ -3443,10 +3443,17 @@ RULES:
   This same parsing logic (CSV, XLSX, PDF, DOCX, TXT/MD) MUST be used inside ANY file-upload endpoint
   the plan requires — regardless of whether it is implemented as the standalone POST /upload shown
   above, or nested under a parent resource (e.g. POST /decisions/{id}/uploads, POST
-  /contracts/{id}/documents). If the endpoint also persists an upload record to the database, the
-  response MUST include both the persisted record's fields (e.g. id, file_name) AND the extracted
-  content fields (rows, text) — merge them into one response object. NEVER return only the metadata
-  while silently dropping the real extracted content.
+  /contracts/{id}/documents, POST /contracts/ingest). If the endpoint also persists an upload record
+  to the database, the response MUST include both the persisted record's fields (e.g. id, file_name)
+  AND the extracted content fields (rows, text) — merge them into one response object. NEVER return
+  only the metadata while silently dropping the real extracted content.
+  FORBIDDEN ANTI-PATTERN: `content = await file.read(); text = content.decode("utf-8", errors="ignore")`
+  as the ONLY handling for an uploaded file, with no branch on file extension. This silently produces
+  garbage/mojibake for binary formats (PDF, DOCX, XLSX are NOT UTF-8 text) instead of real extracted
+  content. ANY endpoint accepting `UploadFile` — no matter what it is named (ingest, upload, intake,
+  documents) — MUST branch on the filename's extension and use the format-specific parsing shown
+  above (PyPDF2 for .pdf, python-docx for .docx, openpyxl for .xlsx, csv module for .csv) before
+  doing anything with the file's content.
 
 - EXPORT — MANDATORY if the plan mentions Excel export, PPT export, report export, or export center. You MUST implement ALL of the following in `backend/app/api/export.py` and register the router in main.py:
   ```python
