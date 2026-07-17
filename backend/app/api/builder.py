@@ -661,6 +661,7 @@ async def trigger_workflow_stream(workflow_id: str, body: TriggerRequest, db: As
         client = AzureOpenAIClient()
         logs: list[WorkflowRunLog] = []
         previous_output: str = trigger_input
+        excluded_node_ids: set[str] = set()
 
         # Emit pipeline_start with all node IDs in execution order
         yield f"data: {json.dumps({'event': 'pipeline_start', 'node_order': [n.get('id') for n in ordered]})}\n\n"
@@ -670,6 +671,13 @@ async def trigger_workflow_stream(workflow_id: str, body: TriggerRequest, db: As
             node_label = node.get("data", {}).get("label") or node.get("label", node_id)
             node_role = node.get("data", {}).get("role") or node.get("role", "agent")
             node_description = node.get("data", {}).get("description") or node.get("description", "")
+
+            # Skip nodes excluded by an earlier condition node's untaken branch.
+            # NB: `for node in ordered:` already holds an iterator over the original
+            # list, so reassigning `ordered` inside the loop body would not affect
+            # the nodes already being iterated -- we track exclusions separately.
+            if node_id in excluded_node_ids:
+                continue
 
             # Emit edges from previous nodes to this one
             incoming_edges = [e for e in edges if e.get("target") == node_id]
@@ -694,6 +702,66 @@ async def trigger_workflow_stream(workflow_id: str, body: TriggerRequest, db: As
                 previous_output = log.output
                 yield f"data: {json.dumps({'event': 'node_done', 'node_id': node_id, 'node_label': node_label, 'output': log.output, 'duration_ms': 0})}\n\n"
                 continue
+
+            if node_role == "condition":
+                rule = node.get("data", {}).get("rule") or node.get("rule", "")
+                variables = await _extract_variables(previous_output, client)
+                cond_result = _evaluate_condition(rule, variables)
+                branch_label = "true" if cond_result else "false"
+                log = WorkflowRunLog(
+                    node_id=node_id, node_label=node_label, status="done",
+                    output=f"Rule '{rule}' evaluated to {cond_result} with variables {variables}. Taking '{branch_label}' branch.",
+                    duration_ms=0,
+                )
+                logs.append(log)
+                yield f"data: {json.dumps({'event': 'node_done', 'node_id': node_id, 'node_label': node_label, 'output': log.output, 'duration_ms': 0})}\n\n"
+                chosen_edge = next(
+                    (e for e in edges if e.get("source") == node_id and e.get("label") == branch_label), None
+                )
+                if chosen_edge is None:
+                    break
+                sibling_targets = {
+                    e.get("target") for e in edges
+                    if e.get("source") == node_id and e is not chosen_edge
+                }
+                nodes_to_exclude: set[str] = set()
+                for sib in sibling_targets:
+                    if sib:
+                        nodes_to_exclude |= _reachable_from(sib, edges)
+                chosen_reachable = _reachable_from(chosen_edge.get("target"), edges)
+                nodes_to_exclude -= chosen_reachable
+                nodes_to_exclude.discard(node_id)
+                if nodes_to_exclude:
+                    excluded_node_ids |= nodes_to_exclude
+                continue
+
+            if node_role == "approval":
+                approver_email = node.get("data", {}).get("approver_email") or node.get("approver_email", "")
+                approval_token = secrets.token_urlsafe(32)
+                link = f"{settings.frontend_base_url}/approvals/{workflow_id}"
+                send_email(
+                    approver_email,
+                    f"Approval required: {node_label}",
+                    f"<p>A workflow run requires your approval.</p><p>Context: {previous_output}</p>"
+                    f'<p><a href="{link}">Review and respond</a></p>',
+                )
+                yield f"data: {json.dumps({'event': 'pipeline_paused', 'node_id': node_id, 'node_label': node_label})}\n\n"
+                try:
+                    async with AsyncSessionLocal() as session:
+                        run = WorkflowRun(
+                            workflow_id=workflow_id, trigger_input=trigger_input,
+                            final_output=previous_output, status=PAUSED,
+                            node_logs=[log.model_dump() for log in logs],
+                            total_duration_ms=float(sum(log.duration_ms for log in logs)),
+                            paused_at_node_id=node_id,
+                            paused_context=json.dumps(previous_output),
+                            approval_token=approval_token,
+                        )
+                        session.add(run)
+                        await session.commit()
+                except Exception:
+                    pass
+                return
 
             try:
                 messages = [
