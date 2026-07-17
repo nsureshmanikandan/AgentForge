@@ -10,6 +10,7 @@ import PromptLibrary from "./pages/PromptLibrary";
 import Blueprints from "./pages/Blueprints";
 import Marketplace from "./pages/Marketplace";
 import WorkflowBuilder from "./pages/WorkflowBuilder";
+import ApprovalPage from "./pages/ApprovalPage";
 import Dashboard from "./pages/Dashboard";
 import CreateAgent from "./pages/CreateAgent";
 import Architect from "./pages/Architect";
@@ -561,6 +562,7 @@ export default function App() {
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/workflow-runs" element={<WorkflowObservability />} />
                   <Route path="/builder" element={<WorkflowBuilder />} />
+                  <Route path="/approvals/:runId" element={<ApprovalPage />} />
                   <Route path="/prompts" element={<PromptLibrary />} />
                   <Route path="/blueprints" element={<Blueprints />} />
                   <Route path="/marketplace" element={<Marketplace />} />
