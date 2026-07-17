@@ -4276,29 +4276,18 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
       // blob: URL, which some browsers/extensions block with "Preview only supports
       // localhost URLs" or similar same-origin/security policies.
       const win = window.open("", "_blank", "noopener,noreferrer");
-      if (win) {
-        try {
-          win.document.open();
-          win.document.write(uiHtml);
-          win.document.close();
-          return;
-        } catch {
-          // fall through to blob fallback below
-        }
+      if (!win) {
+        // Popup was blocked outright (window.open returned null). Tell the user
+        // clearly instead of silently falling back to the blob-URL approach --
+        // that fallback is exactly the broken behavior this fix replaces, and
+        // "falling back" to it here would just reintroduce the same bug.
+        alert("Please allow popups for this site to open the preview in a new tab.");
+        return;
       }
-      // Fallback for environments where document.write into a new tab is blocked —
-      // try the blob-URL approach as a second attempt.
       try {
-        const blob = new Blob([uiHtml], { type: "text/html" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.target = "_blank";
-        a.rel = "noopener noreferrer";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        win.document.open();
+        win.document.write(uiHtml);
+        win.document.close();
       } catch {
         alert("Could not open preview in a new tab. Your browser or an extension may be blocking it.");
       }
