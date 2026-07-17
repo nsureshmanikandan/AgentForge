@@ -3699,6 +3699,13 @@ FRONTEND:
   loginRedirect if the MSAL config values are absent/empty -- do not
   hard-require login to view the app locally.
 
+README REQUIREMENT:
+The generated README.md MUST include a "Setting Up Azure AD SSO" section
+listing the exact steps: registering an app in Azure AD, configuring the
+redirect URI, noting the Tenant ID and Client ID into .env, and setting
+SSO_ENABLED=true once configured. Without this section, a user has no way
+to know how to actually turn SSO on.
+
 Do NOT fabricate a fake login form, do NOT skip the JWKS/JWT verification
 logic, do NOT add SSO code paths if this section is absent from the
 requirements."""
