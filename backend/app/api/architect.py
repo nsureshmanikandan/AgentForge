@@ -3609,6 +3609,15 @@ async def score_plan(req: ScorerRequest):
         return {"overall": 5, "suggestions": ["Could not parse score"]}
 
 
+_SSO_KEYWORDS = ["sso", "azure ad", "entra id", "okta", "single sign-on", "single sign on"]
+
+
+def _detect_sso_required(summary: str) -> bool:
+    """Keyword-detect whether a plan's summary indicates real SSO auth is wanted."""
+    summary_lower = summary.lower()
+    return any(kw in summary_lower for kw in _SSO_KEYWORDS)
+
+
 @router.post("/generate-project")
 async def generate_project(req: GenerateProjectRequest):
     """
