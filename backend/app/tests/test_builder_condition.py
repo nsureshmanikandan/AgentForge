@@ -20,6 +20,13 @@ def test_evaluate_condition_fails_closed_on_code_injection_attempt():
     assert _evaluate_condition(malicious, {"amount": 10}) is False
 
 
+def test_evaluate_condition_fails_closed_on_attribute_injection_via_existing_variable():
+    """Even when the referenced variable exists, attempts to reach dangerous
+    attributes/dunders through it must fail closed, not execute."""
+    malicious = "amount.__class__.__base__.__subclasses__()"
+    assert _evaluate_condition(malicious, {"amount": 10}) is False
+
+
 @pytest.mark.asyncio
 async def test_extract_variables_parses_json_response():
     fake_client = AsyncMock()

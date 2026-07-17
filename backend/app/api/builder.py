@@ -117,7 +117,7 @@ def _evaluate_condition(rule: str, variables: dict) -> bool:
         return False  # fail closed -- an unparseable rule or missing variable takes the false branch
 
 
-async def _extract_variables(text: str, client: "AzureOpenAIClient") -> dict:
+async def _extract_variables(text: str, client: AzureOpenAIClient) -> dict:
     """Ask GPT-4o to extract a flat JSON object of named numeric/string variables from text."""
     messages = [
         {"role": "system", "content": (
