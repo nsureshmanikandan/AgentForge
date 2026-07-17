@@ -18,6 +18,8 @@ const ROLE_ICONS: Record<string, string> = {
   guard: "🛡️",
   rag: "📚",
   agent: "🤖",
+  condition: "❓",
+  approval: "✉️",
 };
 
 interface RunLog {
@@ -242,6 +244,9 @@ export default function WorkflowBuilder() {
             } else if (evt.event === "edge_activate") {
               const edgeList = evt.edges as Array<{ source: string; target: string }>;
               edgeList.forEach((e) => edgeUpdaterRef.current?.(e.source, e.target, { active: true }));
+            } else if (evt.event === "pipeline_paused") {
+              setRunLogs(collectedLogs);
+              showToast(`⏸ Paused — waiting for email approval (node: ${evt.node_label as string})`);
             } else if (evt.event === "pipeline_done") {
               setRunLogs(collectedLogs);
               showToast(`✅ Run complete — ${collectedLogs.length} nodes executed`);
