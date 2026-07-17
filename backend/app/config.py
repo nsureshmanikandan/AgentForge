@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     azure_monitor_connection_string: str = ""
     gcp_project_id: str = ""
 
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    frontend_base_url: str = "http://localhost:5173"
+
     class Config:
         env_file = str(_ENV_FILE)
         env_file_encoding = "utf-8"
