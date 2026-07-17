@@ -546,7 +546,7 @@ function PlanTab({ plan, promptHistory, messages, loading, qAnswers, qLocked, pi
 
   const _sendFeedback = async (rating: 1 | -1, p: Plan, comment: string | null) => {
     try {
-      await fetch("/api/architect/feedback", {
+      const res = await fetch("/api/architect/feedback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -559,7 +559,7 @@ function PlanTab({ plan, promptHistory, messages, loading, qAnswers, qLocked, pi
           detected_type: "CUSTOM",
         }),
       });
-      setFeedbackSent(true);
+      if (res.ok) setFeedbackSent(true);
     } catch {
       // fail silently — feedback is best-effort
     }
