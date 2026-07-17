@@ -3582,6 +3582,36 @@ async def generate_project(req: GenerateProjectRequest):
             '    run()\n'
         )
 
+        # ── Layer 4B: OTel files ─────────────────────────────────────────────
+        import pathlib as _pl
+        _telem_src = (_pl.Path(__file__).parent.parent / "core" / "telemetry.py").read_text(encoding="utf-8")
+        all_files["backend/telemetry.py"] = _telem_src
+
+        all_files["docker-compose.jaeger.yml"] = (
+            'version: "3.8"\n'
+            'services:\n'
+            '  jaeger:\n'
+            '    image: jaegertracing/all-in-one:1.56\n'
+            '    ports:\n'
+            '      - "16686:16686"   # Jaeger UI\n'
+            '      - "4318:4318"     # OTLP HTTP\n'
+            '    environment:\n'
+            '      COLLECTOR_OTLP_ENABLED: "true"\n'
+        )
+
+        # Derive a URL-safe slug from the app name for OTEL_SERVICE_NAME
+        import re as _re3
+        _service_slug = _re3.sub(r"[^a-z0-9]+", "-", req.app_name.lower()).strip("-")
+
+        all_files[".env.example"] = (
+            f"DATABASE_URL=postgresql://postgres:postgres@localhost:5432/app\n"
+            f"OTEL_EXPORTER=jaeger\n"
+            f"OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318\n"
+            f"OTEL_SERVICE_NAME={_service_slug}\n"
+            f"AZURE_OPENAI_API_KEY=your-key-here\n"
+            f"AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com\n"
+        )
+
         # Patch package.json scripts to add db:init
         _pkg_path = next((p for p in all_files if p.endswith("package.json") and "backend" not in p), None)
         if _pkg_path:
