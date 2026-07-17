@@ -2131,13 +2131,25 @@ async def generate_ui(req: GenerateUIRequest):
             f"\nDOCUMENTS:\n{doc_content_block}"
         )
         try:
-            kb_response = client.chat.completions.create(
-                model=settings.azure_openai_deployment_gpt4o,
-                messages=[{"role": "user", "content": kb_extraction_prompt}],
-                temperature=0.1,
-                max_completion_tokens=12000,
-                response_format={"type": "json_object"},
-            )
+            with _tracer.start_as_current_span("llm.kb_extraction", attributes={
+                "app.detected_type": detected_type,
+                "app.session_id": getattr(req, "session_id", ""),
+                "llm.model": settings.azure_openai_deployment_gpt4o,
+                "llm.max_tokens": 12000,
+            }) as _kb_span:
+                try:
+                    kb_response = client.chat.completions.create(
+                        model=settings.azure_openai_deployment_gpt4o,
+                        messages=[{"role": "user", "content": kb_extraction_prompt}],
+                        temperature=0.1,
+                        max_completion_tokens=12000,
+                        response_format={"type": "json_object"},
+                    )
+                    _kb_span.set_status(trace_status("OK"))
+                except Exception as _e_kb:
+                    _kb_span.record_exception(_e_kb)
+                    _kb_span.set_status(trace_status("ERROR", str(_e_kb)))
+                    raise
             import json as _json
             kb_data = _json.loads(kb_response.choices[0].message.content or "{}")
             topics = kb_data.get("topics", [])
@@ -2389,12 +2401,25 @@ Incorporate ALL of the above changes while keeping everything else from the orig
             {"role": "user", "content": user_prompt + feedback_block},
         ]
 
-    response = client.chat.completions.create(
-        model=settings.azure_openai_deployment_gpt4o,
-        messages=messages_payload,
-        temperature=0.2,
-        max_completion_tokens=8000 if detected_type == "CUSTOM" else 16000,
-    )
+    _max_tokens_ui = 8000 if detected_type == "CUSTOM" else 16000
+    with _tracer.start_as_current_span("llm.generate_ui", attributes={
+        "app.detected_type": detected_type,
+        "app.session_id": getattr(req, "session_id", ""),
+        "llm.model": settings.azure_openai_deployment_gpt4o,
+        "llm.max_tokens": _max_tokens_ui,
+    }) as _ui_span:
+        try:
+            response = client.chat.completions.create(
+                model=settings.azure_openai_deployment_gpt4o,
+                messages=messages_payload,
+                temperature=0.2,
+                max_completion_tokens=_max_tokens_ui,
+            )
+            _ui_span.set_status(trace_status("OK"))
+        except Exception as _e_ui:
+            _ui_span.record_exception(_e_ui)
+            _ui_span.set_status(trace_status("ERROR", str(_e_ui)))
+            raise
 
     html = response.choices[0].message.content or ""
     html = html.strip()
@@ -3480,6 +3505,8 @@ async def generate_project(req: GenerateProjectRequest):
 
         # ── Pass 1: Frontend ────────────────────────────────────────────────
         with _tracer.start_as_current_span("architect.generate_frontend") as fe_span:
+            fe_span.set_attribute("llm.model", settings.azure_openai_deployment_gpt4o)
+            fe_span.set_attribute("llm.max_tokens", 14000)
             frontend_prompt = (
                 PROJECT_FRONTEND_PROMPT
                 .replace("{description}", description)
@@ -3505,6 +3532,8 @@ async def generate_project(req: GenerateProjectRequest):
 
         # ── Pass 2: Backend ─────────────────────────────────────────────────
         with _tracer.start_as_current_span("architect.generate_backend") as be_span:
+            be_span.set_attribute("llm.model", settings.azure_openai_deployment_gpt4o)
+            be_span.set_attribute("llm.max_tokens", 14000)
             backend_prompt = (
                 PROJECT_BACKEND_PROMPT
                 .replace("{description}", description)
