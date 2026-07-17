@@ -2418,9 +2418,27 @@ Incorporate ALL of the above changes while keeping everything else from the orig
         )
         return {"html": html, "app_type": detected_type}
     else:
+        # ── Layer 5C: few-shot injection from top-rated plans ───────────────
+        few_shot_block = ""
+        if len(_feedback_store) >= 3:
+            _top_shots = list(reversed([f for f in _feedback_store if f["rating"] == 1]))[:3]
+            if _top_shots:
+                _examples = "\n\n".join([
+                    f"--- HIGH-QUALITY EXAMPLE {i + 1} ---\n"
+                    f"Prompt: {ex['prompt_text'][:200]}\n"
+                    f"Type: {ex['detected_type']}\n"
+                    f"Summary: {ex['plan_summary'][:200]}"
+                    for i, ex in enumerate(_top_shots)
+                ])
+                few_shot_block = (
+                    "\n\nHIGH-QUALITY REFERENCE EXAMPLES (follow their quality and structure):\n"
+                    + _examples
+                    + "\n"
+                )
+
         messages_payload = [
             {"role": "system", "content": UI_GEN_PROMPT},
-            {"role": "user", "content": user_prompt + feedback_block},
+            {"role": "user", "content": user_prompt + few_shot_block + feedback_block},
         ]
 
     _max_tokens_ui = 8000 if detected_type == "CUSTOM" else 16000
