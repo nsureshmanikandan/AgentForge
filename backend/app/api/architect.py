@@ -16,6 +16,25 @@ def trace_status(level: str, desc: str = ""):
     code = _OtelStatusCode.ERROR if level == "ERROR" else _OtelStatusCode.OK
     return _OtelStatus(status_code=code, description=desc)
 
+# ── Layer 5: Feedback store ───────────────────────────────────────────────────
+_feedback_store: list[dict] = []
+
+
+class FeedbackRequest(BaseModel):
+    session_id: str
+    plan_id: str
+    rating: int          # 1 = thumbs-up, -1 = thumbs-down
+    comment: Optional[str] = None
+    prompt_text: str
+    plan_summary: str
+    detected_type: str
+
+
+class ScorerRequest(BaseModel):
+    prompt_text: str
+    plan_summary: str
+    detected_type: str
+
 router = APIRouter()
 
 _CHATBOT_LOGIC_AND_UI = r"""
@@ -3474,6 +3493,67 @@ APPLICATION:
 Agents: {agents}
 API Endpoints: {api_endpoints}
 Database Schema: {database_schema}"""
+
+
+# ── Layer 5: Feedback endpoints ───────────────────────────────────────────────
+
+@router.post("/feedback")
+async def save_feedback(req: FeedbackRequest):
+    _feedback_store.append(req.dict())
+    return {"ok": True, "total": len(_feedback_store)}
+
+
+@router.get("/feedback/top")
+async def get_top_feedback():
+    """Return up to 5 positively-rated prompt+plan pairs for few-shot injection."""
+    positive = [f for f in _feedback_store if f["rating"] == 1]
+    positive.sort(key=lambda x: x.get("rating", 0), reverse=True)
+    return positive[:5]
+
+
+@router.post("/score")
+async def score_plan(req: ScorerRequest):
+    scoring_prompt = (
+        f"Rate this AI app plan on a scale of 1-10 for each dimension.\n"
+        f"Prompt: {req.prompt_text[:500]}\n"
+        f"Plan Summary: {req.plan_summary[:500]}\n"
+        f"Detected Type: {req.detected_type}\n\n"
+        "Score on:\n"
+        "1. Multi-agent depth (named agents with distinct roles): /10\n"
+        "2. UI completeness (pages, charts, export): /10\n"
+        "3. Domain accuracy (correct terminology, realistic features): /10\n"
+        "4. Enterprise readiness (DB, error handling, auth): /10\n"
+        "5. Agentic approach (agents coordinate, not just one LLM call): /10\n\n"
+        'Return JSON only: {"multi_agent": N, "ui_completeness": N, "domain_accuracy": N, '
+        '"enterprise_readiness": N, "agentic_approach": N, "overall": N, "suggestions": ["...", "..."]}'
+    )
+    _score_client = AzureOpenAI(
+        azure_endpoint=settings.azure_openai_endpoint,
+        api_key=settings.azure_openai_api_key,
+        api_version=settings.azure_openai_api_version,
+        timeout=60.0,
+    )
+    with _tracer.start_as_current_span("architect.score_plan", attributes={
+        "llm.model": settings.azure_openai_deployment_gpt4o,
+        "llm.max_tokens": 500,
+    }) as _score_span:
+        try:
+            _score_resp = _score_client.chat.completions.create(
+                model=settings.azure_openai_deployment_gpt4o,
+                messages=[{"role": "user", "content": scoring_prompt}],
+                max_completion_tokens=500,
+                temperature=0.3,
+            )
+            _score_span.set_status(trace_status("OK"))
+        except Exception as _e_score:
+            _score_span.record_exception(_e_score)
+            _score_span.set_status(trace_status("ERROR", str(_e_score)))
+            raise
+    import json as _json2
+    try:
+        return _json2.loads(_score_resp.choices[0].message.content or "{}")
+    except Exception:
+        return {"overall": 5, "suggestions": ["Could not parse score"]}
 
 
 @router.post("/generate-project")
