@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import axios from "axios";
 
 const API_BASE = "http://localhost:8000/api";
@@ -61,15 +61,62 @@ export default function ApprovalPage() {
   }
 
   if (error && !actionResult) {
-    return <div className="flex items-center justify-center h-full text-red-400">{error}</div>;
+    return (
+      <div className="flex items-center justify-center h-full bg-gray-950">
+        <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-lg p-6 flex flex-col gap-4">
+          <h1 className="text-white font-semibold text-lg">Workflow Approval</h1>
+          <p className="text-red-400 text-sm">{error}</p>
+          <p className="text-gray-500 text-xs">
+            This run may have already been approved/rejected, or the link may be invalid.
+          </p>
+          <div className="flex gap-3 justify-end">
+            <Link
+              to="/workflow-runs"
+              className="text-gray-300 hover:text-white text-sm px-4 py-2 rounded-lg border border-gray-700 hover:border-gray-500"
+            >
+              View Run History
+            </Link>
+            <Link
+              to="/builder"
+              className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+            >
+              Open Workflow Builder
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="flex items-center justify-center h-full bg-gray-950">
       <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-lg p-6 flex flex-col gap-4">
-        <h1 className="text-white font-semibold text-lg">Workflow Approval</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-white font-semibold text-lg">Workflow Approval</h1>
+          <Link to="/builder" className="text-violet-400 hover:text-violet-300 text-xs font-medium">
+            ← Back to Workflow Builder
+          </Link>
+        </div>
         {actionResult ? (
-          <p className="text-emerald-300 text-sm">{actionResult}</p>
+          <>
+            <p className="text-emerald-300 text-sm">{actionResult}</p>
+            <div className="flex gap-3 justify-end">
+              {info?.workflow_id && (
+                <Link
+                  to="/workflow-runs"
+                  className="text-gray-300 hover:text-white text-sm px-4 py-2 rounded-lg border border-gray-700 hover:border-gray-500"
+                >
+                  View Run History
+                </Link>
+              )}
+              <Link
+                to="/builder"
+                className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+              >
+                Open Workflow Builder
+              </Link>
+            </div>
+          </>
         ) : (
           <>
             <p className="text-gray-400 text-sm">

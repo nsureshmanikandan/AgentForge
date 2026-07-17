@@ -1,7 +1,7 @@
 """
-AgentForge Presentation Builder — V5.0
+AgentForge Presentation Builder — V6.0
 Run: python docs/build_ppt.py
-Output: docs/AgentForge-PresentationV5.0.pptx
+Output: docs/AgentForge-PresentationV6.0.pptx
 """
 
 from pptx import Presentation
@@ -115,7 +115,7 @@ for i, tag in enumerate(["Azure OpenAI", "FastAPI", "React 18", "PostgreSQL + pg
     chip(sl, tag, Inches(0.4 + i * 2.5), Inches(5.0), Inches(2.3), Inches(0.38),
          CARD_BG, 12)
 
-txt(sl, "Version 5.0  |  July 2026  |  Confidential",
+txt(sl, "Version 6.0  |  July 2026  |  Confidential",
     Inches(0.4), Inches(6.2), Inches(6), Inches(0.4), size=12, color=LIGHT_GRAY)
 slide_num(sl, 1)
 
@@ -877,7 +877,226 @@ slide_num(sl, 18)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  SLIDE 19 — CLOSING / CALL TO ACTION
+#  SLIDE 19 — ENTERPRISE HARDENING PASS — OVERVIEW
+# ══════════════════════════════════════════════════════════════════════════════
+sl = prs.slides.add_slide(BLANK)
+bg(sl); accent_bar(sl)
+txt(sl, "Enterprise Hardening Pass — What Changed", Inches(0.5), Inches(0.3), Inches(12), Inches(0.6),
+    size=26, bold=True, color=WHITE)
+txt(sl, "The Architect (Prompt-to-Agent) flow was taken from a working prototype to a "
+    "production-grade generator through five focused workstreams — each independently "
+    "designed, implemented, live-tested against real Azure OpenAI calls, and code-reviewed.",
+    Inches(0.5), Inches(0.95), Inches(12.3), Inches(0.6), size=13, color=LIGHT_GRAY)
+
+hardening = [
+    ("🎯", "Domain-Aware Generation",
+     "Expanded from 2 hardcoded app types to 10 real domains (HR, Sales, Legal, Support, Marketing, "
+     "Dev Tool, Analyst, Data, Chatbot, Custom) — each with its own enterprise-grade layout, labels, and 46 upgraded multi-agent prompts."),
+    ("📊", "Real Data, Not Fabricated Demos",
+     "Sandbox previews and downloadable Custom Code now seed dashboards/tables from real uploaded sample "
+     "data (CSV/Excel) instead of GPT-4o inventing plausible-looking numbers — verified exact-match against source files."),
+    ("🗄️", "Enterprise Layers 3–5",
+     "Auto-generated PostgreSQL schema + migrations on first run · OpenTelemetry tracing on every LLM call · "
+     "an AI-scored feedback loop that few-shots top-rated plans back into future generations."),
+    ("🔐", "Real SSO Integration",
+     "Azure AD / Entra ID keyword-detected from the plan → genuine JWT-validation middleware (JWKS, aud/iss/exp "
+     "checks) + real MSAL frontend login in the Custom Code ZIP, gated by an SSO_ENABLED toggle for local dev."),
+    ("📁", "Real File Upload Parsing",
+     "Sandbox: real client-side CSV/XLSX parsing (no fake success toasts). Custom Code backend: real PDF "
+     "(PyPDF2) and DOCX (python-docx) extraction, closing a gap where both libraries were required but never used."),
+]
+for i, (icon, title, body) in enumerate(hardening):
+    y = Inches(1.68 + i * 0.98)
+    rect(sl, Inches(0.4), y, Inches(0.08), Inches(0.85), ACCENT)
+    txt(sl, f"{icon}  {title}", Inches(0.65), y + Inches(0.02), Inches(12), Inches(0.4),
+        size=14, bold=True, color=ACCENT)
+    txt(sl, body, Inches(0.65), y + Inches(0.42), Inches(12.1), Inches(0.5),
+        size=11, color=LIGHT_GRAY)
+slide_num(sl, 19)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  SLIDE 20 — DOMAIN-AWARE GENERATION & REAL DATA
+# ══════════════════════════════════════════════════════════════════════════════
+sl = prs.slides.add_slide(BLANK)
+bg(sl); accent_bar(sl)
+txt(sl, "Domain-Aware Generation Across 10 Categories", Inches(0.5), Inches(0.3), Inches(12), Inches(0.6),
+    size=24, bold=True, color=WHITE)
+
+domains = ["General", "Marketing", "Sales", "Legal", "HR", "Support",
+           "Productivity", "Development", "Analysts", "Data & Analysis"]
+dcol_w = Inches(2.4); dcol_h = Inches(0.55)
+for i, d in enumerate(domains):
+    col = i % 5; row = i // 5
+    x = Inches(0.4 + col * 2.5); y = Inches(1.0 + row * 0.65)
+    chip(sl, d, x, y, dcol_w, dcol_h, ACCENT if row == 0 else ACCENT2, 12)
+
+txt(sl, "Each domain gets its own enterprise-standard layout (correct sidebar labels, KPI tiles, "
+    "charts) instead of a generic one-size-fits-all template — 46 Prompt Library prompts upgraded "
+    "to multi-agent specs with a matching realistic sample data file per prompt.",
+    Inches(0.4), Inches(2.45), Inches(12.4), Inches(0.65), size=12, color=LIGHT_GRAY)
+
+txt(sl, "Before → After: Real Data Seeding", Inches(0.4), Inches(3.3), Inches(8), Inches(0.4),
+    size=15, bold=True, color=ACCENT3)
+
+before_after = [
+    ("❌ Before", RGBColor(0xDC,0x26,0x26), [
+        "\"Contracts in Review: 128\" — a fabricated round number,",
+        "unrelated to the real uploaded contract data",
+        "\"Outlook Reminders Sent: 12\" — invented for every render",
+        "Same issue in the Custom Code ZIP's seed data",
+    ]),
+    ("✅ After", ACCENT2, [
+        "\"Contracts in Review: 4\" · \"High Risk: 3\" — verified exact",
+        "match against the real 10-row sample CSV's actual counts",
+        "\"Total contract value: $9,579,000\" — sum of real value_usd",
+        "column, byte-for-byte traceable to the uploaded file",
+    ]),
+]
+for i, (title, clr, items) in enumerate(before_after):
+    x = Inches(0.4 + i * 6.35)
+    rect(sl, x, Inches(3.75), Inches(6.1), Inches(2.9), CARD_BG)
+    rect(sl, x, Inches(3.75), Inches(6.1), Inches(0.45), clr)
+    txt(sl, title, x + Inches(0.15), Inches(3.8), Inches(5.8), Inches(0.35),
+        size=14, bold=True, color=WHITE)
+    for j, item in enumerate(items):
+        txt(sl, item, x + Inches(0.15), Inches(4.35 + j * 0.55), Inches(5.8), Inches(0.5),
+            size=11, color=LIGHT_GRAY)
+slide_num(sl, 20)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  SLIDE 21 — ENTERPRISE LAYERS 3–5
+# ══════════════════════════════════════════════════════════════════════════════
+sl = prs.slides.add_slide(BLANK)
+bg(sl); accent_bar(sl)
+txt(sl, "Enterprise Layers 3–5: DB · Observability · AI Reinforcement", Inches(0.5), Inches(0.3), Inches(12.3), Inches(0.6),
+    size=23, bold=True, color=WHITE)
+
+layer_cards = [
+    ("🗄️", "Layer 3 — DB Auto-Setup", ACCENT, [
+        "Domain-specific PostgreSQL schema (db/init.sql)",
+        "auto-generated for each of the 10 app domains",
+        "Idempotent run_migrations.py runs on first backend",
+        "startup — no manual DB scripting required",
+    ]),
+    ("📡", "Layer 4 — OpenTelemetry", ACCENT2, [
+        "Every LLM call (KB extraction, UI generation,",
+        "frontend/backend generation) wrapped in a real span",
+        "telemetry.py + docker-compose.jaeger.yml auto-injected",
+        "into every downloaded Custom Code ZIP",
+    ]),
+    ("🔁", "Layer 5 — AI Reinforcement Loop", ACCENT3, [
+        "👍 / 👎 feedback widget on every generated plan",
+        "GPT-4o self-scores plans across 5 quality dimensions",
+        "Top-rated plans few-shot-injected into future generation",
+        "prompts — the system improves from its own best output",
+    ]),
+]
+for i, (icon, title, clr, items) in enumerate(layer_cards):
+    x = Inches(0.35 + i * 4.24)
+    rect(sl, x, Inches(1.1), Inches(4.05), Inches(4.6), CARD_BG)
+    rect(sl, x, Inches(1.1), Inches(4.05), Inches(0.55), clr)
+    txt(sl, f"{icon}  {title}", x + Inches(0.15), Inches(1.2), Inches(3.8), Inches(0.4),
+        size=13, bold=True, color=WHITE)
+    for j, item in enumerate(items):
+        txt(sl, item, x + Inches(0.15), Inches(1.85 + j * 0.62), Inches(3.8), Inches(0.55),
+            size=11, color=LIGHT_GRAY)
+
+txt(sl, "All three layers were verified live: real docker-compose migrations, real span data visible "
+    "in a tracing backend, and a real thumbs-up → /feedback → /feedback/top → few-shot round-trip.",
+    Inches(0.4), Inches(5.95), Inches(12.4), Inches(0.5), size=11, color=LIGHT_GRAY)
+slide_num(sl, 21)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  SLIDE 22 — REAL SSO + REAL FILE UPLOAD
+# ══════════════════════════════════════════════════════════════════════════════
+sl = prs.slides.add_slide(BLANK)
+bg(sl); accent_bar(sl)
+txt(sl, "Real SSO Integration & Real File Upload Parsing", Inches(0.5), Inches(0.3), Inches(12.3), Inches(0.6),
+    size=23, bold=True, color=WHITE)
+
+sso_col = [
+    "Plan answers like \"Internal enterprise app with SSO\" used to",
+    "only affect descriptive text — zero real auth code was generated",
+    "",
+    "Now: keyword-detected from the plan summary (same pattern as",
+    "domain detection) → triggers a real backend + frontend scaffold:",
+    "",
+    "• backend/app/auth/sso.py — real JWT validation via Azure AD's",
+    "  JWKS endpoint, checks aud/iss/exp, python-jose",
+    "• src/auth/msalConfig.ts + useAuth.ts — real @azure/msal-browser",
+    "  login flow, attaches real Bearer tokens to API calls",
+    "• SSO_ENABLED=false by default — app still runs locally without",
+    "  a real Azure AD tenant; flip to true once configured",
+]
+upload_col = [
+    "Upload buttons in both the sandbox and downloaded backend were",
+    "decorative — a canned success toast regardless of what was picked",
+    "",
+    "Now — Sandbox (client-side, no backend):",
+    "• Real <input type=\"file\"> + FileReader + the already-loaded",
+    "  SheetJS library — genuine CSV/XLSX parsing, real row preview",
+    "",
+    "Now — Custom Code backend (real Python):",
+    "• PyPDF2 for real PDF text extraction, python-docx for real DOCX",
+    "• Forbids the \"decode raw bytes as UTF-8\" anti-pattern found",
+    "  live in a custom-named ingest endpoint — would have corrupted",
+    "  any real PDF/DOCX upload into garbage text",
+]
+cols = [("🔐 Real SSO Integration", ACCENT, sso_col), ("📁 Real File Upload Parsing", ACCENT2, upload_col)]
+for i, (title, clr, lines) in enumerate(cols):
+    x = Inches(0.35 + i * 6.35)
+    rect(sl, x, Inches(1.05), Inches(6.1), Inches(5.6), CARD_BG)
+    rect(sl, x, Inches(1.05), Inches(6.1), Inches(0.5), clr)
+    txt(sl, title, x + Inches(0.15), Inches(1.12), Inches(5.8), Inches(0.4),
+        size=14, bold=True, color=WHITE)
+    body = "\n".join(lines)
+    txt(sl, body, x + Inches(0.15), Inches(1.65), Inches(5.85), Inches(4.9), size=10.5, color=LIGHT_GRAY)
+slide_num(sl, 22)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  SLIDE 23 — HARDENING ROI
+# ══════════════════════════════════════════════════════════════════════════════
+sl = prs.slides.add_slide(BLANK)
+bg(sl); accent_bar(sl)
+txt(sl, "Hardening ROI — Risk & Rework Avoided", Inches(0.5), Inches(0.3), Inches(12), Inches(0.6),
+    size=27, bold=True, color=WHITE)
+
+hroi = [
+    ("🎭 Demo Credibility", "Fabricated → real dashboard data", "100%", ACCENT,
+     "Client-facing demos now show numbers traceable to real uploaded data, eliminating a\ncredibility risk when a stakeholder cross-checks a KPI against source data"),
+    ("🔓 Security Exposure", "SSO answer → real auth code", "0→1", ACCENT3,
+     "Closes a real gap where an \"Enterprise app with SSO\" answer previously shipped zero\nauthentication code — a downloaded project would have been deployed wide open"),
+    ("📉 Data-Corruption Risk", "PDF/DOCX handling", "100%", RGBColor(0xDC,0x26,0x26),
+     "Forbids a found anti-pattern (raw UTF-8 decode on binary files) that would silently\ncorrupt any real PDF/DOCX contract, resume, or document a user actually uploads"),
+    ("🧪 Escaped Defects", "Found via live testing, not assumed", "9", RGBColor(0xA8,0x55,0xF7),
+     "Nine real bugs (session pollution, stale feedback state, false-positive SSO detection,\nenv-file clobbering, and more) caught by regenerating real apps end-to-end, not just code review"),
+    ("🌐 Domain Coverage", "2 hardcoded types → 10 real domains", "5×", ACCENT2,
+     "Every Prompt Library category now gets a correct, enterprise-appropriate layout instead\nof a generic template mismatched to the actual business domain"),
+    ("🔁 Continuous Improvement", "Manual tuning → self-scoring loop", "∞", RGBColor(0x0E,0x79,0xB2),
+     "The AI reinforcement loop means generation quality compounds over time from real\nusage feedback, instead of staying frozen at whatever quality shipped on day one"),
+]
+for i, (title, metric, value, clr, detail) in enumerate(hroi):
+    row, col = divmod(i, 3)
+    x = Inches(0.4 + col * 4.3)
+    y = Inches(1.05 + row * 2.95)
+    rect(sl, x, y, Inches(4.05), Inches(2.75), CARD_BG)
+    txt(sl, title, x + Inches(0.15), y + Inches(0.12), Inches(3.75), Inches(0.45),
+        size=13, bold=True, color=clr)
+    txt(sl, value, x + Inches(0.15), y + Inches(0.55), Inches(1.6), Inches(0.7),
+        size=30, bold=True, color=WHITE)
+    txt(sl, metric, x + Inches(0.15), y + Inches(1.18), Inches(3.75), Inches(0.35),
+        size=11, bold=True, color=ACCENT2)
+    txt(sl, detail, x + Inches(0.15), y + Inches(1.52), Inches(3.8), Inches(1.15),
+        size=9.5, color=LIGHT_GRAY)
+slide_num(sl, 23)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  SLIDE 24 — CLOSING / CALL TO ACTION
 # ══════════════════════════════════════════════════════════════════════════════
 sl = prs.slides.add_slide(BLANK)
 bg(sl)
@@ -907,10 +1126,10 @@ for i, (label, url, clr) in enumerate(ctas):
 txt(sl, "Accenture Technology  |  n.sureshmanikandan@accenture.com  |  Confidential",
     Inches(0.5), Inches(6.3), Inches(12), Inches(0.4),
     size=12, color=LIGHT_GRAY, align=PP_ALIGN.CENTER)
-slide_num(sl, 19)
+slide_num(sl, 24)
 
 
 # ── Save ──────────────────────────────────────────────────────────────────────
-out = r"C:\Users\n.sureshmanikandan\Repo1\AgentForge\docs\AgentForge-PresentationV5.0.pptx"
+out = r"C:\Users\n.sureshmanikandan\Repo1\AgentForge\docs\AgentForge-PresentationV6.0.pptx"
 prs.save(out)
 print(f"Saved: {out}  ({len(prs.slides)} slides)")
