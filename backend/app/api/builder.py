@@ -523,9 +523,39 @@ async def deploy_workflow(workflow_id: str, db: AsyncSession = Depends(get_db)):
         _workflows[workflow_id] = wf
 
     ordered = _topo_sort(wf["nodes"], wf["edges"])
-    result = await _run_pipeline_from(ordered, wf["edges"], 0, "")
-    await _persist_run(db, workflow_id, "", result["logs"], result["final_output"])
-    return {"logs": [log.model_dump() for log in result["logs"]]}
+    run_id_placeholder = str(uuid.uuid4())
+    result = await _run_pipeline_from(ordered, wf["edges"], 0, "", run_id=run_id_placeholder)
+
+    if result["status"] == PAUSED:
+        run = WorkflowRun(
+            id=run_id_placeholder,
+            workflow_id=workflow_id,
+            trigger_input="",
+            final_output=result["final_output"],
+            status=PAUSED,
+            node_logs=[log.model_dump() for log in result["logs"]],
+            total_duration_ms=float(sum(log.duration_ms for log in result["logs"])),
+            paused_at_node_id=result["paused_at_node_id"],
+            paused_context=json.dumps(result["final_output"]),
+            approval_token=result["approval_token"],
+        )
+        db.add(run)
+        await db.commit()
+        await db.refresh(run)
+        return {
+            "run_id": run.id,
+            "logs": [log.model_dump() for log in result["logs"]],
+            "final_output": result["final_output"],
+            "status": PAUSED,
+        }
+
+    run = await _persist_run(db, workflow_id, "", result["logs"], result["final_output"])
+    return {
+        "run_id": run.id,
+        "logs": [log.model_dump() for log in result["logs"]],
+        "final_output": result["final_output"],
+        "status": "completed",
+    }
 
 
 @router.post("/workflows/{workflow_id}/trigger")

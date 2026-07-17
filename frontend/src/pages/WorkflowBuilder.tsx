@@ -139,8 +139,12 @@ export default function WorkflowBuilder() {
         headers,
       });
       if (!deployRes.ok) throw new Error("Deploy failed");
-      const { logs } = await deployRes.json() as { logs: RunLog[] };
+      const deployData = await deployRes.json() as { logs: RunLog[]; status?: string };
+      const logs = deployData.logs;
       setRunLogs(logs);
+      if (deployData.status === "waiting_approval") {
+        showToast("⏸ Paused — waiting for email approval");
+      }
       setWebhookUrl(`http://localhost:8000/api/builder/workflows/${workflow_id}/trigger`);
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Deploy failed");
