@@ -7,11 +7,14 @@ from app.core.azure_openai import AzureOpenAIClient
 from app.core.email import send_email
 from app.database import get_db, AsyncSessionLocal
 from app.models.workflow import Workflow, WorkflowRun
+from app.api.auth import get_current_user
+from app.models.user import User
 from app.config import settings
 import uuid
 import time
 import json
 import secrets
+from datetime import datetime
 from simpleeval import simple_eval
 
 router = APIRouter()
@@ -811,3 +814,86 @@ async def get_webhook_url(workflow_id: str, db: AsyncSession = Depends(get_db)):
         "method": "POST",
         "body_schema": {"input": "string"},
     }
+
+
+@router.get("/runs/{run_id}/approval-info")
+async def get_approval_info(
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Return the run's paused node label + context, for the approval page to render."""
+    result = await db.execute(select(WorkflowRun).where(WorkflowRun.id == run_id))
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run.status != PAUSED:
+        raise HTTPException(status_code=409, detail=f"Run is not waiting for approval (status: {run.status})")
+    return {
+        "run_id": run.id,
+        "workflow_id": run.workflow_id,
+        "paused_at_node_id": run.paused_at_node_id,
+        "context": json.loads(run.paused_context) if run.paused_context else "",
+        "triggered_at": run.triggered_at.isoformat() if run.triggered_at else None,
+    }
+
+
+@router.post("/runs/{run_id}/approve")
+async def approve_run(
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Resume execution from the node after the paused approval node."""
+    result = await db.execute(select(WorkflowRun).where(WorkflowRun.id == run_id))
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run.status != PAUSED:
+        raise HTTPException(status_code=409, detail=f"Run already resolved (status: {run.status})")
+
+    wf_result = await db.execute(select(Workflow).where(Workflow.id == run.workflow_id))
+    wf = wf_result.scalar_one_or_none()
+    if not wf:
+        raise HTTPException(status_code=404, detail="Parent workflow not found")
+
+    ordered = _topo_sort(wf.nodes, wf.edges)
+    resume_index = next(
+        (i + 1 for i, n in enumerate(ordered) if n.get("id") == run.paused_at_node_id), len(ordered)
+    )
+    previous_output = json.loads(run.paused_context) if run.paused_context else ""
+    outcome = await _run_pipeline_from(ordered, wf.edges, resume_index, previous_output)
+
+    run.approved_by = user.id
+    run.resolved_at = datetime.utcnow()
+    run.status = outcome["status"]
+    run.final_output = outcome["final_output"]
+    run.node_logs = (run.node_logs or []) + [log.model_dump() for log in outcome["logs"]]
+    run.total_duration_ms = (run.total_duration_ms or 0.0) + float(sum(log.duration_ms for log in outcome["logs"]))
+    await db.commit()
+    await db.refresh(run)
+
+    return {"run_id": run.id, "status": run.status, "final_output": run.final_output}
+
+
+@router.post("/runs/{run_id}/reject")
+async def reject_run(
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Mark the run rejected; execution does not resume."""
+    result = await db.execute(select(WorkflowRun).where(WorkflowRun.id == run_id))
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run.status != PAUSED:
+        raise HTTPException(status_code=409, detail=f"Run already resolved (status: {run.status})")
+
+    run.approved_by = user.id
+    run.resolved_at = datetime.utcnow()
+    run.status = "rejected"
+    await db.commit()
+    await db.refresh(run)
+
+    return {"run_id": run.id, "status": run.status}
