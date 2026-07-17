@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import axios from "axios";
 import AgentCanvas from "../components/canvas/AgentCanvas";
 import AgentConfigPanel from "../components/agents/AgentConfigPanel";
@@ -50,6 +50,7 @@ export default function WorkflowBuilder() {
   const [runInput, setRunInput] = useState("");
   const [lastLoadedTemplate, setLastLoadedTemplate] = useState<WorkflowTemplate | null>(null);
   const [running, setRunning] = useState(false);
+  const [autoFillLoading, setAutoFillLoading] = useState(false);
 
   // Resizable left panel
   const [panelWidth, setPanelWidth] = useState(288);
@@ -80,6 +81,9 @@ export default function WorkflowBuilder() {
   const [abDescription, setAbDescription] = useState("");
   const [abName, setAbName] = useState("");
   const [abLoading, setAbLoading] = useState(false);
+  interface IdeaSuggestion { title: string; description: string }
+  const [ideaSuggestions, setIdeaSuggestions] = useState<IdeaSuggestion[]>([]);
+  const [suggestLoading, setSuggestLoading] = useState(false);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -141,6 +145,25 @@ export default function WorkflowBuilder() {
       setDeploying(false);
     }
   };
+
+  const fetchSuggestedInput = useCallback(async () => {
+    if (!workflowRef.current || lastLoadedTemplate) return; // don't override a template's sample input
+    setAutoFillLoading(true);
+    try {
+      const token = localStorage.getItem("token") || localStorage.getItem("agentforge_token");
+      const res = await axios.post(
+        `${API_BASE}/builder/suggest-input`,
+        { nodes: workflowRef.current.nodes },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const suggested = (res.data as { suggested_input: string }).suggested_input;
+      if (suggested) setRunInput(suggested);
+    } catch {
+      // leave textarea as-is; user can still type their own input
+    } finally {
+      setAutoFillLoading(false);
+    }
+  }, [lastLoadedTemplate]);
 
   const handleRunWithInput = async () => {
     if (!workflowRef.current || running) return;
@@ -359,6 +382,30 @@ if __name__ == "__main__":
     }
   };
 
+  useEffect(() => {
+    if (!showAutoBuild || abName.trim().length < 3) {
+      setIdeaSuggestions([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setSuggestLoading(true);
+      try {
+        const token = localStorage.getItem("token") || localStorage.getItem("agentforge_token");
+        const res = await axios.post(
+          `${API_BASE}/builder/suggest-ideas`,
+          { partial_name: abName },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        setIdeaSuggestions((res.data as { ideas: IdeaSuggestion[] }).ideas ?? []);
+      } catch {
+        setIdeaSuggestions([]);
+      } finally {
+        setSuggestLoading(false);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [abName, showAutoBuild]);
+
   const handleLoadTemplate = (tpl: WorkflowTemplate) => {
     setLoadedNodes(tpl.nodes);
     setLoadedEdges(tpl.edges);
@@ -417,7 +464,7 @@ if __name__ == "__main__":
           Export Code
         </button>
         <button
-          onClick={() => { setShowRunModal(true); setRunInput(lastLoadedTemplate?.sampleInput ?? ""); }}
+          onClick={() => { setShowRunModal(true); setRunInput(lastLoadedTemplate?.sampleInput ?? ""); void fetchSuggestedInput(); }}
           className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow flex items-center gap-1.5"
         >
           ▶ Run
@@ -634,7 +681,7 @@ if __name__ == "__main__":
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
               <span className="text-white font-semibold text-sm">Auto-Build Workflow</span>
               <button
-                onClick={() => setShowAutoBuild(false)}
+                onClick={() => { setShowAutoBuild(false); setIdeaSuggestions([]); }}
                 className="text-gray-400 hover:text-white text-lg leading-none"
               >
                 ✕
@@ -651,6 +698,24 @@ if __name__ == "__main__":
                   className="bg-gray-800 text-white text-sm border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500"
                 />
               </div>
+              {suggestLoading && (
+                <p className="text-xs text-gray-500">Thinking of ideas…</p>
+              )}
+              {ideaSuggestions.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs text-gray-400 font-medium">Suggested ideas</label>
+                  {ideaSuggestions.map((idea, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setAbDescription(idea.description)}
+                      className="text-left bg-gray-800 hover:bg-gray-750 border border-gray-700 hover:border-indigo-500 rounded-lg p-2 transition-colors"
+                    >
+                      <p className="text-white text-xs font-semibold">{idea.title}</p>
+                      <p className="text-gray-400 text-xs mt-0.5 leading-snug">{idea.description}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="flex flex-col gap-1">
                 <label className="text-xs text-gray-400 font-medium">Describe your pipeline</label>
                 <textarea
@@ -718,7 +783,7 @@ if __name__ == "__main__":
               rows={5}
               value={runInput}
               onChange={(e) => setRunInput(e.target.value)}
-              placeholder="e.g. Analyse Q3 sales trends for APAC region and flag anomalies..."
+              placeholder={autoFillLoading ? "Generating a realistic example input…" : "e.g. Analyse Q3 sales trends for APAC region and flag anomalies..."}
               className="bg-gray-800 text-white text-sm border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500 resize-none"
             />
             <div className="flex gap-3 justify-end">
