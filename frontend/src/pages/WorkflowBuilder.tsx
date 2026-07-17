@@ -36,6 +36,7 @@ export default function WorkflowBuilder() {
   const [loadedNodes, setLoadedNodes] = useState<Node[] | undefined>(undefined);
   const [loadedEdges, setLoadedEdges] = useState<Edge[] | undefined>(undefined);
   const workflowRef = useRef<{ nodes: Node[]; edges: Edge[] } | null>(null);
+  const ideaRequestIdRef = useRef(0);
   const nodeUpdaterRef = useRef<((nodeId: string, data: NodeUpdateData) => void) | null>(null);
   const edgeUpdaterRef = useRef<((source: string, target: string, data: import("../components/canvas/AgentCanvas").EdgeUpdateData) => void) | null>(null);
 
@@ -147,7 +148,7 @@ export default function WorkflowBuilder() {
   };
 
   const fetchSuggestedInput = useCallback(async () => {
-    if (!workflowRef.current || lastLoadedTemplate) return; // don't override a template's sample input
+    if (!workflowRef.current || lastLoadedTemplate || autoFillLoading) return;
     setAutoFillLoading(true);
     try {
       const token = localStorage.getItem("token") || localStorage.getItem("agentforge_token");
@@ -163,7 +164,7 @@ export default function WorkflowBuilder() {
     } finally {
       setAutoFillLoading(false);
     }
-  }, [lastLoadedTemplate]);
+  }, [lastLoadedTemplate, autoFillLoading]);
 
   const handleRunWithInput = async () => {
     if (!workflowRef.current || running) return;
@@ -343,6 +344,7 @@ if __name__ == "__main__":
       setLoadedNodes(nodes);
       setLoadedEdges(edges);
       setCanvasKey((k) => k + 1);
+      setLastLoadedTemplate(null);
       showToast("Workflow loaded!");
     } catch {
       showToast("Failed to load workflow.");
@@ -367,6 +369,7 @@ if __name__ == "__main__":
       setLoadedNodes(nodes);
       setLoadedEdges(edges);
       setCanvasKey((k) => k + 1);
+      setLastLoadedTemplate(null);
       setShowAutoBuild(false);
       setAbDescription("");
       setAbName("");
@@ -388,6 +391,7 @@ if __name__ == "__main__":
       return;
     }
     const timer = setTimeout(async () => {
+      const requestId = ++ideaRequestIdRef.current;
       setSuggestLoading(true);
       try {
         const token = localStorage.getItem("token") || localStorage.getItem("agentforge_token");
@@ -396,11 +400,13 @@ if __name__ == "__main__":
           { partial_name: abName },
           { headers: { Authorization: `Bearer ${token}` } }
         );
-        setIdeaSuggestions((res.data as { ideas: IdeaSuggestion[] }).ideas ?? []);
+        if (requestId === ideaRequestIdRef.current) {
+          setIdeaSuggestions((res.data as { ideas: IdeaSuggestion[] }).ideas ?? []);
+        }
       } catch {
-        setIdeaSuggestions([]);
+        if (requestId === ideaRequestIdRef.current) setIdeaSuggestions([]);
       } finally {
-        setSuggestLoading(false);
+        if (requestId === ideaRequestIdRef.current) setSuggestLoading(false);
       }
     }, 500);
     return () => clearTimeout(timer);
