@@ -1,4 +1,6 @@
 import json
+import re
+import uuid
 from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import AsyncClient, ASGITransport
@@ -90,3 +92,15 @@ async def test_sse_stream_approval_node_pauses_and_stops():
     node_done_ids = [e["node_id"] for e in events if e.get("event") == "node_done"]
     assert "n3" not in node_done_ids
     mock_send.assert_called_once()
+
+    # The emailed approval link must reference the run's own id, not the
+    # workflow id (regression check for the SSE approval path generating the
+    # link from `workflow_id` instead of a real run id).
+    email_html = mock_send.call_args[0][2]
+    assert workflow_id not in email_html
+
+    match = re.search(r"/approvals/([0-9a-fA-F-]{36})", email_html)
+    assert match is not None, f"expected a UUID-shaped approval link in email body, got: {email_html}"
+    linked_run_id = match.group(1)
+    assert linked_run_id != workflow_id
+    uuid.UUID(linked_run_id)  # raises if not a valid UUID string

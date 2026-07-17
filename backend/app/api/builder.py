@@ -738,7 +738,8 @@ async def trigger_workflow_stream(workflow_id: str, body: TriggerRequest, db: As
             if node_role == "approval":
                 approver_email = node.get("data", {}).get("approver_email") or node.get("approver_email", "")
                 approval_token = secrets.token_urlsafe(32)
-                link = f"{settings.frontend_base_url}/approvals/{workflow_id}"
+                run_id_for_email = str(uuid.uuid4())
+                link = f"{settings.frontend_base_url}/approvals/{run_id_for_email}"
                 send_email(
                     approver_email,
                     f"Approval required: {node_label}",
@@ -749,6 +750,7 @@ async def trigger_workflow_stream(workflow_id: str, body: TriggerRequest, db: As
                 try:
                     async with AsyncSessionLocal() as session:
                         run = WorkflowRun(
+                            id=run_id_for_email,
                             workflow_id=workflow_id, trigger_input=trigger_input,
                             final_output=previous_output, status=PAUSED,
                             node_logs=[log.model_dump() for log in logs],
