@@ -3653,6 +3653,52 @@ async def generate_project(req: GenerateProjectRequest):
                 "different numbers. Only invent realistic data for parts the upload doesn't cover."
             )
 
+        # Real SSO auth scaffold -- only when the plan's summary indicates SSO
+        # was requested (Azure AD / Entra ID / Okta / single sign-on). Narrow
+        # first proof-of-concept: real JWT validation + MSAL login, not a mock.
+        if _detect_sso_required(req.summary):
+            description += """
+
+REAL SSO AUTHENTICATION REQUIRED (Azure AD / Entra ID):
+This app must include GENUINE, WORKING Azure AD single sign-on code -- not a
+mock login screen, not decorative comments. Generate exactly this:
+
+BACKEND:
+- Create backend/app/auth/sso.py: a FastAPI dependency function (e.g.
+  get_current_user) that reads the "Authorization: Bearer <token>" header,
+  fetches and caches Azure AD's JWKS from
+  https://login.microsoftonline.com/{tenant_id}/discovery/v2.0/keys, and
+  verifies the JWT's signature, "aud" claim (must match AZURE_CLIENT_ID from
+  settings), and "iss" claim (must match the tenant's issuer URL) using the
+  python-jose library. Raise HTTPException(401) on any verification failure
+  (expired token, bad signature, wrong audience, missing header).
+- This dependency MUST be a no-op pass-through (always authorize, skip all
+  token checks) when settings.SSO_ENABLED is False -- so the app is runnable
+  locally without any real Azure AD tenant.
+- Add SSO_ENABLED=false, AZURE_TENANT_ID=, AZURE_CLIENT_ID= to .env.example.
+- Add python-jose[cryptography] to requirements.txt.
+- Apply the dependency via Depends(get_current_user) to the app's core
+  business API routes (not /health, not static assets).
+
+FRONTEND:
+- Create src/auth/msalConfig.ts: a real @azure/msal-browser
+  PublicClientApplication configuration reading VITE_AZURE_CLIENT_ID and
+  VITE_AZURE_TENANT_ID from Vite environment variables.
+- Create src/auth/useAuth.ts: a hook wrapping loginRedirect and
+  acquireTokenSilent, exposing the current user and a function to get a
+  fresh access token.
+- Modify the API client so outgoing requests attach the real MSAL access
+  token as an Authorization: Bearer header.
+- Add "@azure/msal-browser" and "@azure/msal-react" to package.json
+  dependencies.
+- The app must still render and function without ever calling
+  loginRedirect if the MSAL config values are absent/empty -- do not
+  hard-require login to view the app locally.
+
+Do NOT fabricate a fake login form, do NOT skip the JWKS/JWT verification
+logic, do NOT add SSO code paths if this section is absent from the
+requirements."""
+
         agents_text = json.dumps(req.agents or [], indent=2)
         endpoints_text = "\n".join(req.api_endpoints or [])
         db_text = req.database_schema or "Design appropriate tables for the application"
