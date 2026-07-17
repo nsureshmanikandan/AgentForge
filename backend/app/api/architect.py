@@ -2131,9 +2131,8 @@ async def generate_ui(req: GenerateUIRequest):
             f"\nDOCUMENTS:\n{doc_content_block}"
         )
         try:
-            with _tracer.start_as_current_span("llm.kb_extraction", attributes={
+            with _tracer.start_as_current_span("architect.kb_extraction", attributes={
                 "app.detected_type": detected_type,
-                "app.session_id": getattr(req, "session_id", ""),
                 "llm.model": settings.azure_openai_deployment_gpt4o,
                 "llm.max_tokens": 12000,
             }) as _kb_span:
@@ -2402,9 +2401,8 @@ Incorporate ALL of the above changes while keeping everything else from the orig
         ]
 
     _max_tokens_ui = 8000 if detected_type == "CUSTOM" else 16000
-    with _tracer.start_as_current_span("llm.generate_ui", attributes={
+    with _tracer.start_as_current_span("architect.generate_ui", attributes={
         "app.detected_type": detected_type,
-        "app.session_id": getattr(req, "session_id", ""),
         "llm.model": settings.azure_openai_deployment_gpt4o,
         "llm.max_tokens": _max_tokens_ui,
     }) as _ui_span:
