@@ -1823,7 +1823,8 @@ MAIN CONTENT:
 - Models: financial model inputs (DCF / Market Sizing / ROI) with live calculated outputs,
   assumption sliders with real-time chart updates
 - Reports: auto-generated analyst report with executive summary, ranked tables, charts
-  embedded. Export to PDF (jsPDF) or Excel (xlsx).
+  embedded. MANDATORY: always show all 3 export buttons — PDF (jsPDF), Excel (xlsx), and
+  PowerPoint (PptxGenJS) — never omit any of the three regardless of report content.
 - Notes: per-vendor/per-topic note cards with AI summary + analyst's own text
 
 RIGHT PANEL (w-64, bg white, border-l):
