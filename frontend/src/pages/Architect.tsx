@@ -523,6 +523,12 @@ function PlanTab({ plan, promptHistory, messages, loading, qAnswers, qLocked, pi
   const [feedbackComment, setFeedbackComment] = useState<string | null>(null);
   const [feedbackSent, setFeedbackSent] = useState(false);
 
+  useEffect(() => {
+    setFeedback(null);
+    setFeedbackComment(null);
+    setFeedbackSent(false);
+  }, [plan]);
+
   const submitFeedback = async (rating: 1 | -1) => {
     if (!plan) return;
     setFeedback(rating);
@@ -639,10 +645,12 @@ function PlanTab({ plan, promptHistory, messages, loading, qAnswers, qLocked, pi
         <span className="text-xs text-slate-500 font-medium">Was this plan helpful?</span>
         <button
           onClick={() => submitFeedback(1)}
+          aria-label="Helpful"
           className={`p-1.5 rounded-md text-sm ${feedback === 1 ? "bg-green-100 text-green-700" : "hover:bg-slate-200 text-slate-500"}`}
         >👍</button>
         <button
           onClick={() => submitFeedback(-1)}
+          aria-label="Not helpful"
           className={`p-1.5 rounded-md text-sm ${feedback === -1 ? "bg-red-100 text-red-700" : "hover:bg-slate-200 text-slate-500"}`}
         >👎</button>
         {feedbackComment !== null && (
