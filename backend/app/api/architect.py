@@ -1031,6 +1031,27 @@ EXPORT: Every app must include Export functionality:
   saying the export is "prepared" or "available in the enterprise build" — that is a fake,
   non-functional placeholder and is FORBIDDEN for PDF, Excel, and PowerPoint exports.
 
+UPLOAD: If the plan's features or pages describe an upload/context-file/document-intake feature,
+  it MUST be genuinely functional for CSV and XLSX:
+  - Render a real (may be visually hidden) <input type="file" accept=".csv,.xlsx" onChange={...}>,
+    triggered by the visible Upload button or drop zone via a ref's .click().
+  - On file select, read the file with FileReader as an ArrayBuffer, then parse with the same
+    SheetJS library already loaded for exports — one call handles both CSV and XLSX:
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const wb = XLSX.read(e.target.result, { type: "array" });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      // show rows.length and Object.keys(rows[0]||{}) as the real parsed preview
+    };
+    reader.readAsArrayBuffer(file);
+  - Show the REAL parsed result (row count, column names, or a small preview table) — never a
+    canned "success" toast unrelated to what was actually parsed.
+  - If the selected file is .pdf or .docx, do NOT fake parsing it. Show an honest message such as
+    "PDF/DOCX parsing runs server-side — deploy the Custom Code project to use this format."
+  - FORBIDDEN: an Upload control whose only action is a toast/alert with no real file input and no
+    real parsing — this is a fake, non-functional placeholder, exactly as forbidden for EXPORT
+    buttons above. If the plan has no upload/document-intake feature, do not add one.
+
 RESPONSIVE: At screen width < 768px, the left sidebar's NAV LIST must be HIDDEN by default and
   only shown when the user taps the hamburger button — do NOT just reflow the full nav list to
   full-width and stack it above the main content, since that forces users to scroll past a wall
@@ -3400,13 +3421,32 @@ RULES:
           headers = [c.value for c in next(ws.iter_rows(max_row=1))]
           rows = [dict(zip(headers, [c.value for c in r])) for r in ws.iter_rows(min_row=2)]
           text = "\n".join(str(r) for r in rows)
+      elif filename.endswith(".pdf"):
+          import PyPDF2
+          reader = PyPDF2.PdfReader(io.BytesIO(content))
+          text = "\n".join(page.extract_text() or "" for page in reader.pages)
+          if not text.strip():
+              text = "[This PDF appears to be scanned/image-based and could not be parsed as text.]"
+      elif filename.endswith(".docx"):
+          import docx
+          doc = docx.Document(io.BytesIO(content))
+          text = "\n".join(p.text for p in doc.paragraphs)
       elif filename.endswith(".txt") or filename.endswith(".md"):
           text = content.decode("utf-8", errors="ignore")
       else:
           raise HTTPException(status_code=400, detail="Unsupported file type")
       return {"rows": rows, "text": text, "filename": filename}
   ```
-  Register `upload_router` in main.py. Add `openpyxl` to requirements.txt.
+  Register `upload_router` in main.py. Add `openpyxl` to requirements.txt (`PyPDF2` and `python-docx`
+  are already required elsewhere in this prompt).
+
+  This same parsing logic (CSV, XLSX, PDF, DOCX, TXT/MD) MUST be used inside ANY file-upload endpoint
+  the plan requires — regardless of whether it is implemented as the standalone POST /upload shown
+  above, or nested under a parent resource (e.g. POST /decisions/{id}/uploads, POST
+  /contracts/{id}/documents). If the endpoint also persists an upload record to the database, the
+  response MUST include both the persisted record's fields (e.g. id, file_name) AND the extracted
+  content fields (rows, text) — merge them into one response object. NEVER return only the metadata
+  while silently dropping the real extracted content.
 
 - EXPORT — MANDATORY if the plan mentions Excel export, PPT export, report export, or export center. You MUST implement ALL of the following in `backend/app/api/export.py` and register the router in main.py:
   ```python
