@@ -3556,7 +3556,7 @@ async def generate_project(req: GenerateProjectRequest):
         )
 
         # Patch package.json scripts to add db:init
-        _pkg_path = next((p for p in all_files if p.endswith("package.json") and "frontend" in p), None)
+        _pkg_path = next((p for p in all_files if p.endswith("package.json") and "backend" not in p), None)
         if _pkg_path:
             import re as _re2
             _pkg = all_files[_pkg_path]
@@ -3585,13 +3585,13 @@ async def generate_project(req: GenerateProjectRequest):
                 "```bash\n"
                 "# 1. Copy environment config\n"
                 "cp .env.example .env\n\n"
-                "# 2. Start Jaeger (optional, for tracing)\n"
-                "docker-compose -f docker-compose.jaeger.yml up -d\n"
-                "# View traces at http://localhost:16686\n\n"
-                "# 3. Run database migrations\n"
+                "# 2. Start the app (starts Postgres and other services)\n"
+                "docker-compose up -d --build\n\n"
+                "# 3. Run database migrations (now that Postgres is reachable)\n"
                 "npm run db:init\n\n"
-                "# 4. Start the app\n"
-                "docker-compose up --build\n"
+                "# 4. (Optional) Start Jaeger for tracing\n"
+                "docker-compose -f docker-compose.jaeger.yml up -d\n"
+                "# View traces at http://localhost:16686\n"
                 "```\n"
             )
         else:
@@ -3600,9 +3600,9 @@ async def generate_project(req: GenerateProjectRequest):
                 "\n\n## Setup\n"
                 "```bash\n"
                 "cp .env.example .env\n"
+                "docker-compose up -d --build  # starts Postgres and other services\n"
+                "npm run db:init  # run after Postgres is up\n"
                 "docker-compose -f docker-compose.jaeger.yml up -d  # optional Jaeger\n"
-                "npm run db:init  # run before first start\n"
-                "docker-compose up --build\n"
                 "```\n"
             )
             all_files["README.md"] = all_files["README.md"] + _setup_note
