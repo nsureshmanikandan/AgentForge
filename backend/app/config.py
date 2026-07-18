@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     azure_openai_deployment_gpt45: str = "gpt-4o"
     azure_openai_api_version: str = "2024-12-01-preview"
 
+    llm_provider: str = "azure"  # "azure" | "lmstudio"
+    lmstudio_base_url: str = "http://localhost:1234/v1"
+    lmstudio_model: str = "qwen/qwen3.5-9b"
+
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/agentforge"
     jwt_secret: str = "dev-secret-change-in-production"
     jwt_algorithm: str = "HS256"

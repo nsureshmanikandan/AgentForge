@@ -1,4 +1,4 @@
-﻿from openai import AsyncAzureOpenAI
+﻿from openai import AsyncAzureOpenAI, AsyncOpenAI
 from opentelemetry import trace
 from opentelemetry.trace import StatusCode
 from app.config import settings
@@ -8,27 +8,40 @@ class AzureOpenAIClient:
     def __init__(self, deployment: str | None = None):
         # Single source of truth: always read from settings/.env
         # Pass deployment only when explicitly needing the gpt45 variant
-        self.deployment = deployment or settings.azure_openai_deployment_gpt4o
+        self.provider = settings.llm_provider or "azure"
+        if self.provider == "lmstudio":
+            # LM Studio's local server exposes an OpenAI-compatible /v1 API --
+            # api_key is unused by LM Studio but the SDK requires a non-empty string.
+            self.deployment = deployment or settings.lmstudio_model
+            self._client = AsyncOpenAI(
+                base_url=settings.lmstudio_base_url,
+                api_key="lm-studio",
+            )
+        else:
+            self.deployment = deployment or settings.azure_openai_deployment_gpt4o
+            self._client = AsyncAzureOpenAI(
+                azure_endpoint=settings.azure_openai_endpoint,
+                api_key=settings.azure_openai_api_key,
+                api_version=settings.azure_openai_api_version,
+            )
         self.model = self.deployment
-        self._client = AsyncAzureOpenAI(
-            azure_endpoint=settings.azure_openai_endpoint,
-            api_key=settings.azure_openai_api_key,
-            api_version=settings.azure_openai_api_version,
-        )
 
     async def chat(self, messages: list[dict], temperature: float = 0.7, max_tokens: int = 2048) -> str:
         tracer = get_tracer()
         with tracer.start_as_current_span("llm.chat") as span:
             span.set_attribute("llm.model", self.deployment)
-            span.set_attribute("llm.provider", "azure_openai")
+            span.set_attribute("llm.provider", self.provider)
             span.set_attribute("llm.temperature", temperature)
             span.set_attribute("llm.max_tokens", max_tokens)
             try:
+                # LM Studio's OpenAI-compat layer expects the standard "max_tokens"
+                # param; Azure OpenAI's newer models expect "max_completion_tokens".
+                token_kwarg = {"max_tokens": max_tokens} if self.provider == "lmstudio" else {"max_completion_tokens": max_tokens}
                 response = await self._client.chat.completions.create(
                     model=self.deployment,
                     messages=messages,
                     temperature=temperature,
-                    max_completion_tokens=max_tokens,
+                    **token_kwarg,
                 )
                 result = response.choices[0].message.content
                 span.set_attribute("llm.prompt_messages", len(messages))
