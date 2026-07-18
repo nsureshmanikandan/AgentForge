@@ -142,7 +142,7 @@ txt(sl, summary, Inches(0.5), Inches(1.1), Inches(12.4), Inches(2.2),
 # KPI row
 kpis = [
     ("16 API Modules", "End-to-end coverage"),
-    ("24 Frontend Pages", "Full SPA experience"),
+    ("25 Frontend Pages", "Full SPA experience"),
     ("10 DB Tables", "Relational + vector store"),
     ("Zero ML Setup", "Prompt-to-agent in <2 min"),
     ("Enterprise Ready", "RBAC · Audit · OTEL"),
@@ -582,7 +582,7 @@ slide_num(sl, 12)
 # ══════════════════════════════════════════════════════════════════════════════
 sl = prs.slides.add_slide(BLANK)
 bg(sl); accent_bar(sl)
-txt(sl, "Frontend Page Map  (24 Pages · React SPA)", Inches(0.5), Inches(0.3), Inches(10), Inches(0.6),
+txt(sl, "Frontend Page Map  (25 Pages · React SPA)", Inches(0.5), Inches(0.3), Inches(10), Inches(0.6),
     size=26, bold=True, color=WHITE)
 
 pages = [
@@ -595,11 +595,12 @@ pages = [
     ("🧪", "Evaluations",        "Batch test runs, scoring, version comparison"),
     ("🔒", "Safety",             "Guardrail policies per agent, PII/hallucination config"),
     ("📊", "Usage & Traceability","Audit log viewer, latency stats, filter by action/agent"),
-    ("🌐", "Control Plane",      "Live workflow status, modify/pause/resume running agents"),
-    ("🔭", "Workflow Observability","Per-run execution trace, node-level latency breakdown"),
+    ("🌐", "Control Plane",      "Live platform stats — agents, runs, guardrail triggers, avg latency"),
+    ("🔭", "Workflow Observability","Per-run execution trace, \"Awaiting Approval\" tracking, Review link"),
+    ("✅", "Approval Page",      "Review a paused run's context, Approve/Reject to resume"),
     ("🗣️", "Voice Agents",       "Voice session management, STT/TTS config, audio test"),
     ("🗂️", "Blueprints",         "Reusable agent blueprints library, clone to project"),
-    ("📝", "Prompt Library",     "Curated prompts, search, copy-to-agent"),
+    ("📝", "Prompt Library",     "Curated prompts across 10 domains, search, copy-to-agent"),
     ("💡", "What Should I Build","AI-guided project ideation based on use-case description"),
     ("🗺️", "My Projects",        "Project cards, download ZIP, open in Architect"),
     ("🌍", "Published Projects", "Published agents visible to org members"),
@@ -611,15 +612,15 @@ pages = [
     ("👤", "Profile",            "User profile, password change"),
     ("⚙️", "Settings",           "Org settings, Azure config, notification prefs"),
 ]
-cw = Inches(3.06); ch = Inches(0.62)
+cw = Inches(3.06); ch = Inches(0.6)
 for i, (icon, name, desc) in enumerate(pages):
     col = i % 4; row = i // 4
-    x = Inches(0.35 + col * 3.24); y = Inches(1.05 + row * 0.68)
+    x = Inches(0.35 + col * 3.24); y = Inches(1.05 + row * 0.66)
     rect(sl, x, y, cw, ch, CARD_BG)
-    txt(sl, f"{icon} {name}", x + Inches(0.1), y + Inches(0.04), Inches(1.3), ch - Inches(0.1),
-        size=11, bold=True, color=ACCENT)
-    txt(sl, desc, x + Inches(1.4), y + Inches(0.07), cw - Inches(1.5), ch - Inches(0.1),
-        size=9.5, color=LIGHT_GRAY)
+    txt(sl, f"{icon} {name}", x + Inches(0.1), y + Inches(0.03), Inches(1.3), ch - Inches(0.08),
+        size=10.5, bold=True, color=ACCENT)
+    txt(sl, desc, x + Inches(1.4), y + Inches(0.06), cw - Inches(1.5), ch - Inches(0.08),
+        size=9, color=LIGHT_GRAY)
 slide_num(sl, 13)
 
 

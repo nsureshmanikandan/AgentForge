@@ -9,6 +9,7 @@
 
 - [What is AgentForge?](#what-is-agentforge)
 - [Core Features](#core-features)
+- [Frontend Page Map](#frontend-page-map)
 - [Workflow Builder — Advanced Node Types](#workflow-builder--advanced-node-types)
 - [Known Limitations](#known-limitations)
 - [Observability & Tracing](#observability--tracing)
@@ -148,6 +149,40 @@ The visual builder is a real decision-making execution engine, not just a flowch
 - **HTTP Request nodes** — configurable outbound API call (GET/POST/PUT/PATCH/DELETE, JSON headers/body, `{{input}}` templating)
 - **Export Code** — generates a Python script that ports the same topological-sort/branching/approval/http_request logic as the live engine, with an optional `--openai` flag for real LLM calls
 - **Export JSON / Import JSON** — lossless, round-trippable workflow backup and restore via a browse-and-load file picker
+
+---
+
+## Frontend Page Map
+
+Every route in the React SPA, verified against `frontend/src/App.tsx` (25 routes total):
+
+| Route | Page | What it does |
+|-------|------|--------------|
+| `/` | Home | Landing, quick actions, recent activity |
+| `/architect` | **Planning Architect** | Conversational prompt-to-agent: describe an app in plain English → full project plan, live sandbox preview, and a downloadable deployable ZIP (RAG Scaffold or Custom Code) |
+| `/studio`, `/studio/create` | Agent Studio | Create, edit, test, deploy, and publish individual agents |
+| `/builder` | Workflow Builder | Drag-drop React Flow canvas — wire agents, conditions, approvals, and HTTP calls into pipelines |
+| `/workflow-runs` | Workflow Observability | Per-run execution trace, node-level latency, "Awaiting Approval" tracking |
+| `/approvals/:runId` | Approval Page | Review a paused run's context and Approve/Reject to resume the pipeline |
+| `/knowledge-bases` | Knowledge Bases | Create a KB, upload documents, view chunking/indexing status |
+| `/playground/:agentId` | Playground | Interactive agent testing with streaming responses |
+| `/evaluations` | Evaluations | Batch test runs, scoring, version comparison |
+| `/safety` | Safety | Guardrail policy configuration per agent (PII, hallucination detection) |
+| `/usage` | Usage & Traceability | Audit log viewer, latency stats, filter by action/agent |
+| `/dashboard` | Control Plane | Live platform stats — total agents, runs, guardrail triggers, avg latency |
+| `/voice` | Voice Agents | Voice session management, Azure Speech STT/TTS configuration |
+| `/prompts` | **Prompt Library** | Curated, ready-to-use prompt templates across 10 domains — search and copy straight into an agent |
+| `/blueprints` | Blueprints | Reusable multi-agent workflow blueprints — clone directly into a new project |
+| `/marketplace` | Marketplace | Community agent templates — import and customize |
+| `/what-to-build` | What Should I Build | AI-guided project ideation based on a use-case description |
+| `/projects` | My Projects | Your project cards — download ZIP, reopen in the Architect |
+| `/published` | Published Projects | Projects published for the org to see (reuses the My Projects view, scoped to published items) |
+| `/shared` | Shared Projects | Projects shared with you across the org (reuses the My Projects view, scoped to shared items) |
+| `/api-keys` | API Keys | Generate, list, and revoke programmatic API keys |
+| `/team` | Team Members | Invite users, assign roles, deactivate accounts |
+| `/versions/:agentId` | Agent Versions | Version history, diff, and rollback for a specific agent |
+| `/profile` | Profile | User profile and password change |
+| `/settings` | Settings | Org settings, Azure configuration, notification preferences |
 
 ---
 
