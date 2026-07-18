@@ -9,12 +9,17 @@ const TOOLS = [
 ];
 
 const NODE_ROLES = [
-  "input", "classifier", "router", "responder", "guard", "rag", "output", "agent",
+  "input", "classifier", "router", "responder", "guard", "rag", "output", "agent", "condition", "approval", "http_request",
 ];
+
+const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
 interface Props {
   nodeId: string;
-  nodeData?: { label?: string; role?: string; description?: string };
+  nodeData?: {
+    label?: string; role?: string; description?: string; rule?: string; approver_email?: string;
+    url?: string; method?: string; headers?: string; body?: string;
+  };
   onUpdate?: (nodeId: string, data: NodeUpdateData) => void;
   onSave: () => void;
   onClose: () => void;
@@ -35,6 +40,12 @@ export default function AgentConfigPanel({ nodeId, nodeData, onUpdate, onSave, o
   const [nodeLabel, setNodeLabel] = useState(nodeData?.label ?? "");
   const [nodeRole, setNodeRole] = useState(nodeData?.role ?? "agent");
   const [nodeDesc, setNodeDesc] = useState(nodeData?.description ?? "");
+  const [nodeRule, setNodeRule] = useState(nodeData?.rule ?? "");
+  const [nodeApproverEmail, setNodeApproverEmail] = useState(nodeData?.approver_email ?? "");
+  const [nodeUrl, setNodeUrl] = useState(nodeData?.url ?? "");
+  const [nodeMethod, setNodeMethod] = useState(nodeData?.method ?? "GET");
+  const [nodeHeaders, setNodeHeaders] = useState(nodeData?.headers ?? "");
+  const [nodeBody, setNodeBody] = useState(nodeData?.body ?? "");
   const [nodeUpdated, setNodeUpdated] = useState(false);
 
   const generateFromNL = async () => {
@@ -76,7 +87,17 @@ export default function AgentConfigPanel({ nodeId, nodeData, onUpdate, onSave, o
 
   const handleUpdateNode = () => {
     if (!onUpdate) return;
-    onUpdate(nodeId, { label: nodeLabel, role: nodeRole, description: nodeDesc });
+    onUpdate(nodeId, {
+      label: nodeLabel,
+      role: nodeRole,
+      description: nodeDesc,
+      rule: nodeRole === "condition" ? nodeRule : undefined,
+      approver_email: nodeRole === "approval" ? nodeApproverEmail : undefined,
+      url: nodeRole === "http_request" ? nodeUrl : undefined,
+      method: nodeRole === "http_request" ? nodeMethod : undefined,
+      headers: nodeRole === "http_request" ? nodeHeaders : undefined,
+      body: nodeRole === "http_request" ? nodeBody : undefined,
+    });
     setNodeUpdated(true);
     setTimeout(() => setNodeUpdated(false), 1500);
   };
@@ -134,6 +155,86 @@ export default function AgentConfigPanel({ nodeId, nodeData, onUpdate, onSave, o
               onChange={(e) => setNodeDesc(e.target.value)}
             />
           </div>
+
+          {nodeRole === "condition" && (
+            <div>
+              <label className="text-gray-400 text-xs mb-1 block">
+                Rule (Python expression over extracted variables)
+              </label>
+              <input
+                className="w-full bg-gray-700 text-white rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-violet-500"
+                placeholder="e.g. days <= 2"
+                value={nodeRule}
+                onChange={(e) => setNodeRule(e.target.value)}
+              />
+              <p className="text-gray-500 text-xs mt-1">
+                Label the outgoing edges exactly "true" and "false" to define the branches.
+              </p>
+            </div>
+          )}
+
+          {nodeRole === "approval" && (
+            <div>
+              <label className="text-gray-400 text-xs mb-1 block">Approver email</label>
+              <input
+                className="w-full bg-gray-700 text-white rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-violet-500"
+                placeholder="manager@company.com"
+                value={nodeApproverEmail}
+                onChange={(e) => setNodeApproverEmail(e.target.value)}
+              />
+            </div>
+          )}
+
+          {nodeRole === "http_request" && (
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <div className="w-28">
+                  <label className="text-gray-400 text-xs mb-1 block">Method</label>
+                  <select
+                    className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm focus:outline-none"
+                    value={nodeMethod}
+                    onChange={(e) => setNodeMethod(e.target.value)}
+                  >
+                    {HTTP_METHODS.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex-1">
+                  <label className="text-gray-400 text-xs mb-1 block">URL</label>
+                  <input
+                    className="w-full bg-gray-700 text-white rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-violet-500"
+                    placeholder="https://api.example.com/lookup?q={{input}}"
+                    value={nodeUrl}
+                    onChange={(e) => setNodeUrl(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-gray-400 text-xs mb-1 block">Headers (JSON, optional)</label>
+                <textarea
+                  className="w-full bg-gray-700 text-white rounded px-3 py-1.5 text-sm font-mono resize-none focus:outline-none focus:ring-1 focus:ring-violet-500"
+                  rows={2}
+                  placeholder={'{"Authorization": "Bearer sk-..."}'}
+                  value={nodeHeaders}
+                  onChange={(e) => setNodeHeaders(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-gray-400 text-xs mb-1 block">Body (optional)</label>
+                <textarea
+                  className="w-full bg-gray-700 text-white rounded px-3 py-1.5 text-sm font-mono resize-none focus:outline-none focus:ring-1 focus:ring-violet-500"
+                  rows={3}
+                  placeholder={'{"query": "{{input}}"}'}
+                  value={nodeBody}
+                  onChange={(e) => setNodeBody(e.target.value)}
+                />
+              </div>
+              <p className="text-gray-500 text-xs">
+                Use the literal text <code className="bg-gray-800 px-1 rounded">{"{{input}}"}</code> anywhere in the URL or body to insert the previous node's output. The response body becomes this node's output.
+              </p>
+            </div>
+          )}
 
           <button
             onClick={handleUpdateNode}

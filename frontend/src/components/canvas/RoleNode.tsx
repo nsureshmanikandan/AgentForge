@@ -8,6 +8,9 @@ const ROLE_ICONS: Record<string, string> = {
   guard: "🛡️",
   rag: "📚",
   output: "📤",
+  condition: "❓",
+  approval: "✉️",
+  http_request: "🌐",
 };
 
 const ROLE_BORDER_COLORS: Record<string, string> = {
@@ -18,6 +21,9 @@ const ROLE_BORDER_COLORS: Record<string, string> = {
   guard: "#ef4444",
   rag: "#f59e0b",
   output: "#166534",
+  condition: "#eab308",
+  approval: "#ec4899",
+  http_request: "#f97316",
 };
 
 const ROLE_TEXT_COLORS: Record<string, string> = {
@@ -97,8 +103,14 @@ export default function RoleNode({ data }: NodeProps) {
         `}</style>
       )}
 
-      {/* Target handle */}
-      <Handle type="target" position={Position.Top} style={{ background: borderColor }} />
+      {/* Target handle — enlarged hit area, grows on hover so it's easy to drop a connection onto */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        title="Drop a connection here"
+        className="af-handle"
+        style={{ background: borderColor, width: 14, height: 14, top: -8, border: "2px solid #0a0a0f" }}
+      />
 
       {/* Execution state badge (top-left) */}
       {execState !== "idle" && (
@@ -145,10 +157,20 @@ export default function RoleNode({ data }: NodeProps) {
         </p>
       )}
 
-      {/* Source handle */}
-      <Handle type="source" position={Position.Bottom} style={{ background: borderColor }} />
+      {/* Source handle — enlarged hit area, this is what you drag FROM to draw a connection */}
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        title="Drag from here to connect to another node"
+        className="af-handle"
+        style={{ background: borderColor, width: 14, height: 14, bottom: -8, border: "2px solid #0a0a0f" }}
+      />
 
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .af-handle { transition: box-shadow 0.15s ease; cursor: crosshair; }
+        .af-handle:hover { box-shadow: 0 0 0 6px ${borderColor}55; }
+      `}</style>
     </div>
   );
 }

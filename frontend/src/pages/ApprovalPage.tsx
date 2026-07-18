@@ -93,7 +93,10 @@ export default function ApprovalPage() {
       <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-lg p-6 flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <h1 className="text-white font-semibold text-lg">Workflow Approval</h1>
-          <Link to="/builder" className="text-violet-400 hover:text-violet-300 text-xs font-medium">
+          <Link
+            to={info?.workflow_id ? `/builder?workflowId=${info.workflow_id}` : "/builder"}
+            className="text-violet-400 hover:text-violet-300 text-xs font-medium"
+          >
             ← Back to Workflow Builder
           </Link>
         </div>
@@ -110,7 +113,7 @@ export default function ApprovalPage() {
                 </Link>
               )}
               <Link
-                to="/builder"
+                to={info?.workflow_id ? `/builder?workflowId=${info.workflow_id}` : "/builder"}
                 className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
               >
                 Open Workflow Builder

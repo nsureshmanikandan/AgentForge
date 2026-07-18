@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import api from "../api/client";
 
 interface WorkflowRun {
@@ -35,6 +36,8 @@ const STATUS_COLOR: Record<string, string> = {
   completed: "bg-green-100 text-green-700",
   failed: "bg-red-100 text-red-700",
   running: "bg-yellow-100 text-yellow-700",
+  waiting_approval: "bg-amber-100 text-amber-800",
+  rejected: "bg-gray-200 text-gray-700",
 };
 
 const NODE_STATUS_COLOR: Record<string, string> = {
@@ -106,11 +109,16 @@ export default function WorkflowObservability() {
       </div>
 
       {/* Stats bar */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-5 gap-4 mb-6">
         {[
           { label: "Total Runs", value: runs.length },
           { label: "Completed", value: runs.filter((r) => r.status === "completed").length, color: "text-green-600" },
           { label: "Failed", value: runs.filter((r) => r.status === "failed").length, color: "text-red-600" },
+          {
+            label: "Awaiting Approval",
+            value: runs.filter((r) => r.status === "waiting_approval").length,
+            color: "text-amber-600",
+          },
           {
             label: "Avg Duration",
             value: runs.length
@@ -142,6 +150,8 @@ export default function WorkflowObservability() {
           <option value="all">All statuses</option>
           <option value="completed">Completed</option>
           <option value="failed">Failed</option>
+          <option value="waiting_approval">Awaiting Approval</option>
+          <option value="rejected">Rejected</option>
         </select>
         <button
           onClick={() => {
@@ -208,15 +218,25 @@ export default function WorkflowObservability() {
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-500">{fmtDate(run.triggered_at)}</td>
                     <td className="px-4 py-3">
-                      <button
-                        className="text-purple-600 hover:text-purple-800 text-xs font-medium"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          loadDetail(run);
-                        }}
-                      >
-                        Trace →
-                      </button>
+                      {run.status === "waiting_approval" ? (
+                        <Link
+                          to={`/approvals/${run.run_id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-amber-700 hover:text-amber-900 text-xs font-semibold"
+                        >
+                          Review →
+                        </Link>
+                      ) : (
+                        <button
+                          className="text-purple-600 hover:text-purple-800 text-xs font-medium"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            loadDetail(run);
+                          }}
+                        >
+                          Trace →
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

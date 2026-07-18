@@ -20,27 +20,33 @@ import { layoutWorkflow } from "../../utils/layoutWorkflow";
 
 const defaultEdgeOptions: DefaultEdgeOptions = {
   animated: true,
-  style: { stroke: "#7c3aed", strokeWidth: 2.5 },
-  markerEnd: { type: MarkerType.ArrowClosed, color: "#7c3aed", width: 20, height: 20 },
+  style: { stroke: "#3b82f6", strokeWidth: 2.5 },
+  markerEnd: { type: MarkerType.ArrowClosed, color: "#3b82f6", width: 20, height: 20 },
 };
 
 const nodeTypes = { roleNode: RoleNode };
 
 const defaultNodes: Node[] = [
-  { id: "input", type: "input", position: { x: 80, y: 200 }, data: { label: "User Input" }, style: { background: "#1e1b4b", color: "#a5b4fc", border: "1px solid #4c1d95" } },
-  { id: "agent-1", position: { x: 320, y: 200 }, data: { label: "Agent 1" }, style: { background: "#1e1b4b", color: "#c4b5fd", border: "1px solid #7c3aed" } },
-  { id: "output", type: "output", position: { x: 560, y: 200 }, data: { label: "Response" }, style: { background: "#14532d", color: "#86efac", border: "1px solid #166534" } },
+  { id: "input", type: "roleNode", position: { x: 80, y: 200 }, data: { label: "User Input", role: "input" } },
+  { id: "agent-1", type: "roleNode", position: { x: 320, y: 200 }, data: { label: "Agent 1", role: "agent" } },
+  { id: "output", type: "roleNode", position: { x: 560, y: 200 }, data: { label: "Response", role: "output" } },
 ];
 
 const defaultEdges: Edge[] = [
-  { id: "e-input-agent1", source: "input", target: "agent-1", animated: true, style: { stroke: "#7c3aed", strokeWidth: 2.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: "#7c3aed", width: 20, height: 20 } },
-  { id: "e-agent1-output", source: "agent-1", target: "output", animated: true, style: { stroke: "#7c3aed", strokeWidth: 2.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: "#7c3aed", width: 20, height: 20 } },
+  { id: "e-input-agent1", source: "input", target: "agent-1", animated: true, style: { stroke: "#3b82f6", strokeWidth: 2.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: "#3b82f6", width: 20, height: 20 } },
+  { id: "e-agent1-output", source: "agent-1", target: "output", animated: true, style: { stroke: "#3b82f6", strokeWidth: 2.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: "#3b82f6", width: 20, height: 20 } },
 ];
 
 export type NodeUpdateData = {
   label?: string;
   role?: string;
   description?: string;
+  rule?: string;
+  approver_email?: string;
+  url?: string;
+  method?: string;
+  headers?: string;
+  body?: string;
   executionState?: "idle" | "running" | "done" | "error";
 };
 
@@ -88,7 +94,7 @@ export default function AgentCanvas({
       if (e.source === source && e.target === target) {
         return data.active
           ? { ...e, animated: true, style: { stroke: "#22c55e", strokeWidth: 3 }, markerEnd: { type: MarkerType.ArrowClosed, color: "#22c55e", width: 20, height: 20 } }
-          : { ...e, animated: true, style: { stroke: "#7c3aed", strokeWidth: 2.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: "#7c3aed", width: 20, height: 20 } };
+          : { ...e, animated: true, style: { stroke: "#3b82f6", strokeWidth: 2.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: "#3b82f6", width: 20, height: 20 } };
       }
       return e;
     }));
@@ -100,13 +106,16 @@ export default function AgentCanvas({
 
   const onConnect = useCallback((connection: Connection) => {
     const sourceNode = nodes.find((n) => n.id === connection.source);
-    const isRouter = (sourceNode?.data as Record<string, unknown>)?.role === "router";
+    const sourceRole = (sourceNode?.data as Record<string, unknown>)?.role;
+    const isRouter = sourceRole === "router";
+    const isCondition = sourceRole === "condition";
     let label = "";
-    if (isRouter) label = window.prompt("Edge label (e.g. Yes/No, Priority):") ?? "";
+    if (isCondition) label = window.prompt('Edge label — must be exactly "true" or "false":') ?? "";
+    else if (isRouter) label = window.prompt("Edge label (e.g. Yes/No, Priority):") ?? "";
     setEdges((eds) => addEdge(
       label
-        ? { ...connection, animated: true, label: label as string, labelStyle: { fill: "#e5e7eb", fontSize: 11, fontWeight: 600 }, labelBgStyle: { fill: "#4c1d95" }, labelBgPadding: [6, 3] as [number, number], labelBgBorderRadius: 4, style: { stroke: "#7c3aed", strokeWidth: 2.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: "#7c3aed", width: 20, height: 20 } } as any
-        : { ...connection, animated: true, style: { stroke: "#7c3aed", strokeWidth: 2.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: "#7c3aed", width: 20, height: 20 } },
+        ? { ...connection, animated: true, label: label as string, labelStyle: { fill: "#e5e7eb", fontSize: 11, fontWeight: 600 }, labelBgStyle: { fill: "#4c1d95" }, labelBgPadding: [6, 3] as [number, number], labelBgBorderRadius: 4, style: { stroke: "#3b82f6", strokeWidth: 2.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: "#3b82f6", width: 20, height: 20 } } as any
+        : { ...connection, animated: true, style: { stroke: "#3b82f6", strokeWidth: 2.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: "#3b82f6", width: 20, height: 20 } },
       eds
     ));
   }, [setEdges, nodes]);
@@ -118,11 +127,11 @@ export default function AgentCanvas({
   }, [setEdges, onNodeDelete]);
 
   const addAgentNode = () => {
-    const id = `agent-${Date.now()}`;
+    const id = `agent-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
     setNodes((nds) => [...nds, {
-      id, position: { x: 200 + Math.random() * 200, y: 100 + Math.random() * 150 },
-      data: { label: "New Agent" },
-      style: { background: "#1e1b4b", color: "#c4b5fd", border: "1px solid #7c3aed" },
+      id, type: "roleNode",
+      position: { x: 200 + Math.random() * 200, y: 100 + Math.random() * 150 },
+      data: { label: "New Agent", role: "agent" },
     }]);
   };
 

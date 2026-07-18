@@ -3,8 +3,8 @@ import { MarkerType } from "@xyflow/react";
 
 const arrow = {
   animated: true,
-  style: { stroke: "#7c3aed", strokeWidth: 2.5 },
-  markerEnd: { type: MarkerType.ArrowClosed, color: "#7c3aed", width: 20, height: 20 },
+  style: { stroke: "#3b82f6", strokeWidth: 2.5 },
+  markerEnd: { type: MarkerType.ArrowClosed, color: "#3b82f6", width: 20, height: 20 },
 };
 
 export interface WorkflowTemplate {

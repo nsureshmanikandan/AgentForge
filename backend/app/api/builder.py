@@ -14,6 +14,7 @@ import uuid
 import time
 import json
 import secrets
+import httpx
 from datetime import datetime
 from simpleeval import simple_eval
 
@@ -138,12 +139,94 @@ def _evaluate_condition(rule: str, variables: dict) -> bool:
         return False  # fail closed -- an unparseable rule or missing variable takes the false branch
 
 
-async def _extract_variables(text: str, client: AzureOpenAIClient) -> dict:
-    """Ask GPT-4o to extract a flat JSON object of named numeric/string variables from text."""
+async def _choose_branch_label(decision_text: str, labels: list[str], client: AzureOpenAIClient) -> str | None:
+    """Ask GPT-4o which single labeled outgoing edge best matches a router node's
+    decision, so a router node with labeled edges (e.g. "Verify"/"Fast"/"Deep")
+    actually only follows ONE branch instead of every node in the graph running
+    unconditionally. Returns None if there are no labels to choose from, or the
+    model's answer doesn't exactly match one -- callers should fall back to
+    running sequentially (no branching) in that case, so plain router nodes
+    with unlabeled edges keep working exactly as before."""
+    if not labels:
+        return None
     messages = [
         {"role": "system", "content": (
-            "Extract all named numeric and short string values mentioned in the text below as "
-            'a flat JSON object (e.g. {"amount": 430, "department": "Sales"}). '
+            "Given the text below, choose exactly one of these labels that best matches its intent: "
+            f'{", ".join(labels)}. Return ONLY the chosen label, exactly as written, no explanation.'
+        )},
+        {"role": "user", "content": decision_text},
+    ]
+    raw = await client.chat(messages, temperature=0.0)
+    chosen = raw.strip().strip('"').strip("'")
+    return chosen if chosen in labels else None
+
+
+async def _call_http_request(node: dict, previous_output: str) -> str:
+    """Execute an `http_request` node's outbound API call.
+
+    Node config (node["data"]): url (required, may contain a literal "{{input}}"
+    placeholder substituted with the previous node's output), method (default GET),
+    headers (a JSON object string, optional), body (raw string, may also contain
+    "{{input}}"; sent as JSON if it parses as JSON, else as raw text).
+    Raises on failure so callers log it the same way as any other node error.
+    """
+    data = node.get("data", {})
+    url = str(data.get("url") or node.get("url") or "").strip()
+    if not url:
+        raise ValueError("http_request node has no URL configured")
+    method = str(data.get("method") or node.get("method") or "GET").upper()
+    headers_raw = data.get("headers") or node.get("headers") or ""
+    body_raw = data.get("body") or node.get("body") or ""
+
+    url = url.replace("{{input}}", previous_output or "")
+    body_raw = body_raw.replace("{{input}}", previous_output or "") if body_raw else body_raw
+
+    headers = None
+    if headers_raw:
+        try:
+            headers = json.loads(headers_raw) if isinstance(headers_raw, str) else headers_raw
+        except json.JSONDecodeError:
+            raise ValueError("http_request node's headers field is not valid JSON")
+
+    json_body = None
+    data_body = None
+    if body_raw:
+        try:
+            json_body = json.loads(body_raw)
+        except json.JSONDecodeError:
+            data_body = body_raw
+
+    async with httpx.AsyncClient(timeout=15.0) as http_client:
+        response = await http_client.request(
+            method, url, headers=headers, json=json_body, content=data_body,
+        )
+    response.raise_for_status()
+    return response.text[:4000]
+
+
+async def _extract_variables(text: str, client: AzureOpenAIClient, rule: str = "") -> dict:
+    """Ask GPT-4o to extract a flat JSON object of named numeric/string variables from text.
+
+    `rule` (the condition expression this will be evaluated against, e.g. "days <= 2")
+    is passed as context so the model computes any variable it references even when
+    the text implies it rather than stating it outright -- e.g. "Thursday and Friday
+    next week" or "March 3 to March 7" should yield a computed `days` count, not just
+    whatever numbers happen to be written verbatim.
+    """
+    rule_hint = (
+        f"\nThis will be evaluated against the rule: {rule!r}. Make sure every variable "
+        "name referenced in that rule is present in your output, computing it from context "
+        "if it isn't stated explicitly (e.g. infer a day/duration count from a date range "
+        "or list of days, not just literal numbers you see written)."
+        if rule else ""
+    )
+    messages = [
+        {"role": "system", "content": (
+            "Extract all named numeric and short string values mentioned or implied in the "
+            "text below as a flat JSON object (e.g. {\"amount\": 430, \"department\": \"Sales\"}). "
+            "Compute derived quantities a human would reasonably infer (e.g. a day count from "
+            "a date range or list of days), don't just copy literal numbers out of the text."
+            f"{rule_hint}\n"
             "Return ONLY the JSON object, no explanation."
         )},
         {"role": "user", "content": text},
@@ -246,7 +329,7 @@ async def _run_pipeline_from(
 
         if node_role == "condition":
             rule = node.get("data", {}).get("rule") or node.get("rule", "")
-            variables = await _extract_variables(previous_output, client)
+            variables = await _extract_variables(previous_output, client, rule=rule)
             result = _evaluate_condition(rule, variables)
             branch_label = "true" if result else "false"
             log = WorkflowRunLog(
@@ -302,6 +385,79 @@ async def _run_pipeline_from(
                 "paused_at_node_id": node_id,
                 "approval_token": approval_token,
             }
+
+        if node_role == "router":
+            try:
+                messages = [
+                    {
+                        "role": "system",
+                        "content": (
+                            f"You are a {node_role} agent. "
+                            f"{node_description}. "
+                            "Process the input and return a brief output (2-3 sentences)."
+                        ),
+                    },
+                    {"role": "user", "content": previous_output or "Start the pipeline."},
+                ]
+                start = time.time()
+                output = await client.chat(messages, temperature=0.3)
+                duration_ms = int((time.time() - start) * 1000)
+            except Exception as exc:
+                log = WorkflowRunLog(node_id=node_id, node_label=node_label, status="error", output=f"Error: {str(exc)}", duration_ms=0)
+                logs.append(log)
+                i += 1
+                continue
+
+            outgoing_labels = sorted({e.get("label") for e in edges if e.get("source") == node_id and e.get("label")})
+            chosen_label = await _choose_branch_label(output, outgoing_labels, client) if outgoing_labels else None
+
+            if chosen_label is None:
+                # No labeled branches (or classification didn't match one) -- behave like a plain agent node.
+                log = WorkflowRunLog(node_id=node_id, node_label=node_label, status="done", output=output, duration_ms=duration_ms)
+                logs.append(log)
+                previous_output = output
+                i += 1
+                continue
+
+            log = WorkflowRunLog(
+                node_id=node_id, node_label=node_label, status="done",
+                output=f"{output}\n\nRouted to branch: '{chosen_label}'.", duration_ms=duration_ms,
+            )
+            logs.append(log)
+            previous_output = output
+            next_edge = next((e for e in edges if e.get("source") == node_id and e.get("label") == chosen_label), None)
+            next_node = node_by_id.get(next_edge.get("target")) if next_edge else None
+            if next_node is None:
+                break
+            nodes_to_exclude = set()
+            for e in edges:
+                if e.get("source") == node_id and e is not next_edge:
+                    sibling_target = e.get("target")
+                    if sibling_target:
+                        nodes_to_exclude |= _reachable_from(sibling_target, edges)
+            chosen_reachable = _reachable_from(next_node["id"], edges)
+            nodes_to_exclude_only_untaken = nodes_to_exclude - chosen_reachable - {node_id}
+            router_index = ordered_nodes.index(node)
+            remaining = [next_node] + [
+                n for n in ordered_nodes
+                if n["id"] not in ({node_id, next_node["id"]} | nodes_to_exclude_only_untaken)
+                and ordered_nodes.index(n) > router_index
+            ]
+            i = 0
+            continue
+
+        if node_role == "http_request":
+            try:
+                start = time.time()
+                output = await _call_http_request(node, previous_output)
+                duration_ms = int((time.time() - start) * 1000)
+                log = WorkflowRunLog(node_id=node_id, node_label=node_label, status="done", output=output, duration_ms=duration_ms)
+                previous_output = output
+            except Exception as exc:
+                log = WorkflowRunLog(node_id=node_id, node_label=node_label, status="error", output=f"Error: {str(exc)}", duration_ms=0)
+            logs.append(log)
+            i += 1
+            continue
 
         # Agent node -- call LLM
         try:
@@ -738,7 +894,7 @@ async def trigger_workflow_stream(workflow_id: str, body: TriggerRequest, db: As
 
             if node_role == "condition":
                 rule = node.get("data", {}).get("rule") or node.get("rule", "")
-                variables = await _extract_variables(previous_output, client)
+                variables = await _extract_variables(previous_output, client, rule=rule)
                 cond_result = _evaluate_condition(rule, variables)
                 branch_label = "true" if cond_result else "false"
                 log = WorkflowRunLog(
@@ -797,6 +953,69 @@ async def trigger_workflow_stream(workflow_id: str, body: TriggerRequest, db: As
                 except Exception:
                     pass
                 return
+
+            if node_role == "router":
+                try:
+                    messages = [
+                        {"role": "system", "content": f"You are a {node_role} agent. {node_description}. Process the input and return a brief output (2-3 sentences)."},
+                        {"role": "user", "content": previous_output or "Start the pipeline."},
+                    ]
+                    start = time.time()
+                    output = await client.chat(messages, temperature=0.3)
+                    duration_ms = int((time.time() - start) * 1000)
+                except Exception as exc:
+                    log = WorkflowRunLog(node_id=node_id, node_label=node_label, status="error", output=f"Error: {str(exc)}", duration_ms=0)
+                    logs.append(log)
+                    yield f"data: {json.dumps({'event': 'node_error', 'node_id': node_id, 'node_label': node_label, 'error': str(exc)})}\n\n"
+                    continue
+
+                outgoing_labels = sorted({e.get("label") for e in edges if e.get("source") == node_id and e.get("label")})
+                chosen_label = await _choose_branch_label(output, outgoing_labels, client) if outgoing_labels else None
+
+                if chosen_label is None:
+                    log = WorkflowRunLog(node_id=node_id, node_label=node_label, status="done", output=output, duration_ms=duration_ms)
+                    logs.append(log)
+                    previous_output = output
+                    yield f"data: {json.dumps({'event': 'node_done', 'node_id': node_id, 'node_label': node_label, 'output': output, 'duration_ms': duration_ms})}\n\n"
+                    continue
+
+                routed_output = f"{output}\n\nRouted to branch: '{chosen_label}'."
+                log = WorkflowRunLog(node_id=node_id, node_label=node_label, status="done", output=routed_output, duration_ms=duration_ms)
+                logs.append(log)
+                previous_output = output
+                yield f"data: {json.dumps({'event': 'node_done', 'node_id': node_id, 'node_label': node_label, 'output': routed_output, 'duration_ms': duration_ms})}\n\n"
+
+                chosen_edge = next((e for e in edges if e.get("source") == node_id and e.get("label") == chosen_label), None)
+                if chosen_edge is None:
+                    break
+                sibling_targets = {
+                    e.get("target") for e in edges
+                    if e.get("source") == node_id and e is not chosen_edge
+                }
+                nodes_to_exclude = set()
+                for sib in sibling_targets:
+                    if sib:
+                        nodes_to_exclude |= _reachable_from(sib, edges)
+                chosen_reachable = _reachable_from(chosen_edge.get("target"), edges)
+                nodes_to_exclude -= chosen_reachable
+                nodes_to_exclude.discard(node_id)
+                if nodes_to_exclude:
+                    excluded_node_ids |= nodes_to_exclude
+                continue
+
+            if node_role == "http_request":
+                try:
+                    start = time.time()
+                    output = await _call_http_request(node, previous_output)
+                    duration_ms = int((time.time() - start) * 1000)
+                    log = WorkflowRunLog(node_id=node_id, node_label=node_label, status="done", output=output, duration_ms=duration_ms)
+                    previous_output = output
+                    yield f"data: {json.dumps({'event': 'node_done', 'node_id': node_id, 'node_label': node_label, 'output': output, 'duration_ms': duration_ms})}\n\n"
+                except Exception as exc:
+                    log = WorkflowRunLog(node_id=node_id, node_label=node_label, status="error", output=f"Error: {str(exc)}", duration_ms=0)
+                    yield f"data: {json.dumps({'event': 'node_error', 'node_id': node_id, 'node_label': node_label, 'error': str(exc)})}\n\n"
+                logs.append(log)
+                continue
 
             try:
                 messages = [
