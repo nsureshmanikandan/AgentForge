@@ -4,7 +4,9 @@ from app.core.azure_openai import AzureOpenAIClient
 
 @pytest.mark.asyncio
 async def test_chat_returns_string():
-    with patch("app.core.azure_openai.AsyncAzureOpenAI") as MockClient:
+    from app.config import settings
+    with patch("app.core.azure_openai.AsyncAzureOpenAI") as MockClient, \
+         patch.object(settings, "llm_provider", "azure"):
         mock_instance = MockClient.return_value
         mock_choice = MagicMock()
         mock_choice.message.content = "Hello there!"
@@ -17,9 +19,10 @@ async def test_chat_returns_string():
 
 @pytest.mark.asyncio
 async def test_gpt45_uses_correct_deployment():
-    with patch("app.core.azure_openai.AsyncAzureOpenAI"):
+    from app.config import settings
+    with patch("app.core.azure_openai.AsyncAzureOpenAI"), \
+         patch.object(settings, "llm_provider", "azure"):
         client = AzureOpenAIClient()
-        from app.config import settings
         assert client.deployment == settings.azure_openai_deployment_gpt45
 
 
@@ -63,3 +66,17 @@ async def test_lmstudio_chat_uses_max_tokens_not_max_completion_tokens():
         _, kwargs = mock_instance.chat.completions.create.call_args
         assert kwargs.get("max_tokens") == 100
         assert "max_completion_tokens" not in kwargs
+
+
+@pytest.mark.asyncio
+async def test_lmstudio_ignores_azure_deployment_override():
+    """An Agent Studio agent saved with model="gpt-4o" (an Azure deployment
+    name, the only options in that dropdown) must NOT be sent to LM Studio's
+    server as-is -- it isn't a model LM Studio has loaded. lmstudio always
+    uses LMSTUDIO_MODEL regardless of what's passed as `deployment`."""
+    from app.config import settings
+    with patch("app.core.azure_openai.AsyncOpenAI"), \
+         patch.object(settings, "llm_provider", "lmstudio"), \
+         patch.object(settings, "lmstudio_model", "qwen/qwen3.5-9b"):
+        client = AzureOpenAIClient(deployment="gpt-4o")
+        assert client.deployment == "qwen/qwen3.5-9b"

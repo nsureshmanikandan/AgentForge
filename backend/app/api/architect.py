@@ -14,11 +14,16 @@ _tracer = get_tracer()
 
 
 def _get_architect_llm(timeout: float | None = None):
-    """Returns (client, model_name, token_kwarg_name) for Architect's synchronous
-    OpenAI calls, honoring the same LLM_PROVIDER setting as AzureOpenAIClient
-    (app/core/azure_openai.py) so a single .env toggle covers both. LM Studio's
-    OpenAI-compat layer expects "max_tokens"; Azure's newer models expect
-    "max_completion_tokens" -- token_kwarg_name tells each call site which to use.
+    """Returns (client, model_name, token_kwarg_name, supports_json_object) for
+    Architect's synchronous OpenAI calls, honoring the same LLM_PROVIDER setting
+    as AzureOpenAIClient (app/core/azure_openai.py) so a single .env toggle
+    covers both. LM Studio's OpenAI-compat layer expects "max_tokens"; Azure's
+    newer models expect "max_completion_tokens" -- token_kwarg_name tells each
+    call site which to use. supports_json_object tells each call site whether
+    it's safe to pass response_format={"type": "json_object"} -- LM Studio's
+    server rejects that mode outright (400: must be "json_schema" or "text"),
+    so lmstudio call sites must omit response_format and parse the raw text
+    instead (see _strip_json_fences below).
 
     NOTE: this only covers Architect's own runtime calls (real @router.post
     endpoints). It must NEVER be used inside the prompt strings that generate a
@@ -30,7 +35,7 @@ def _get_architect_llm(timeout: float | None = None):
         kwargs = {"base_url": settings.lmstudio_base_url, "api_key": "lm-studio"}
         if timeout is not None:
             kwargs["timeout"] = timeout
-        return OpenAI(**kwargs), settings.lmstudio_model, "max_tokens"
+        return OpenAI(**kwargs), settings.lmstudio_model, "max_tokens", False
     kwargs = {
         "azure_endpoint": settings.azure_openai_endpoint,
         "api_key": settings.azure_openai_api_key,
@@ -38,7 +43,24 @@ def _get_architect_llm(timeout: float | None = None):
     }
     if timeout is not None:
         kwargs["timeout"] = timeout
-    return AzureOpenAI(**kwargs), settings.azure_openai_deployment_gpt4o, "max_completion_tokens"
+    return AzureOpenAI(**kwargs), settings.azure_openai_deployment_gpt4o, "max_completion_tokens", True
+
+
+def _strip_json_fences(raw: str) -> str:
+    """Local models asked for JSON in plain "text" mode (no response_format
+    enforcement) sometimes wrap it in markdown code fences or add a stray
+    sentence before/after -- strip fences and take the outermost {...} span so
+    json.loads still succeeds. A no-op for well-formed raw JSON."""
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+    if text.endswith("```"):
+        text = text.rsplit("```", 1)[0]
+    text = text.strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        text = text[start:end + 1]
+    return text
 
 def trace_status(level: str, desc: str = ""):
     code = _OtelStatusCode.ERROR if level == "ERROR" else _OtelStatusCode.OK
@@ -2091,7 +2113,7 @@ async def extract_doc_text(file: UploadFile = File(...)):
 
 @router.post("/generate-ui", response_model=None)
 async def generate_ui(req: GenerateUIRequest):
-    client, _llm_model, _tok_kwarg = _get_architect_llm(timeout=180.0)
+    client, _llm_model, _tok_kwarg, _supports_json = _get_architect_llm(timeout=180.0)
 
     company = req.company or req.app_name.split()[0]
     domain = req.domain or req.summary[:80]
@@ -2209,7 +2231,7 @@ async def generate_ui(req: GenerateUIRequest):
                         model=_llm_model,
                         messages=[{"role": "user", "content": kb_extraction_prompt}],
                         temperature=0.1,
-                        response_format={"type": "json_object"},
+                        **({"response_format": {"type": "json_object"}} if _supports_json else {}),
                         **{_tok_kwarg: 12000},
                     )
                     _kb_span.set_status(trace_status("OK"))
@@ -2218,7 +2240,7 @@ async def generate_ui(req: GenerateUIRequest):
                     _kb_span.set_status(trace_status("ERROR", str(_e_kb)))
                     raise
             import json as _json
-            kb_data = _json.loads(kb_response.choices[0].message.content or "{}")
+            kb_data = _json.loads(_strip_json_fences(kb_response.choices[0].message.content or "{}"))
             topics = kb_data.get("topics", [])
             faq_data = kb_data.get("faq_data", [])
             doc_sections = kb_data.get("doc_sections", [])
@@ -2373,10 +2395,10 @@ Incorporate ALL of the above changes while keeping everything else from the orig
                 model=_llm_model,
                 messages=dash_extraction_messages,
                 temperature=0.1,
-                response_format={"type": "json_object"},
+                **({"response_format": {"type": "json_object"}} if _supports_json else {}),
                 **{_tok_kwarg: 3000},
             )
-            dash_data = _json.loads(dash_resp.choices[0].message.content or "{}")
+            dash_data = _json.loads(_strip_json_fences(dash_resp.choices[0].message.content or "{}"))
             # Ensure required keys exist with sane defaults
             if not dash_data.get("app_title"):
                 dash_data["app_title"] = req.app_name
@@ -3651,7 +3673,7 @@ async def score_plan(req: ScorerRequest):
         'Return JSON only: {"multi_agent": N, "ui_completeness": N, "domain_accuracy": N, '
         '"enterprise_readiness": N, "agentic_approach": N, "overall": N, "suggestions": ["...", "..."]}'
     )
-    _score_client, _score_model, _score_tok_kwarg = _get_architect_llm(timeout=60.0)
+    _score_client, _score_model, _score_tok_kwarg, _ = _get_architect_llm(timeout=60.0)
     with _tracer.start_as_current_span("architect.score_plan", attributes={
         "llm.model": _score_model,
         "llm.max_tokens": 500,
@@ -3702,7 +3724,7 @@ async def generate_project(req: GenerateProjectRequest):
         span.set_attribute("app.name", req.app_name)
         span.set_attribute("app.feature_count", len(req.features or []))
 
-        client, _llm_model, _tok_kwarg = _get_architect_llm(timeout=180.0)
+        client, _llm_model, _tok_kwarg, _supports_json = _get_architect_llm(timeout=180.0)
 
         description = f"App: {req.app_name}\nSummary: {req.summary}\nFeatures:\n" + "\n".join(f"- {f}" for f in req.features)
 
@@ -3802,10 +3824,10 @@ requirements."""
                     model=_llm_model,
                     messages=[{"role": "user", "content": frontend_prompt}],
                     temperature=0.2,
-                    response_format={"type": "json_object"},
+                    **({"response_format": {"type": "json_object"}} if _supports_json else {}),
                     **{_tok_kwarg: 14000},
                 )
-                fe_data = json.loads(fe_response.choices[0].message.content or "{}")
+                fe_data = json.loads(_strip_json_fences(fe_response.choices[0].message.content or "{}"))
                 # Normalize whitespace-mangled paths (e.g. " .env.example" vs
                 # ".env.example") so duplicate files don't silently split
                 # across two dict keys with different content.
@@ -3833,10 +3855,10 @@ requirements."""
                     model=_llm_model,
                     messages=[{"role": "user", "content": backend_prompt}],
                     temperature=0.2,
-                    response_format={"type": "json_object"},
+                    **({"response_format": {"type": "json_object"}} if _supports_json else {}),
                     **{_tok_kwarg: 14000},
                 )
-                be_data = json.loads(be_response.choices[0].message.content or "{}")
+                be_data = json.loads(_strip_json_fences(be_response.choices[0].message.content or "{}"))
                 # Normalize whitespace-mangled paths, same as the frontend
                 # pass above -- backend files are merged second, so a
                 # backend-provided ".env.example" correctly overwrites/merges
@@ -3982,7 +4004,7 @@ async def sandbox_to_apptsx(req: SandboxToAppTsxRequest):
     Convert a self-contained sandbox HTML preview into a React + TypeScript App.tsx
     that keeps the exact same visual layout but fetches data from the real FastAPI backend.
     """
-    client, _llm_model, _tok_kwarg = _get_architect_llm(timeout=180.0)
+    client, _llm_model, _tok_kwarg, _supports_json = _get_architect_llm(timeout=180.0)
 
     if req.scaffold_type == "rag":
         api_info = """Backend API endpoints (proxy via Vite to http://localhost:8001):
@@ -4053,7 +4075,7 @@ SANDBOX HTML:
 
 @router.post("/chat")
 async def architect_chat(req: ArchitectChatRequest):
-    client, _llm_model, _tok_kwarg = _get_architect_llm()
+    client, _llm_model, _tok_kwarg, _supports_json = _get_architect_llm()
 
     conversation = [{"role": "system", "content": SYSTEM_PROMPT}]
     for m in req.messages:
@@ -4063,11 +4085,11 @@ async def architect_chat(req: ArchitectChatRequest):
         model=_llm_model,
         messages=conversation,
         temperature=0.7,
-        response_format={"type": "json_object"},
+        **({"response_format": {"type": "json_object"}} if _supports_json else {}),
         **{_tok_kwarg: 3000},
     )
 
-    raw = (response.choices[0].message.content or "").strip()
+    raw = _strip_json_fences((response.choices[0].message.content or "").strip())
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:

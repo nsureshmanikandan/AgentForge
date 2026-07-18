@@ -12,7 +12,11 @@ class AzureOpenAIClient:
         if self.provider == "lmstudio":
             # LM Studio's local server exposes an OpenAI-compatible /v1 API --
             # api_key is unused by LM Studio but the SDK requires a non-empty string.
-            self.deployment = deployment or settings.lmstudio_model
+            # NOTE: deployment overrides passed in by callers (e.g. orchestrator.py's
+            # agent_config.get("model")) are always Azure deployment names like
+            # "gpt-4o"/"gpt-4-5" -- meaningless on LM Studio's local model registry,
+            # so they're intentionally ignored here in favor of LMSTUDIO_MODEL.
+            self.deployment = settings.lmstudio_model
             self._client = AsyncOpenAI(
                 base_url=settings.lmstudio_base_url,
                 api_key="lm-studio",
