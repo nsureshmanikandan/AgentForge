@@ -5,12 +5,40 @@ import xml.etree.ElementTree as ET
 from fastapi import APIRouter, UploadFile, File
 from pydantic import BaseModel
 from typing import List, Optional
-from openai import AzureOpenAI
+from openai import AzureOpenAI, OpenAI
 from app.config import settings
 from opentelemetry.trace import Status as _OtelStatus, StatusCode as _OtelStatusCode
 from app.core.telemetry import get_tracer
 
 _tracer = get_tracer()
+
+
+def _get_architect_llm(timeout: float | None = None):
+    """Returns (client, model_name, token_kwarg_name) for Architect's synchronous
+    OpenAI calls, honoring the same LLM_PROVIDER setting as AzureOpenAIClient
+    (app/core/azure_openai.py) so a single .env toggle covers both. LM Studio's
+    OpenAI-compat layer expects "max_tokens"; Azure's newer models expect
+    "max_completion_tokens" -- token_kwarg_name tells each call site which to use.
+
+    NOTE: this only covers Architect's own runtime calls (real @router.post
+    endpoints). It must NEVER be used inside the prompt strings that generate a
+    downloaded app's code (e.g. the RAG scaffold agent template) -- those
+    describe what ships in someone else's project, not what AgentForge itself
+    calls.
+    """
+    if settings.llm_provider == "lmstudio":
+        kwargs = {"base_url": settings.lmstudio_base_url, "api_key": "lm-studio"}
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        return OpenAI(**kwargs), settings.lmstudio_model, "max_tokens"
+    kwargs = {
+        "azure_endpoint": settings.azure_openai_endpoint,
+        "api_key": settings.azure_openai_api_key,
+        "api_version": settings.azure_openai_api_version,
+    }
+    if timeout is not None:
+        kwargs["timeout"] = timeout
+    return AzureOpenAI(**kwargs), settings.azure_openai_deployment_gpt4o, "max_completion_tokens"
 
 def trace_status(level: str, desc: str = ""):
     code = _OtelStatusCode.ERROR if level == "ERROR" else _OtelStatusCode.OK
@@ -2063,12 +2091,7 @@ async def extract_doc_text(file: UploadFile = File(...)):
 
 @router.post("/generate-ui", response_model=None)
 async def generate_ui(req: GenerateUIRequest):
-    client = AzureOpenAI(
-        azure_endpoint=settings.azure_openai_endpoint,
-        api_key=settings.azure_openai_api_key,
-        api_version=settings.azure_openai_api_version,
-        timeout=180.0,
-    )
+    client, _llm_model, _tok_kwarg = _get_architect_llm(timeout=180.0)
 
     company = req.company or req.app_name.split()[0]
     domain = req.domain or req.summary[:80]
@@ -2178,16 +2201,16 @@ async def generate_ui(req: GenerateUIRequest):
         try:
             with _tracer.start_as_current_span("architect.kb_extraction", attributes={
                 "app.detected_type": detected_type,
-                "llm.model": settings.azure_openai_deployment_gpt4o,
+                "llm.model": _llm_model,
                 "llm.max_tokens": 12000,
             }) as _kb_span:
                 try:
                     kb_response = client.chat.completions.create(
-                        model=settings.azure_openai_deployment_gpt4o,
+                        model=_llm_model,
                         messages=[{"role": "user", "content": kb_extraction_prompt}],
                         temperature=0.1,
-                        max_completion_tokens=12000,
                         response_format={"type": "json_object"},
+                        **{_tok_kwarg: 12000},
                     )
                     _kb_span.set_status(trace_status("OK"))
                 except Exception as _e_kb:
@@ -2347,11 +2370,11 @@ Incorporate ALL of the above changes while keeping everything else from the orig
         ]
         try:
             dash_resp = client.chat.completions.create(
-                model=settings.azure_openai_deployment_gpt4o,
+                model=_llm_model,
                 messages=dash_extraction_messages,
                 temperature=0.1,
-                max_completion_tokens=3000,
                 response_format={"type": "json_object"},
+                **{_tok_kwarg: 3000},
             )
             dash_data = _json.loads(dash_resp.choices[0].message.content or "{}")
             # Ensure required keys exist with sane defaults
@@ -2497,15 +2520,15 @@ Incorporate ALL of the above changes while keeping everything else from the orig
     _max_tokens_ui = 8000 if detected_type == "CUSTOM" else 16000
     with _tracer.start_as_current_span("architect.generate_ui", attributes={
         "app.detected_type": detected_type,
-        "llm.model": settings.azure_openai_deployment_gpt4o,
+        "llm.model": _llm_model,
         "llm.max_tokens": _max_tokens_ui,
     }) as _ui_span:
         try:
             response = client.chat.completions.create(
-                model=settings.azure_openai_deployment_gpt4o,
+                model=_llm_model,
                 messages=messages_payload,
                 temperature=0.2,
-                max_completion_tokens=_max_tokens_ui,
+                **{_tok_kwarg: _max_tokens_ui},
             )
             _ui_span.set_status(trace_status("OK"))
         except Exception as _e_ui:
@@ -3628,22 +3651,17 @@ async def score_plan(req: ScorerRequest):
         'Return JSON only: {"multi_agent": N, "ui_completeness": N, "domain_accuracy": N, '
         '"enterprise_readiness": N, "agentic_approach": N, "overall": N, "suggestions": ["...", "..."]}'
     )
-    _score_client = AzureOpenAI(
-        azure_endpoint=settings.azure_openai_endpoint,
-        api_key=settings.azure_openai_api_key,
-        api_version=settings.azure_openai_api_version,
-        timeout=60.0,
-    )
+    _score_client, _score_model, _score_tok_kwarg = _get_architect_llm(timeout=60.0)
     with _tracer.start_as_current_span("architect.score_plan", attributes={
-        "llm.model": settings.azure_openai_deployment_gpt4o,
+        "llm.model": _score_model,
         "llm.max_tokens": 500,
     }) as _score_span:
         try:
             _score_resp = _score_client.chat.completions.create(
-                model=settings.azure_openai_deployment_gpt4o,
+                model=_score_model,
                 messages=[{"role": "user", "content": scoring_prompt}],
-                max_completion_tokens=500,
                 temperature=0.3,
+                **{_score_tok_kwarg: 500},
             )
             _score_span.set_status(trace_status("OK"))
         except Exception as _e_score:
@@ -3684,12 +3702,7 @@ async def generate_project(req: GenerateProjectRequest):
         span.set_attribute("app.name", req.app_name)
         span.set_attribute("app.feature_count", len(req.features or []))
 
-        client = AzureOpenAI(
-            azure_endpoint=settings.azure_openai_endpoint,
-            api_key=settings.azure_openai_api_key,
-            api_version=settings.azure_openai_api_version,
-            timeout=180.0,
-        )
+        client, _llm_model, _tok_kwarg = _get_architect_llm(timeout=180.0)
 
         description = f"App: {req.app_name}\nSummary: {req.summary}\nFeatures:\n" + "\n".join(f"- {f}" for f in req.features)
 
@@ -3775,7 +3788,7 @@ requirements."""
 
         # ── Pass 1: Frontend ────────────────────────────────────────────────
         with _tracer.start_as_current_span("architect.generate_frontend") as fe_span:
-            fe_span.set_attribute("llm.model", settings.azure_openai_deployment_gpt4o)
+            fe_span.set_attribute("llm.model", _llm_model)
             fe_span.set_attribute("llm.max_tokens", 14000)
             frontend_prompt = (
                 PROJECT_FRONTEND_PROMPT
@@ -3786,11 +3799,11 @@ requirements."""
             )
             try:
                 fe_response = client.chat.completions.create(
-                    model=settings.azure_openai_deployment_gpt4o,
+                    model=_llm_model,
                     messages=[{"role": "user", "content": frontend_prompt}],
                     temperature=0.2,
-                    max_completion_tokens=14000,
                     response_format={"type": "json_object"},
+                    **{_tok_kwarg: 14000},
                 )
                 fe_data = json.loads(fe_response.choices[0].message.content or "{}")
                 # Normalize whitespace-mangled paths (e.g. " .env.example" vs
@@ -3806,7 +3819,7 @@ requirements."""
 
         # ── Pass 2: Backend ─────────────────────────────────────────────────
         with _tracer.start_as_current_span("architect.generate_backend") as be_span:
-            be_span.set_attribute("llm.model", settings.azure_openai_deployment_gpt4o)
+            be_span.set_attribute("llm.model", _llm_model)
             be_span.set_attribute("llm.max_tokens", 14000)
             backend_prompt = (
                 PROJECT_BACKEND_PROMPT
@@ -3817,11 +3830,11 @@ requirements."""
             )
             try:
                 be_response = client.chat.completions.create(
-                    model=settings.azure_openai_deployment_gpt4o,
+                    model=_llm_model,
                     messages=[{"role": "user", "content": backend_prompt}],
                     temperature=0.2,
-                    max_completion_tokens=14000,
                     response_format={"type": "json_object"},
+                    **{_tok_kwarg: 14000},
                 )
                 be_data = json.loads(be_response.choices[0].message.content or "{}")
                 # Normalize whitespace-mangled paths, same as the frontend
@@ -3969,12 +3982,7 @@ async def sandbox_to_apptsx(req: SandboxToAppTsxRequest):
     Convert a self-contained sandbox HTML preview into a React + TypeScript App.tsx
     that keeps the exact same visual layout but fetches data from the real FastAPI backend.
     """
-    client = AzureOpenAI(
-        azure_endpoint=settings.azure_openai_endpoint,
-        api_key=settings.azure_openai_api_key,
-        api_version=settings.azure_openai_api_version,
-        timeout=180.0,
-    )
+    client, _llm_model, _tok_kwarg = _get_architect_llm(timeout=180.0)
 
     if req.scaffold_type == "rag":
         api_info = """Backend API endpoints (proxy via Vite to http://localhost:8001):
@@ -4026,10 +4034,10 @@ SANDBOX HTML:
 """
 
     response = client.chat.completions.create(
-        model=settings.azure_openai_deployment_gpt4o,
+        model=_llm_model,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.1,
-        max_completion_tokens=14000,
+        **{_tok_kwarg: 14000},
     )
 
     raw = response.choices[0].message.content or ""
@@ -4045,22 +4053,18 @@ SANDBOX HTML:
 
 @router.post("/chat")
 async def architect_chat(req: ArchitectChatRequest):
-    client = AzureOpenAI(
-        azure_endpoint=settings.azure_openai_endpoint,
-        api_key=settings.azure_openai_api_key,
-        api_version=settings.azure_openai_api_version,
-    )
+    client, _llm_model, _tok_kwarg = _get_architect_llm()
 
     conversation = [{"role": "system", "content": SYSTEM_PROMPT}]
     for m in req.messages:
         conversation.append({"role": m.role, "content": m.content})
 
     response = client.chat.completions.create(
-        model=settings.azure_openai_deployment_gpt4o,
+        model=_llm_model,
         messages=conversation,
         temperature=0.7,
-        max_completion_tokens=3000,
         response_format={"type": "json_object"},
+        **{_tok_kwarg: 3000},
     )
 
     raw = (response.choices[0].message.content or "").strip()
