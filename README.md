@@ -9,6 +9,8 @@
 
 - [What is AgentForge?](#what-is-agentforge)
 - [Core Features](#core-features)
+- [Workflow Builder — Advanced Node Types](#workflow-builder--advanced-node-types)
+- [Known Limitations](#known-limitations)
 - [Observability & Tracing](#observability--tracing)
 - [Tech Stack](#tech-stack)
 - [Prerequisites](#prerequisites)
@@ -131,11 +133,61 @@ AgentForge is a full-stack enterprise AI agent platform that lets teams:
 
 ### 14. Workflow Observability
 - Dedicated page (`/workflow-runs`) showing all workflow execution traces
-- Stats bar: Total Runs, Completed, Failed, Avg Duration
-- Search by input/output/run ID + status filter
+- Stats bar: Total Runs, Completed, Failed, **Awaiting Approval**, Avg Duration
+- Search by input/output/run ID + status filter (including `waiting_approval` / `rejected`)
 - Fixed overlay drawer: click any run → full execution trace slides in from right
+- Direct **"Review →"** link on any paused run, straight to its approval page
 - Per-node logs: node name, status (done/error/running), duration, output text
 - Backed by `workflow_runs` PostgreSQL table with full JSONB node logs
+
+### 15. Workflow Builder — Conditional Branching, Approval Gates & Outbound API Calls
+The visual builder is a real decision-making execution engine, not just a flowchart — every branch below genuinely changes which nodes run. See [Workflow Builder — Advanced Node Types](#workflow-builder--advanced-node-types) for full detail on each node type, plus the faithful Python/JSON export.
+- **Condition nodes** — a rule (e.g. `days <= 2`) evaluated safely via `simpleeval` (never `eval()`) against LLM-extracted variables; only the matching `true`/`false` branch runs
+- **Router nodes** — the router's decision is classified against its labeled outgoing edges (e.g. `Fast`/`Deep`) and only one branch executes
+- **Approval nodes** — genuinely pause the pipeline, send a real SMTP email, and expose a `/approvals/{run_id}` page to Approve/Reject and resume
+- **HTTP Request nodes** — configurable outbound API call (GET/POST/PUT/PATCH/DELETE, JSON headers/body, `{{input}}` templating)
+- **Export Code** — generates a Python script that ports the same topological-sort/branching/approval/http_request logic as the live engine, with an optional `--openai` flag for real LLM calls
+- **Export JSON / Import JSON** — lossless, round-trippable workflow backup and restore via a browse-and-load file picker
+
+---
+
+## Workflow Builder — Advanced Node Types
+
+Beyond a plain sequential agent chain, the Visual Workflow Builder canvas supports node roles that change control flow or reach outside the app. Configure each via the node's config panel on the canvas.
+
+| Role | What it does | Key config fields |
+|------|--------------|--------------------|
+| `condition` | Evaluates a rule against variables an LLM extracts from the running text (e.g. `days: 5` from free-form prose). Only the outgoing edge labeled exactly `true` or `false` — matching the rule's result — is followed; the rest of that branch is skipped entirely, including shared downstream convergence points. | `rule` (Python-style boolean expression, e.g. `amount < 25`) |
+| `router` | Classifies its own LLM output against the labels on its outgoing edges (e.g. `Fast` / `Deep` / `Verify`) and follows only the one that matches. Falls back to running sequentially (no branching) if there are no labeled edges — so existing simple router usage keeps working unchanged. | none — just label the outgoing edges |
+| `approval` | Pauses the entire run, sends a real email via SMTP to the configured address, and persists the pause point. A human reviews the paused context at `/approvals/{run_id}` and clicks Approve or Reject — the pipeline resumes from the next node (or a second approval node further downstream, if the graph has more than one gate). | `approver_email` |
+| `http_request` | Makes a real outbound HTTP call — GET/POST/PUT/PATCH/DELETE — with configurable JSON headers and body. Use the literal text `{{input}}` anywhere in the URL or body to insert the previous node's output. The response body (first 4000 chars) becomes this node's output for the rest of the pipeline. | `method`, `url`, `headers` (JSON string), `body` |
+
+**Rule/condition safety:** rules are evaluated with [`simpleeval`](https://github.com/danthedeckie/simpleeval), never Python's `eval()` — an unparseable rule or a missing variable fails closed (`False`), it never silently executes arbitrary code.
+
+**⚠️ `http_request` has no outbound allowlist yet** — see [Known Limitations](#known-limitations).
+
+### Export Code vs. Export JSON — which one do I want?
+
+| | Export Code | Export JSON + Import JSON |
+|---|---|---|
+| **Format** | Python script (`workflow.py`) | JSON (`workflow.json`) — the canvas's own `{nodes, edges}` |
+| **Round-trips back into the canvas?** | No — one-way only | **Yes** — verified with a full wipe-and-reload cycle |
+| **What it's for** | A starting point to embed the workflow's logic in your own codebase, or run it standalone (`python workflow.py "input text"`, optionally with `--openai` to call a real LLM instead of pass-through stubs) | Backing up, sharing, or restoring the exact visual workflow |
+| **Faithfulness** | Ports the same topological sort + condition/approval/router/http_request logic as the live engine — not a flat linear stub | Lossless — every field, including `rule`, `approver_email`, `url`/`method`/`headers`/`body`, and labeled edges |
+
+You don't need both — pick based on what you're trying to do. Neither is required to just save and reload your work in the canvas; that's what Export JSON/Import JSON is for.
+
+---
+
+## Known Limitations
+
+Confirmed, currently-open gaps found and verified during recent build cycles — not hypothetical risks:
+
+- **Agent Studio's "tools" are stored but never executed.** The tool checkboxes on an Agent (`email`, `slack`, `github`, `jira`, `google_drive`, `web_search`, `calculator`) are saved to the database but never read at runtime by the orchestrator — checking a box today has zero effect. No LLM function/tool-calling is wired up anywhere in the platform yet.
+- **`http_request` node has no SSRF protection.** It will call any URL it's given, including internal/private network addresses. A host allowlist or denylist is needed before exposing this in a production, multi-tenant deployment.
+- **JWT sessions expire without a silent refresh.** The 8-hour token lifetime has no refresh flow — long sessions eventually fail with a raw "Invalid token" error on any authenticated action until you log in again.
+- **No formal database migration tooling wired into startup.** Alembic is a listed dependency, but schema changes (e.g. new `workflow_runs` columns) currently require a manual `ALTER TABLE` rather than a real migration — schema drift between environments is possible.
+- **Exported Python's topological sort uses canvas creation order as a tiebreaker**, not a formal secondary sort key. Correct for every graph tested so far, but worth revisiting for pathological or cyclic graphs.
 
 ---
 
@@ -565,9 +617,16 @@ Expected output: **32 passed**
 |----------|---------|
 | **Shipped v4.0** | **Planning Architect** — NL to full project plan + React UI preview + deployable ZIP |
 | **Shipped v4.0** | **Workflow Observability** — /workflow-runs trace dashboard with overlay drawer |
+| **Shipped v7.0** | **Conditional branching + router classification** — real true/false and multi-label branch execution |
+| **Shipped v7.0** | **Human-in-the-loop approval nodes** — real email + `/approvals/{run_id}` review page |
+| **Shipped v7.0** | **`http_request` node** — real outbound API calls with `{{input}}` templating |
+| **Shipped v7.0** | **Faithful Export Code + Export/Import JSON** — round-trippable workflow backup, Python export mirrors the live engine |
+| High | SSRF allowlist for `http_request` node before production/multi-tenant use |
+| High | Real tool/function-calling for Agent Studio's `tools` field (currently metadata-only, see [Known Limitations](#known-limitations)) |
 | High | Azure AI Search — replace in-memory RAG with full vector search |
 | High | WebSocket streaming — real-time token-by-token agent responses |
-| High | Live tool credentials UI — connect real Slack, GitHub, email |
+| Medium | JWT refresh-token flow — avoid mid-session "Invalid token" errors |
+| Medium | Alembic wired into startup — replace manual `ALTER TABLE` schema fixes |
 | Medium | In-browser agent chat — test agents directly in the builder |
 | Medium | Multi-tenant workspaces — isolated agents, RAG, logs per team |
 | Medium | OTEL metrics — token usage counters, guardrail trigger rates, error rates via OTLP metrics pipeline |

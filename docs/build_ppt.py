@@ -1,7 +1,7 @@
 """
-AgentForge Presentation Builder — V6.0
+AgentForge Presentation Builder — V7.0
 Run: python docs/build_ppt.py
-Output: docs/AgentForge-PresentationV6.0.pptx
+Output: docs/AgentForge-PresentationV7.0.pptx
 """
 
 from pptx import Presentation
@@ -115,7 +115,7 @@ for i, tag in enumerate(["Azure OpenAI", "FastAPI", "React 18", "PostgreSQL + pg
     chip(sl, tag, Inches(0.4 + i * 2.5), Inches(5.0), Inches(2.3), Inches(0.38),
          CARD_BG, 12)
 
-txt(sl, "Version 6.0  |  July 2026  |  Confidential",
+txt(sl, "Version 7.0  |  July 2026  |  Confidential",
     Inches(0.4), Inches(6.2), Inches(6), Inches(0.4), size=12, color=LIGHT_GRAY)
 slide_num(sl, 1)
 
@@ -1096,7 +1096,77 @@ slide_num(sl, 23)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  SLIDE 24 — CLOSING / CALL TO ACTION
+#  SLIDE 24 — WORKFLOW BUILDER: CONDITIONAL LOGIC, ROUTING & INTEGRATIONS
+# ══════════════════════════════════════════════════════════════════════════════
+sl = prs.slides.add_slide(BLANK)
+bg(sl); accent_bar(sl)
+txt(sl, "Visual Workflow Builder — Conditional Logic, Routing & Integrations", Inches(0.5), Inches(0.3), Inches(12.4), Inches(0.6),
+    size=22, bold=True, color=WHITE)
+txt(sl, "A real decision-making execution engine — not just a flowchart. Every branch below "
+    "genuinely changes which nodes run, verified against live Azure OpenAI runs.",
+    Inches(0.5), Inches(0.92), Inches(12.3), Inches(0.5), size=12.5, color=LIGHT_GRAY)
+
+wf_features = [
+    ("❓", "Condition Nodes",
+     "Rule (e.g. \"days <= 2\") evaluated safely via simpleeval — never Python's eval() — against variables an LLM extracts from the running text. Only the matching true/false branch executes; the other is fully skipped, including convergent downstream nodes."),
+    ("🔀", "Router Nodes — Real Branching",
+     "A router's LLM decision is classified against its labeled outgoing edges (e.g. \"Fast\"/\"Deep\") and only ONE branch runs — replacing the previous behavior where every downstream node executed regardless of the routing decision."),
+    ("✉️", "Human-in-the-Loop Approval",
+     "An approval node genuinely pauses the pipeline, sends a real email via SMTP, and exposes a dedicated /approvals/{run_id} page where a reviewer can Approve or Reject — resuming execution from exactly where it paused."),
+    ("🌐", "HTTP Request Node — Outbound API Calls",
+     "New node type: configurable method (GET/POST/PUT/PATCH/DELETE), URL, JSON headers and body, with a {{input}} placeholder to inject the previous node's output — giving workflows real external-API integration for the first time."),
+    ("🐍", "Faithful Python Export",
+     "\"Export Code\" now generates a script that ports the exact same topological sort, condition/approval/router/http_request logic as the live engine — not a flat linear stub — plus an optional --openai flag to run it against a real LLM."),
+    ("📄", "Export / Import JSON",
+     "A lossless, round-trippable workflow backup format — separate from the one-way Python export — with a genuine \"browse and load\" file picker to restore a canvas exactly as it was, verified after a full wipe-and-reload cycle."),
+    ("📊", "Workflow Runs — Approval Tracking",
+     "The observability dashboard now surfaces an \"Awaiting Approval\" count and a direct \"Review →\" link on paused runs — closing a gap where there was previously no in-app path to the approval screen at all."),
+    ("🎨", "Execution-State Visualization",
+     "Nodes now genuinely pulse amber while running and turn green on completion — the color-coding logic existed in code but was never actually wired to canvas-created nodes until this pass; idle edges are blue, executed edges turn green."),
+]
+for i, (icon, title, body) in enumerate(wf_features):
+    row, col = divmod(i, 2)
+    x = Inches(0.35 + col * 6.35)
+    y = Inches(1.5 + row * 1.42)
+    card(sl, x, y, Inches(6.15), Inches(1.32), title, [body], ACCENT, icon)
+slide_num(sl, 24)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  SLIDE 25 — KNOWN LIMITATIONS & NEXT HARDENING TARGETS
+# ══════════════════════════════════════════════════════════════════════════════
+sl = prs.slides.add_slide(BLANK)
+bg(sl); accent_bar(sl)
+txt(sl, "Known Limitations & Next Hardening Targets", Inches(0.5), Inches(0.3), Inches(12.3), Inches(0.6),
+    size=25, bold=True, color=WHITE)
+txt(sl, "Shipping fast means shipping honestly. These are confirmed, currently-open gaps — not "
+    "hypothetical risks — found and verified during this build cycle.",
+    Inches(0.5), Inches(0.95), Inches(12.3), Inches(0.5), size=12.5, color=LIGHT_GRAY)
+
+gaps = [
+    ("🔧", "Agent Studio Tools Are Not Wired to Execution",
+     "The tool checkboxes on an Agent (Slack, GitHub, Jira, Google Drive, web search, calculator) are saved to the database but never read at runtime — checking a box today has zero effect. No LLM function/tool-calling is implemented anywhere in the platform yet."),
+    ("🔓", "HTTP Request Node Has No SSRF Guardrails",
+     "The new outbound-call node will hit any URL it's given, including internal/private network addresses. Needs a host allowlist or denylist (and ideally a per-org config) before this is safe to expose in a production, multi-tenant deployment."),
+    ("⏰", "JWT Sessions Expire Without Silent Refresh",
+     "The 8-hour token lifetime has no refresh flow — long sessions eventually fail with a raw \"Invalid token\" error on any authenticated action until the user logs in again. A refresh-token flow would remove this rough edge."),
+    ("🗄️", "No Formal Database Migration Tooling",
+     "New WorkflowRun columns added this cycle required a manual ALTER TABLE fix after schema drift was hit live. Alembic (already a listed dependency) isn't actually wired into the startup path — schema changes are still ad-hoc."),
+    ("🧭", "Exported Python Uses Canvas Order as a Tiebreaker",
+     "The topological sort ported into Export Code is correct for the graphs tested, but canvas creation order (not a formal secondary sort key) breaks ties — fine in practice, but worth a closer look for pathological or cyclic graphs."),
+]
+for i, (icon, title, body) in enumerate(gaps):
+    y = Inches(1.68 + i * 0.98)
+    rect(sl, Inches(0.4), y, Inches(0.08), Inches(0.88), ACCENT3)
+    txt(sl, f"{icon}  {title}", Inches(0.65), y + Inches(0.02), Inches(12), Inches(0.4),
+        size=13.5, bold=True, color=ACCENT3)
+    txt(sl, body, Inches(0.65), y + Inches(0.42), Inches(12.1), Inches(0.52),
+        size=10.5, color=LIGHT_GRAY)
+slide_num(sl, 25)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  SLIDE 26 — CLOSING / CALL TO ACTION
 # ══════════════════════════════════════════════════════════════════════════════
 sl = prs.slides.add_slide(BLANK)
 bg(sl)
@@ -1126,10 +1196,10 @@ for i, (label, url, clr) in enumerate(ctas):
 txt(sl, "Accenture Technology  |  n.sureshmanikandan@accenture.com  |  Confidential",
     Inches(0.5), Inches(6.3), Inches(12), Inches(0.4),
     size=12, color=LIGHT_GRAY, align=PP_ALIGN.CENTER)
-slide_num(sl, 24)
+slide_num(sl, 26)
 
 
 # ── Save ──────────────────────────────────────────────────────────────────────
-out = r"C:\Users\n.sureshmanikandan\Repo1\AgentForge\docs\AgentForge-PresentationV6.0.pptx"
+out = r"C:\Users\n.sureshmanikandan\Repo1\AgentForge\docs\AgentForge-PresentationV7.0.pptx"
 prs.save(out)
 print(f"Saved: {out}  ({len(prs.slides)} slides)")
