@@ -28,6 +28,17 @@ prs = Presentation()
 prs.slide_width  = W
 prs.slide_height = H
 
+# python-pptx leaves <p:sldSz type="screen4x3"> from the default template even
+# after overriding slide_width/height to a 16:9 widescreen size — PowerPoint
+# notices the mismatch between the declared type and the actual cx/cy ratio
+# and prompts "found a problem with content, needs repair" on open. Drop the
+# stale type attribute so it's inferred from cx/cy instead.
+_sldSz = prs.element.find(
+    "{http://schemas.openxmlformats.org/presentationml/2006/main}sldSz"
+)
+if _sldSz is not None and "type" in _sldSz.attrib:
+    del _sldSz.attrib["type"]
+
 BLANK = prs.slide_layouts[6]   # completely blank
 
 
