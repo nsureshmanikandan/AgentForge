@@ -73,9 +73,12 @@ export default function Playground() {
 
   const [sessionRuns, setSessionRuns] = useState(0);
   const [latencies, setLatencies] = useState<number[]>([]);
+  const [suggesting, setSuggesting] = useState(false);
+  const [activeModel, setActiveModel] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const suggestAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!agentId) { setNotFound(true); setLoading(false); return; }
@@ -86,11 +89,46 @@ export default function Playground() {
   }, [agentId]);
 
   useEffect(() => {
+    // The agent's stored `model` field is just a UI label from a hardcoded
+    // GPT-4o/GPT-4.5 dropdown -- the backend ignores it entirely when
+    // BUILDER_LLM_PROVIDER=lmstudio. Fetch the model the agent actually runs
+    // on so this page doesn't show e.g. "gpt-4o" while it's really running
+    // on a local model.
+    agentsApi.activeModel()
+      .then((r) => setActiveModel(r.data?.model ?? null))
+      .catch(() => setActiveModel(null));
+  }, []);
+
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, running]);
 
+  const suggestInput = async () => {
+    if (!agentId || suggesting) return;
+    setSuggesting(true);
+    const controller = new AbortController();
+    suggestAbortRef.current = controller;
+    try {
+      const res = await agentsApi.suggestInput(agentId, controller.signal);
+      const suggestion = res.data?.suggested_input as string | undefined;
+      if (suggestion) {
+        setInput(suggestion);
+        textareaRef.current?.focus();
+      }
+    } catch {
+      // aborted (user hit Send first) or the model failed -- leave the
+      // textarea as-is either way, user can still type their own message
+    } finally {
+      setSuggesting(false);
+    }
+  };
+
   const sendMessage = async () => {
     if (!input.trim() || running || !agentId) return;
+    // A suggest-input call may still be in flight -- cancel it so it doesn't
+    // run concurrently with the real message and contend for the same model.
+    suggestAbortRef.current?.abort();
+    setSuggesting(false);
     const userMsg: Message = { role: "user", content: input.trim(), ts: Date.now() };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
@@ -192,7 +230,7 @@ export default function Playground() {
             <div className="min-w-0">
               <h2 className="text-sm font-semibold text-white truncate">{agent.name}</h2>
               <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-slate-700 text-slate-300 border border-slate-600 mt-0.5">
-                {agent.model}
+                {activeModel ?? agent.model}
               </span>
             </div>
           </div>
@@ -253,7 +291,7 @@ export default function Playground() {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-400">Model</span>
-              <span className="text-xs text-slate-300 font-mono">{agent.model}</span>
+              <span className="text-xs text-slate-300 font-mono">{activeModel ?? agent.model}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-400">Temperature</span>
@@ -358,6 +396,22 @@ export default function Playground() {
         {/* Input bar */}
         <div className="bg-white border-t border-gray-200 px-6 py-4 flex-shrink-0">
           <div className="flex gap-3 items-end">
+            <button
+              onClick={suggestInput}
+              disabled={suggesting || running || !agentId}
+              title="Suggest an example input for this agent"
+              className="px-3 py-3 border border-gray-200 hover:bg-gray-50 disabled:opacity-40 text-gray-600 rounded-xl text-sm font-medium transition-colors flex items-center gap-1.5 flex-shrink-0"
+            >
+              {suggesting ? (
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : (
+                <span aria-hidden>✨</span>
+              )}
+              Suggest
+            </button>
             <textarea
               ref={textareaRef}
               rows={1}

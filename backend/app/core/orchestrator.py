@@ -9,8 +9,13 @@ from app.config import settings
 class AgentOrchestrator:
     def __init__(self, agent_config: dict):
         self.config = agent_config
-        # deployment comes from the agent record (stored in DB); fall back to settings
-        self._llm = AzureOpenAIClient(deployment=agent_config.get("model") or None)
+        # agent_config["model"] is a per-agent choice of "local" or "azure" (not a
+        # literal Azure deployment name -- passing e.g. "gpt-4o" straight through
+        # as `deployment` would break real Azure calls, since the actual deployment
+        # is whatever AZURE_OPENAI_DEPLOYMENT_GPT4O resolves to, e.g. "gpt-5.4-mini").
+        model_choice = agent_config.get("model") or "local"
+        provider_override = "lmstudio" if model_choice == "local" else "azure"
+        self._llm = AzureOpenAIClient(provider=provider_override)
         guardrail_cfg = agent_config.get("guardrails", {})
         self._guardrails = GuardrailsEngine(
             pii_enabled=guardrail_cfg.get("pii", True),

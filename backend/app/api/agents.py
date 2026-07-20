@@ -14,6 +14,20 @@ import json
 router = APIRouter()
 
 
+@router.get("/active-model")
+async def get_active_model():
+    """Returns the model an agent actually runs on right now, resolved the
+    same way AzureOpenAIClient itself resolves it (BUILDER_LLM_PROVIDER,
+    falling back to LLM_PROVIDER). An agent's stored `model` field is just a
+    UI label from a hardcoded GPT-4o/GPT-4.5 dropdown -- orchestrator.py
+    already ignores it entirely when the active provider is lmstudio, so
+    Playground and Agent Studio should display this instead of the stored
+    field to avoid showing e.g. "gpt-4o" while the agent actually runs on a
+    local model."""
+    client = AzureOpenAIClient()
+    return {"provider": client.provider, "model": client.deployment}
+
+
 @router.post("/generate")
 async def generate_agent(body: GenerateRequest):
     return await generate_agent_config(body.description)
@@ -58,6 +72,35 @@ Return ONLY the JSON array. No explanation. No markdown."""
         return {"suggestions": suggestions[:3]}
     except Exception:
         return {"suggestions": [], "error": "Could not parse suggestions"}
+
+
+@router.post("/{agent_id}/suggest-input")
+async def suggest_agent_input(agent_id: str, db: AsyncSession = Depends(get_db)):
+    """Given an agent's own config, generate one realistic example message a
+    real user might send it -- lets Playground offer a "✨ Suggest" button
+    instead of leaving the user to guess what to type for an unfamiliar agent."""
+    agent = await db.get(Agent, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    client = AzureOpenAIClient()
+    tools_text = ", ".join(agent.tools or []) or "none"
+    messages = [
+        {"role": "system", "content": (
+            "You are helping a user test an AI agent. Given the agent's own system "
+            "prompt, description, and available tools below, write ONE realistic, "
+            "specific example message a real end user might send this exact agent. "
+            "Return ONLY the example message text, no quotes, no explanation, no markdown."
+        )},
+        {"role": "user", "content": (
+            f"Agent name: {agent.name}\n"
+            f"Description: {agent.description}\n"
+            f"System prompt: {agent.system_prompt or '(none)'}\n"
+            f"Tools available: {tools_text}"
+        )},
+    ]
+    raw = await client.chat(messages, temperature=0.5)
+    return {"suggested_input": raw.strip()}
 
 
 @router.post("/", response_model=AgentOut, status_code=201)

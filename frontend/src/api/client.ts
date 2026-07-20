@@ -27,6 +27,9 @@ export const agentsApi = {
   run: (id: string, input: string) => api.post(`/agents/${id}/run`, { input }),
   generateFromPrompt: (description: string) =>
     api.post("/agents/generate", { description }),
+  suggestInput: (id: string, signal?: AbortSignal) =>
+    api.post(`/agents/${id}/suggest-input`, {}, { signal }),
+  activeModel: () => api.get("/agents/active-model"),
 };
 
 export const ragApi = {

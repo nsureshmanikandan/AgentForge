@@ -5,10 +5,10 @@ from app.config import settings
 from app.core.telemetry import get_tracer
 
 class AzureOpenAIClient:
-    def __init__(self, deployment: str | None = None):
-        # Single source of truth: always read from settings/.env
-        # Pass deployment only when explicitly needing the gpt45 variant
-        self.provider = settings.builder_llm_provider or settings.llm_provider or "azure"
+    def __init__(self, deployment: str | None = None, provider: str | None = None):
+        # `provider` lets a caller (e.g. a per-agent model choice) override the
+        # global BUILDER_LLM_PROVIDER/.env default for this one client instance.
+        self.provider = provider or settings.builder_llm_provider or settings.llm_provider or "azure"
         if self.provider == "lmstudio":
             # LM Studio's local server exposes an OpenAI-compatible /v1 API --
             # api_key is unused by LM Studio but the SDK requires a non-empty string.
