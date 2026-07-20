@@ -68,17 +68,21 @@ export default function RoleNode({ data }: NodeProps) {
   let borderWidth = "1.5px";
 
   if (execState === "running") {
+    // Amber border/spinner stays the "in progress" signal, with an added
+    // outer green glow ring hinting at "moving toward done" without fully
+    // recoloring the node green (that stays exclusive to the done state).
     borderColor = "#f59e0b";
     textColor = "#fcd34d";
     bgColor = "rgba(245,158,11,0.08)";
-    boxShadow = "0 0 0 3px rgba(245,158,11,0.25), 0 0 20px rgba(245,158,11,0.3)";
+    boxShadow =
+      "0 0 0 3px rgba(245,158,11,0.3), 0 0 18px rgba(245,158,11,0.35), 0 0 0 8px rgba(34,197,94,0.45), 0 0 40px rgba(34,197,94,0.55)";
     borderWidth = "2px";
   } else if (execState === "done") {
     borderColor = "#22c55e";
     textColor = "#86efac";
-    bgColor = "rgba(34,197,94,0.08)";
-    boxShadow = "0 0 0 2px rgba(34,197,94,0.2), 0 0 12px rgba(34,197,94,0.2)";
-    borderWidth = "2px";
+    bgColor = "rgba(34,197,94,0.1)";
+    boxShadow = "0 0 0 3px rgba(34,197,94,0.3), 0 0 22px rgba(34,197,94,0.45)";
+    borderWidth = "2.5px";
   } else if (execState === "error") {
     borderColor = "#ef4444";
     textColor = "#fca5a5";
@@ -89,7 +93,9 @@ export default function RoleNode({ data }: NodeProps) {
 
   return (
     <div
-      className={execState === "running" ? "af-node-running" : undefined}
+      className={
+        execState === "running" ? "af-node-running" : execState === "done" ? "af-node-done" : undefined
+      }
       style={{
         width: 180,
         padding: "10px 12px",
@@ -101,13 +107,35 @@ export default function RoleNode({ data }: NodeProps) {
         boxShadow,
       }}
     >
+      {/* One-shot bright flash the instant a node finishes, settling into the
+          steady glow set via `boxShadow` above -- makes "done" read as a
+          distinct event, not just a slightly thicker green border. */}
+      {execState === "done" && (
+        <style>{`
+          @keyframes af-done-flash {
+            0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.9), 0 0 40px rgba(34,197,94,0.9); }
+            100% { box-shadow: 0 0 0 3px rgba(34,197,94,0.3), 0 0 22px rgba(34,197,94,0.45); }
+          }
+          .af-node-done { animation: af-done-flash 0.6s ease-out; }
+        `}</style>
+      )}
+
       {/* CSS keyframe for running pulse — injected inline */}
       {execState === "running" && (
         <style>{`
           @keyframes af-pulse-ring {
-            0% { box-shadow: 0 0 0 0 rgba(245,158,11,0.5), 0 0 20px rgba(245,158,11,0.3); }
-            70% { box-shadow: 0 0 0 8px rgba(245,158,11,0), 0 0 20px rgba(245,158,11,0.1); }
-            100% { box-shadow: 0 0 0 0 rgba(245,158,11,0), 0 0 20px rgba(245,158,11,0.3); }
+            0% {
+              box-shadow: 0 0 0 0 rgba(245,158,11,0.5), 0 0 20px rgba(245,158,11,0.3),
+                0 0 0 5px rgba(34,197,94,0.55), 0 0 42px rgba(34,197,94,0.6);
+            }
+            70% {
+              box-shadow: 0 0 0 8px rgba(245,158,11,0), 0 0 20px rgba(245,158,11,0.1),
+                0 0 0 14px rgba(34,197,94,0.12), 0 0 42px rgba(34,197,94,0.25);
+            }
+            100% {
+              box-shadow: 0 0 0 0 rgba(245,158,11,0), 0 0 20px rgba(245,158,11,0.3),
+                0 0 0 5px rgba(34,197,94,0.55), 0 0 42px rgba(34,197,94,0.6);
+            }
           }
           .af-node-running { animation: af-pulse-ring 1.4s ease-out infinite; }
         `}</style>
