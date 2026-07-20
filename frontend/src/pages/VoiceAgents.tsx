@@ -162,16 +162,31 @@ export default function VoiceAgents() {
     rec.lang = config.stt_language;
     recognitionRef.current = rec;
 
-    rec.onstart = () => { setListening(true); startWave(); };
+    rec.onstart = () => { setListening(true); startWave(); setError(null); };
     rec.onresult = (e: any) => {
       const transcript: string = e.results[0][0].transcript;
       setChatInput(transcript);
       setListening(false);
       stopWave();
     };
-    rec.onerror = () => { setListening(false); stopWave(); };
+    rec.onerror = (e: any) => {
+      setListening(false);
+      stopWave();
+      const reason =
+        e?.error === "not-allowed" || e?.error === "service-not-allowed"
+          ? "Microphone access was denied. Check your browser/site permissions and try again."
+          : e?.error === "no-speech"
+          ? "No speech detected — try again."
+          : `Voice input failed (${e?.error ?? "unknown error"}).`;
+      setError(reason);
+    };
     rec.onend   = () => { setListening(false); stopWave(); };
-    rec.start();
+    try {
+      rec.start();
+    } catch {
+      setListening(false);
+      setError("Voice input failed to start. Check microphone permissions and try again.");
+    }
   }
 
   function stopListening() {

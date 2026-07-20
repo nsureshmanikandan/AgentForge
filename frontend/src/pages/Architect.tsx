@@ -5094,6 +5094,7 @@ export default function Architect() {
   ];
   // Drive step index from elapsed time so it animates without real backend events
   const [listening, setListening] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [progressStep, setProgressStep] = useState(0);
   const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -5113,18 +5114,36 @@ export default function Architect() {
 
   function startVoice() {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
+    if (!SpeechRecognition) {
+      setMicError("Voice input isn't supported in this browser — try Chrome or Edge.");
+      return;
+    }
+    setMicError(null);
     const recognition = new SpeechRecognition();
     recognition.lang = "en-US";
     recognition.interimResults = false;
     recognition.onstart = () => setListening(true);
     recognition.onend = () => setListening(false);
-    recognition.onerror = () => setListening(false);
+    recognition.onerror = (event: any) => {
+      setListening(false);
+      const reason =
+        event?.error === "not-allowed" || event?.error === "service-not-allowed"
+          ? "Microphone access was denied. Check your browser/site permissions and try again."
+          : event?.error === "no-speech"
+          ? "No speech detected — try again."
+          : `Voice input failed (${event?.error ?? "unknown error"}).`;
+      setMicError(reason);
+    };
     recognition.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript;
       setInput((prev) => (prev ? prev + " " + transcript : transcript));
     };
-    recognition.start();
+    try {
+      recognition.start();
+    } catch {
+      setListening(false);
+      setMicError("Voice input failed to start. Check microphone permissions and try again.");
+    }
   }
 
   const TABS: { id: RightTab; label: string }[] = [
@@ -5506,6 +5525,12 @@ export default function Architect() {
                   >×</button>
                 </span>
               ))}
+            </div>
+          )}
+          {micError && (
+            <div className="flex items-center justify-between gap-2 mb-2 px-3 py-2 rounded-lg text-xs text-amber-300 border border-amber-500/30" style={{ background: "rgba(245,158,11,0.08)" }}>
+              <span>{micError}</span>
+              <button onClick={() => setMicError(null)} className="text-amber-400 hover:text-amber-200 flex-shrink-0">×</button>
             </div>
           )}
           <div
