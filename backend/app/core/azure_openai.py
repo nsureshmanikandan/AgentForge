@@ -8,7 +8,7 @@ class AzureOpenAIClient:
     def __init__(self, deployment: str | None = None):
         # Single source of truth: always read from settings/.env
         # Pass deployment only when explicitly needing the gpt45 variant
-        self.provider = settings.llm_provider or "azure"
+        self.provider = settings.builder_llm_provider or settings.llm_provider or "azure"
         if self.provider == "lmstudio":
             # LM Studio's local server exposes an OpenAI-compatible /v1 API --
             # api_key is unused by LM Studio but the SDK requires a non-empty string.
@@ -30,6 +30,25 @@ class AzureOpenAIClient:
             )
         self.model = self.deployment
 
+    @staticmethod
+    def _fold_system_messages(messages: list[dict]) -> list[dict]:
+        """Merge any system-role messages into the first user message.
+
+        Several local chat templates (Mistral-7B-Instruct-v0.3 among them)
+        reject a "system" role outright, so this keeps the same instructions
+        but sends them as part of the first user turn instead.
+        """
+        system_parts = [m["content"] for m in messages if m.get("role") == "system"]
+        if not system_parts:
+            return messages
+        preamble = "\n\n".join(system_parts)
+        rest = [m for m in messages if m.get("role") != "system"]
+        for i, m in enumerate(rest):
+            if m.get("role") == "user":
+                merged = dict(m, content=f"{preamble}\n\n{m['content']}")
+                return rest[:i] + [merged] + rest[i + 1:]
+        return [{"role": "user", "content": preamble}] + rest
+
     async def chat(self, messages: list[dict], temperature: float = 0.7, max_tokens: int = 2048) -> str:
         tracer = get_tracer()
         with tracer.start_as_current_span("llm.chat") as span:
@@ -41,9 +60,14 @@ class AzureOpenAIClient:
                 # LM Studio's OpenAI-compat layer expects the standard "max_tokens"
                 # param; Azure OpenAI's newer models expect "max_completion_tokens".
                 token_kwarg = {"max_tokens": max_tokens} if self.provider == "lmstudio" else {"max_completion_tokens": max_tokens}
+                # Some local models' chat templates (e.g. Mistral-7B-Instruct-v0.3)
+                # reject the "system" role outright ("Only user and assistant
+                # roles are supported!"). Fold any system message into the first
+                # user turn instead so callers don't need per-model workarounds.
+                send_messages = self._fold_system_messages(messages) if self.provider == "lmstudio" else messages
                 response = await self._client.chat.completions.create(
                     model=self.deployment,
-                    messages=messages,
+                    messages=send_messages,
                     temperature=temperature,
                     **token_kwarg,
                 )

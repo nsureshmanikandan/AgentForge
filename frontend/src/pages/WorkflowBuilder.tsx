@@ -62,6 +62,7 @@ export default function WorkflowBuilder() {
   const [lastLoadedTemplate, setLastLoadedTemplate] = useState<WorkflowTemplate | null>(null);
   const [running, setRunning] = useState(false);
   const [autoFillLoading, setAutoFillLoading] = useState(false);
+  const suggestAbortRef = useRef<AbortController | null>(null);
 
   // Resizable left panel
   const [panelWidth, setPanelWidth] = useState(288);
@@ -193,17 +194,21 @@ export default function WorkflowBuilder() {
   const fetchSuggestedInput = useCallback(async () => {
     if (!workflowRef.current || lastLoadedTemplate || autoFillLoading) return;
     setAutoFillLoading(true);
+    const controller = new AbortController();
+    suggestAbortRef.current = controller;
     try {
       const token = localStorage.getItem("token") || localStorage.getItem("agentforge_token");
       const res = await axios.post(
         `${API_BASE}/builder/suggest-input`,
         { nodes: workflowRef.current.nodes },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal }
       );
       const suggested = (res.data as { suggested_input: string }).suggested_input;
       if (suggested && !userEditedRunInputRef.current) setRunInput(suggested);
     } catch {
-      // leave textarea as-is; user can still type their own input
+      // leave textarea as-is; user can still type their own input, or the
+      // request was aborted because the user hit Execute early -- either way,
+      // no need to surface an error.
     } finally {
       setAutoFillLoading(false);
     }
@@ -211,6 +216,12 @@ export default function WorkflowBuilder() {
 
   const handleRunWithInput = async () => {
     if (!workflowRef.current || running) return;
+    // The AI-suggested-input call may still be in flight (same LM Studio /
+    // Azure model). Running both concurrently competes for the same
+    // single-threaded local-model inference slot, so cancel it before
+    // starting the real execution.
+    suggestAbortRef.current?.abort();
+    setAutoFillLoading(false);
     setRunning(true);
     setRunLogs(null);
     const token = localStorage.getItem("token") || localStorage.getItem("agentforge_token");

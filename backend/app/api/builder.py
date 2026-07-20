@@ -161,6 +161,43 @@ async def _choose_branch_label(decision_text: str, labels: list[str], client: Az
     return chosen if chosen in labels else None
 
 
+def _assert_ssrf_safe_url(url: str) -> None:
+    """Reject an http_request node URL that targets internal infrastructure.
+
+    Without this check, a workflow author (or anyone who can edit a saved
+    workflow's JSON) can point the http_request node at internal-only
+    services -- localhost, the Docker/VPC-internal network, or the cloud
+    metadata endpoint (169.254.169.254, which serves IAM credentials on
+    AWS/Azure/GCP with no auth) -- turning this node into a server-side
+    request forgery primitive. Blocks: non-http(s) schemes, missing
+    hostnames, and any hostname that resolves to a private/loopback/
+    link-local address.
+    """
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"http_request node: scheme '{parsed.scheme}' is not allowed (only http/https)")
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("http_request node: URL has no hostname")
+
+    try:
+        addrs = {info[4][0] for info in socket.getaddrinfo(hostname, None)}
+    except socket.gaierror as exc:
+        raise ValueError(f"http_request node: could not resolve hostname '{hostname}': {exc}")
+
+    for addr in addrs:
+        ip = ipaddress.ip_address(addr)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            raise ValueError(
+                f"http_request node: '{hostname}' resolves to {addr}, an internal/private address "
+                "-- requests to internal infrastructure are blocked"
+            )
+
+
 async def _call_http_request(node: dict, previous_output: str) -> str:
     """Execute an `http_request` node's outbound API call.
 
@@ -181,6 +218,8 @@ async def _call_http_request(node: dict, previous_output: str) -> str:
     url = url.replace("{{input}}", previous_output or "")
     body_raw = body_raw.replace("{{input}}", previous_output or "") if body_raw else body_raw
 
+    _assert_ssrf_safe_url(url)
+
     headers = None
     if headers_raw:
         try:
@@ -196,6 +235,9 @@ async def _call_http_request(node: dict, previous_output: str) -> str:
         except json.JSONDecodeError:
             data_body = body_raw
 
+    # follow_redirects defaults to False in httpx -- deliberately not enabled,
+    # since a redirect to an internal address would otherwise bypass the
+    # SSRF check above (which only validates the original URL).
     async with httpx.AsyncClient(timeout=15.0) as http_client:
         response = await http_client.request(
             method, url, headers=headers, json=json_body, content=data_body,

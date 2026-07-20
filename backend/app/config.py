@@ -12,6 +12,13 @@ class Settings(BaseSettings):
     azure_openai_api_version: str = "2024-12-01-preview"
 
     llm_provider: str = "azure"  # "azure" | "lmstudio"
+    # Optional per-feature overrides -- leave unset (None) to fall back to
+    # llm_provider above. architect_llm_provider covers only Architect's own
+    # endpoints; builder_llm_provider covers everything else that runs agents
+    # (Visual Builder, Agent Studio orchestrator runs, RAG, voice-call text
+    # generation) since those all share the AzureOpenAIClient class.
+    architect_llm_provider: str | None = None
+    builder_llm_provider: str | None = None
     lmstudio_base_url: str = "http://localhost:1234/v1"
     lmstudio_model: str = "qwen/qwen3.5-9b"
 

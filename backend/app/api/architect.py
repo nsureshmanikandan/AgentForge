@@ -1,4 +1,5 @@
-﻿import io
+﻿import asyncio
+import io
 import json
 import zipfile
 import xml.etree.ElementTree as ET
@@ -13,11 +14,19 @@ from app.core.telemetry import get_tracer
 _tracer = get_tracer()
 
 
+def _architect_provider() -> str:
+    """Resolves which provider Architect's own endpoints use: ARCHITECT_LLM_PROVIDER
+    if set, else the global LLM_PROVIDER. Kept separate from AzureOpenAIClient's
+    BUILDER_LLM_PROVIDER fallback since Architect uses its own sync client
+    rather than that class (see _get_architect_llm below)."""
+    return settings.architect_llm_provider or settings.llm_provider
+
+
 def _get_architect_llm(timeout: float | None = None):
     """Returns (client, model_name, token_kwarg_name, supports_json_object) for
-    Architect's synchronous OpenAI calls, honoring the same LLM_PROVIDER setting
-    as AzureOpenAIClient (app/core/azure_openai.py) so a single .env toggle
-    covers both. LM Studio's OpenAI-compat layer expects "max_tokens"; Azure's
+    Architect's synchronous OpenAI calls, honoring _architect_provider() (see
+    above) so Architect can run on a different provider than the rest of the
+    app. LM Studio's OpenAI-compat layer expects "max_tokens"; Azure's
     newer models expect "max_completion_tokens" -- token_kwarg_name tells each
     call site which to use. supports_json_object tells each call site whether
     it's safe to pass response_format={"type": "json_object"} -- LM Studio's
@@ -31,7 +40,7 @@ def _get_architect_llm(timeout: float | None = None):
     describe what ships in someone else's project, not what AgentForge itself
     calls.
     """
-    if settings.llm_provider == "lmstudio":
+    if _architect_provider() == "lmstudio":
         kwargs = {"base_url": settings.lmstudio_base_url, "api_key": "lm-studio"}
         if timeout is not None:
             kwargs["timeout"] = timeout
@@ -61,6 +70,350 @@ def _strip_json_fences(raw: str) -> str:
     if start != -1 and end != -1 and end > start:
         text = text[start:end + 1]
     return text
+
+def _fold_system_messages(messages: list[dict]) -> list[dict]:
+    """Merge any system-role messages into the first user message.
+
+    Several local chat templates (Mistral-7B-Instruct-v0.3 among them) reject
+    a "system" role outright ("Only user and assistant roles are supported!"),
+    so under LM Studio the same instructions are sent as part of the first
+    user turn instead. Mirrors AzureOpenAIClient._fold_system_messages
+    (app/core/azure_openai.py) since Architect uses its own sync client
+    rather than that class.
+    """
+    system_parts = [m["content"] for m in messages if m.get("role") == "system"]
+    if not system_parts:
+        return messages
+    preamble = "\n\n".join(system_parts)
+    rest = [m for m in messages if m.get("role") != "system"]
+    for i, m in enumerate(rest):
+        if m.get("role") == "user":
+            merged = dict(m, content=f"{preamble}\n\n{m['content']}")
+            return rest[:i] + [merged] + rest[i + 1:]
+    return [{"role": "user", "content": preamble}] + rest
+
+
+def _ensure_scaffold_files(all_files: dict) -> None:
+    """Deterministically backfill Custom Code's mandatory tests/CI/migrations
+    scaffold files if the LLM's generation happened to omit them -- the model
+    doesn't reliably include every mandated file on every run (observed: CI
+    workflow present in one generation, missing in the next, same prompt).
+
+    Only files whose content is fully generic (no app-specific model/endpoint
+    knowledge needed) are safe to inject here -- e.g. ci.yml, conftest.py,
+    alembic.ini. Files that genuinely need to know the real models/endpoints
+    (migrations/versions/0001_initial.py, tests/test_<feature>.py) are NOT
+    covered here since a stub would be actively wrong, not just incomplete --
+    those remain the LLM's responsibility. Mutates all_files in place.
+    """
+    defaults = {
+        ".github/workflows/ci.yml": (
+            'name: CI\n'
+            'on:\n'
+            '  push:\n'
+            '    branches: [main]\n'
+            '  pull_request:\n'
+            '    branches: [main]\n'
+            'jobs:\n'
+            '  test:\n'
+            '    runs-on: ubuntu-latest\n'
+            '    services:\n'
+            '      postgres:\n'
+            '        image: postgres:16-alpine\n'
+            '        env:\n'
+            '          POSTGRES_USER: architect\n'
+            '          POSTGRES_PASSWORD: architect\n'
+            '          POSTGRES_DB: app_test\n'
+            '        ports: ["5432:5432"]\n'
+            '        options: >-\n'
+            '          --health-cmd pg_isready\n'
+            '          --health-interval 10s\n'
+            '          --health-timeout 5s\n'
+            '          --health-retries 5\n'
+            '    steps:\n'
+            '      - uses: actions/checkout@v4\n'
+            '      - uses: actions/setup-python@v5\n'
+            '        with:\n'
+            '          python-version: "3.13"\n'
+            '      - name: Install dependencies\n'
+            '        run: pip install -r backend/requirements.txt\n'
+            '      - name: Run migrations\n'
+            '        working-directory: backend\n'
+            '        env:\n'
+            '          DATABASE_URL: postgresql+asyncpg://architect:architect@localhost:5432/app_test\n'
+            '        run: alembic upgrade head\n'
+            '      - name: Run tests\n'
+            '        working-directory: backend\n'
+            '        env:\n'
+            '          DATABASE_URL: postgresql+asyncpg://architect:architect@localhost:5432/app_test\n'
+            '        run: pytest -v\n'
+        ),
+        "backend/tests/__init__.py": "",
+        "backend/tests/conftest.py": (
+            'import pytest\n'
+            'import pytest_asyncio\n'
+            'from httpx import AsyncClient, ASGITransport\n'
+            'from app.main import app\n'
+            'from app.database import engine, Base\n'
+            '\n'
+            '\n'
+            '@pytest_asyncio.fixture(scope="function", autouse=True)\n'
+            'async def _setup_db():\n'
+            '    async with engine.begin() as conn:\n'
+            '        await conn.run_sync(Base.metadata.create_all)\n'
+            '    yield\n'
+            '    async with engine.begin() as conn:\n'
+            '        await conn.run_sync(Base.metadata.drop_all)\n'
+            '\n'
+            '\n'
+            '@pytest_asyncio.fixture\n'
+            'async def client():\n'
+            '    transport = ASGITransport(app=app)\n'
+            '    async with AsyncClient(transport=transport, base_url="http://test") as ac:\n'
+            '        yield ac\n'
+        ),
+        "backend/tests/test_smoke.py": (
+            'import pytest\n'
+            '\n'
+            '\n'
+            '@pytest.mark.asyncio\n'
+            'async def test_app_starts_and_docs_available(client):\n'
+            '    response = await client.get("/docs")\n'
+            '    assert response.status_code == 200\n'
+        ),
+        "backend/alembic.ini": (
+            "[alembic]\n"
+            "script_location = migrations\n"
+            "sqlalchemy.url =\n"
+            "\n"
+            "[loggers]\n"
+            "keys = root,sqlalchemy,alembic\n"
+            "\n"
+            "[handlers]\n"
+            "keys = console\n"
+            "\n"
+            "[formatters]\n"
+            "keys = generic\n"
+            "\n"
+            "[logger_root]\n"
+            "level = WARNING\n"
+            "handlers = console\n"
+            "qualname =\n"
+            "\n"
+            "[logger_sqlalchemy]\n"
+            "level = WARNING\n"
+            "handlers =\n"
+            "qualname = sqlalchemy.engine\n"
+            "\n"
+            "[logger_alembic]\n"
+            "level = INFO\n"
+            "handlers =\n"
+            "qualname = alembic\n"
+            "\n"
+            "[handler_console]\n"
+            "class = StreamHandler\n"
+            "args = (sys.stderr,)\n"
+            "level = NOTSET\n"
+            "formatter = generic\n"
+            "\n"
+            "[formatter_generic]\n"
+            "format = %(levelname)-5.5s [%(name)s] %(message)s\n"
+        ),
+        "backend/migrations/script.py.mako": (
+            '"""${message}\n'
+            "\n"
+            "Revision ID: ${up_revision}\n"
+            "Revises: ${down_revision | comma,n}\n"
+            "Create Date: ${create_date}\n"
+            '"""\n'
+            "from alembic import op\n"
+            "import sqlalchemy as sa\n"
+            "${imports if imports else \"\"}\n"
+            "\n"
+            "revision = ${repr(up_revision)}\n"
+            "down_revision = ${repr(down_revision)}\n"
+            "branch_labels = ${repr(branch_labels)}\n"
+            "depends_on = ${repr(depends_on)}\n"
+            "\n"
+            "\n"
+            "def upgrade():\n"
+            "    ${upgrades if upgrades else \"pass\"}\n"
+            "\n"
+            "\n"
+            "def downgrade():\n"
+            "    ${downgrades if downgrades else \"pass\"}\n"
+        ),
+        "backend/migrations/env.py": (
+            'from logging.config import fileConfig\n'
+            'import asyncio\n'
+            'from alembic import context\n'
+            'from sqlalchemy import pool\n'
+            'from sqlalchemy.engine import Connection\n'
+            'from sqlalchemy.ext.asyncio import async_engine_from_config\n'
+            'from app.config import settings\n'
+            'from app.database import Base\n'
+            'from app import models  # noqa: F401\n'
+            '\n'
+            'config = context.config\n'
+            'if config.config_file_name is not None:\n'
+            '    fileConfig(config.config_file_name)\n'
+            '\n'
+            'target_metadata = Base.metadata\n'
+            '\n'
+            '\n'
+            'def get_url():\n'
+            '    url = settings.DATABASE_URL\n'
+            '    if url.startswith("postgresql+asyncpg"):\n'
+            '        return url.replace("postgresql+asyncpg", "postgresql+psycopg2")\n'
+            '    if url.startswith("sqlite+aiosqlite"):\n'
+            '        return url.replace("sqlite+aiosqlite", "sqlite+pysqlite")\n'
+            '    return url\n'
+            '\n'
+            '\n'
+            'def run_migrations_offline():\n'
+            '    context.configure(url=get_url(), target_metadata=target_metadata, literal_binds=True, dialect_opts={"paramstyle": "named"})\n'
+            '    with context.begin_transaction():\n'
+            '        context.run_migrations()\n'
+            '\n'
+            '\n'
+            'def do_run_migrations(connection: Connection):\n'
+            '    context.configure(connection=connection, target_metadata=target_metadata)\n'
+            '    with context.begin_transaction():\n'
+            '        context.run_migrations()\n'
+            '\n'
+            '\n'
+            'async def run_async_migrations():\n'
+            '    connectable = async_engine_from_config({"sqlalchemy.url": get_url()}, prefix="sqlalchemy.", poolclass=pool.NullPool)\n'
+            '    async with connectable.connect() as connection:\n'
+            '        await connection.run_sync(do_run_migrations)\n'
+            '    await connectable.dispose()\n'
+            '\n'
+            '\n'
+            'def run_migrations_online():\n'
+            '    asyncio.run(run_async_migrations())\n'
+            '\n'
+            '\n'
+            'if context.is_offline_mode():\n'
+            '    run_migrations_offline()\n'
+            'else:\n'
+            '    run_migrations_online()\n'
+        ),
+    }
+    for path, content in defaults.items():
+        if path not in all_files:
+            all_files[path] = content
+    if "pytest-asyncio" not in all_files.get("backend/requirements.txt", ""):
+        req_txt = all_files.get("backend/requirements.txt", "")
+        extra = [pkg for pkg in ("pytest==8.3.4", "pytest-asyncio==0.25.2", "httpx==0.28.1")
+                 if pkg.split("==")[0] not in req_txt]
+        if extra:
+            all_files["backend/requirements.txt"] = req_txt.rstrip("\n") + "\n" + "\n".join(extra) + "\n"
+
+    # telemetry.py (always embedded, see Layer 4B below) imports these
+    # unconditionally -- without them in requirements.txt the app crashes on
+    # startup the moment main.py actually calls setup_telemetry(app).
+    if "backend/telemetry.py" in all_files or "backend/requirements.txt" in all_files:
+        req_txt = all_files.get("backend/requirements.txt", "")
+        otel_pkgs = [
+            pkg for pkg in (
+                "opentelemetry-api==1.29.0",
+                "opentelemetry-sdk==1.29.0",
+                "opentelemetry-instrumentation-fastapi==0.50b0",
+                "opentelemetry-exporter-otlp-proto-http==1.29.0",
+            )
+            if pkg.split("==")[0] not in req_txt
+        ]
+        if otel_pkgs:
+            all_files["backend/requirements.txt"] = req_txt.rstrip("\n") + "\n" + "\n".join(otel_pkgs) + "\n"
+
+    # Rate limiting is a MANDATORY requirement (see the RATE LIMITING section
+    # of PROJECT_BACKEND_PROMPT below) applied to every generated app, so
+    # main.py always imports slowapi -- but the LLM doesn't reliably remember
+    # to also list it in requirements.txt (observed: present in main.py,
+    # missing from requirements.txt, causing ModuleNotFoundError on a clean
+    # install). Guarantee it the same way as the pytest/opentelemetry packages
+    # above rather than trusting the prompt instruction alone.
+    if "backend/requirements.txt" in all_files:
+        req_txt = all_files.get("backend/requirements.txt", "")
+        if "slowapi" not in req_txt:
+            all_files["backend/requirements.txt"] = req_txt.rstrip("\n") + "\n" + "slowapi==0.1.9" + "\n"
+
+    # Auth (default email/password OR SSO, always one of the two -- see the
+    # DEFAULT AUTHENTICATION / REAL SSO AUTHENTICATION sections below) always
+    # imports python-jose for JWT handling; default auth additionally imports
+    # passlib for password hashing. Same observed failure mode as slowapi
+    # above: the LLM uses these in backend/app/auth/*.py but doesn't reliably
+    # also list them in requirements.txt. Guarantee both unconditionally
+    # whenever any auth module was generated -- harmless if one goes unused
+    # (e.g. passlib in a pure-SSO app), but missing either crashes the app.
+    if "backend/requirements.txt" in all_files and any(
+        p.startswith("backend/app/auth/") for p in all_files
+    ):
+        req_txt = all_files.get("backend/requirements.txt", "")
+        auth_pkgs = [
+            pkg for pkg in ("python-jose[cryptography]==3.3.0", "passlib[bcrypt]==1.7.4")
+            if pkg.split("[")[0] not in req_txt
+        ]
+        if auth_pkgs:
+            all_files["backend/requirements.txt"] = req_txt.rstrip("\n") + "\n" + "\n".join(auth_pkgs) + "\n"
+
+    # Secrets hygiene: plaintext .env is fine for local dev but MUST never be
+    # committed. Guarantee it's excluded regardless of whether the LLM
+    # remembered to, and guarantee the README tells the user not to rely on
+    # plaintext .env for a real deployment.
+    gitignore = all_files.get(".gitignore", "")
+    if not any(line.strip() in (".env", ".env*") for line in gitignore.splitlines()):
+        all_files[".gitignore"] = gitignore.rstrip("\n") + ("\n" if gitignore else "") + ".env\n"
+
+    _secrets_note = (
+        "\n\n## Secrets\n"
+        "`.env` is for **local development only** and is excluded via `.gitignore` "
+        "-- never commit it. For a real deployment, load `AZURE_OPENAI_API_KEY`, "
+        "`JWT_SECRET`, and `DATABASE_URL` from a real secrets manager (Azure Key "
+        "Vault, AWS Secrets Manager, or your platform's equivalent) instead of a "
+        "plaintext file on disk.\n"
+    )
+    if "backend/requirements.txt" in all_files and "README.md" in all_files and "## Secrets" not in all_files["README.md"]:
+        all_files["README.md"] = all_files["README.md"] + _secrets_note
+
+
+# LM Studio's server rejects response_format={"type": "json_object"} (see
+# _get_architect_llm docstring) but DOES support {"type": "json_schema", ...}.
+# Without a schema, small local models tend to cram the whole answer into
+# "message" as prose instead of populating "questions" as a real array, which
+# leaves the frontend's clarifying-questions panel empty. This schema forces
+# the same {type, message, questions} shape architect_chat's Azure/json_object
+# path already relies on.
+_ARCHITECT_CHAT_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "architect_response",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "type": {"type": "string", "enum": ["message", "questions"]},
+                "message": {"type": "string"},
+                "questions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "text": {"type": "string"},
+                            "options": {"type": "array", "items": {"type": "string"}},
+                        },
+                        "required": ["id", "text", "options"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["type", "message", "questions"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 
 def trace_status(level: str, desc: str = ""):
     code = _OtelStatusCode.ERROR if level == "ERROR" else _OtelStatusCode.OK
@@ -2227,7 +2580,8 @@ async def generate_ui(req: GenerateUIRequest):
                 "llm.max_tokens": 12000,
             }) as _kb_span:
                 try:
-                    kb_response = client.chat.completions.create(
+                    kb_response = await asyncio.to_thread(
+                        client.chat.completions.create,
                         model=_llm_model,
                         messages=[{"role": "user", "content": kb_extraction_prompt}],
                         temperature=0.1,
@@ -2391,7 +2745,8 @@ Incorporate ALL of the above changes while keeping everything else from the orig
             {"role": "user", "content": f"{_DASH_DATA_PROMPT}\n\nAPPLICATION DESCRIPTION:\nTitle: {req.app_name}\nSummary: {req.summary}\nFeatures: {', '.join(req.features[:8])}\nDomain: {domain}\nCompany: {company}"}
         ]
         try:
-            dash_resp = client.chat.completions.create(
+            dash_resp = await asyncio.to_thread(
+                client.chat.completions.create,
                 model=_llm_model,
                 messages=dash_extraction_messages,
                 temperature=0.1,
@@ -2546,9 +2901,14 @@ Incorporate ALL of the above changes while keeping everything else from the orig
         "llm.max_tokens": _max_tokens_ui,
     }) as _ui_span:
         try:
-            response = client.chat.completions.create(
+            _send_messages_ui = (
+                _fold_system_messages(messages_payload)
+                if _architect_provider() == "lmstudio" else messages_payload
+            )
+            response = await asyncio.to_thread(
+                client.chat.completions.create,
                 model=_llm_model,
-                messages=messages_payload,
+                messages=_send_messages_ui,
                 temperature=0.2,
                 **{_tok_kwarg: _max_tokens_ui},
             )
@@ -3617,6 +3977,115 @@ RULES:
 - RETRY LOGIC — All Azure OpenAI calls MUST use a retry wrapper: `import time; def _call_with_retry(fn, retries=3, delay=2): ...` that catches `openai.RateLimitError` and `openai.APIStatusError` with status 429/503, sleeps `delay * (attempt+1)` seconds, and re-raises after retries exhausted. Every `self.client.chat.completions.create(...)` call MUST be wrapped with this helper.
 - STRUCTURED LOGGING — Every FastAPI endpoint MUST log request start and completion using Python's `logging` module: `import logging; logger = logging.getLogger(__name__)`. At endpoint entry log `logger.info("POST /api/decisions id=%s", decision_id)`. On exception log `logger.error("...", exc_info=True)`. In main.py configure: `logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")`.
 - SSE PROGRESS — If the plan includes live progress updates: implement `GET /api/{resource}/{id}/stream` as a Server-Sent Events endpoint using FastAPI `StreamingResponse` with `media_type="text/event-stream"`. Yield `data: {json}\n\n` strings. Example: `async def stream_progress(id: int, db=Depends(get_db)): async def gen(): yield f"data: {json.dumps({'stage': 'advisor_1', 'pct': 20})}\n\n"; return StreamingResponse(gen(), media_type="text/event-stream")`. Frontend connects with `new EventSource("/api/decisions/1/stream")`.
+- TESTS — MANDATORY. Generate `backend/tests/conftest.py` and `backend/tests/test_smoke.py`. These are REAL tests against REAL endpoints, not placeholders:
+  ```python
+  # backend/tests/conftest.py
+  import pytest
+  import pytest_asyncio
+  from httpx import AsyncClient, ASGITransport
+  from app.main import app
+  from app.database import engine, Base
+
+  @pytest_asyncio.fixture(scope="function", autouse=True)
+  async def _setup_db():
+      async with engine.begin() as conn:
+          await conn.run_sync(Base.metadata.create_all)
+      yield
+      async with engine.begin() as conn:
+          await conn.run_sync(Base.metadata.drop_all)
+
+  @pytest_asyncio.fixture
+  async def client():
+      transport = ASGITransport(app=app)
+      async with AsyncClient(transport=transport, base_url="http://test") as ac:
+          yield ac
+  ```
+  ```python
+  # backend/tests/test_smoke.py
+  import pytest
+
+  @pytest.mark.asyncio
+  async def test_app_starts_and_docs_available(client):
+      response = await client.get("/docs")
+      assert response.status_code == 200
+  ```
+  Beyond `test_smoke.py`, add ONE more real test per feature router registered in main.py (e.g. `test_<feature>.py`), each hitting a real GET/POST endpoint end-to-end (creating a row via POST then reading it back via GET) and asserting on real response fields — NEVER `assert True` or a test that doesn't call the actual app. Add `pytest==8.3.4`, `pytest-asyncio==0.25.2`, and `httpx==0.28.1` to requirements.txt (httpx may already be present as an openai dependency; still pin the version explicitly since tests import it directly). `backend/tests/__init__.py` MUST also exist (empty file) so pytest discovers the package correctly.
+- CI/CD — MANDATORY. Generate `.github/workflows/ci.yml`:
+  ```yaml
+  name: CI
+  on:
+    push:
+      branches: [main]
+    pull_request:
+      branches: [main]
+  jobs:
+    test:
+      runs-on: ubuntu-latest
+      services:
+        postgres:
+          image: postgres:16-alpine
+          env:
+            POSTGRES_USER: architect
+            POSTGRES_PASSWORD: architect
+            POSTGRES_DB: app_test
+          ports: ["5432:5432"]
+          options: >-
+            --health-cmd pg_isready
+            --health-interval 10s
+            --health-timeout 5s
+            --health-retries 5
+      steps:
+        - uses: actions/checkout@v4
+        - uses: actions/setup-python@v5
+          with:
+            python-version: "3.13"
+        - name: Install dependencies
+          run: pip install -r backend/requirements.txt
+        - name: Run migrations
+          working-directory: backend
+          env:
+            DATABASE_URL: postgresql+asyncpg://architect:architect@localhost:5432/app_test
+          run: alembic upgrade head
+        - name: Run tests
+          working-directory: backend
+          env:
+            DATABASE_URL: postgresql+asyncpg://architect:architect@localhost:5432/app_test
+          run: pytest -v
+  ```
+- REAL DATABASE MIGRATIONS — MANDATORY. `Base.metadata.create_all` in the lifespan handler above is a dev-only convenience for the very first local run; it MUST be paired with a real, versioned Alembic setup so schema changes are trackable, NOT the only mechanism:
+  * `backend/alembic.ini` — standard Alembic config, `script_location = migrations`, `sqlalchemy.url` left blank (set dynamically in env.py from settings, never hardcoded).
+  * `backend/migrations/env.py` — MUST be async-compatible (uses `asyncio.run` + `run_sync`, following Alembic's official async template), imports `from app.database import Base` and `from app.config import settings`, sets `target_metadata = Base.metadata`, and reads the URL from `settings.DATABASE_URL` (converting `+asyncpg`/`+aiosqlite` as needed for Alembic's sync migration runner using `sqlalchemy.ext.asyncio.async_engine_from_config` per Alembic's async cookbook pattern).
+  * `backend/migrations/script.py.mako` — the standard Alembic migration template file (copy Alembic's default verbatim).
+  * `backend/migrations/versions/0001_initial.py` — ONE hand-written initial migration whose `upgrade()` calls `op.create_table(...)` for EVERY table defined in `models.py`, with matching column names/types/nullability/foreign keys/defaults exactly mirroring the SQLAlchemy model definitions. `downgrade()` MUST drop the same tables in reverse dependency order. This is not optional or a stub — every model in models.py needs a corresponding `op.create_table` call with its real columns.
+  * README.md MUST document: `alembic upgrade head` to apply migrations, and `alembic revision --autogenerate -m "description"` to create new ones after model changes.
+- OBSERVABILITY — MANDATORY. `backend/telemetry.py` is always provided (a working multi-exporter OpenTelemetry setup with a real `setup_telemetry(app)` function using `FastAPIInstrumentor` for automatic request tracing) but it does nothing unless main.py actually calls it. In main.py, right after `app = FastAPI(...)`, add:
+    from telemetry import setup_telemetry
+    setup_telemetry(app)
+  (backend/ is on sys.path when running `uvicorn app.main:app` from the backend/ directory, so this top-level import works — do NOT use `from app.telemetry import ...`, telemetry.py is a sibling of app/, not inside it.)
+- RESILIENCE — MANDATORY, two requirements:
+  1. STARTUP DB RETRY — `docker-compose up` starts Postgres and the backend at roughly the same time, so the backend's first connection attempt can race Postgres still initializing. The lifespan handler's `engine.begin()` call MUST be wrapped in a retry loop (5 attempts, 2 second delay between attempts, using `asyncio.sleep`) that only raises after all attempts are exhausted, logging a warning on each failed attempt:
+    ```python
+    for attempt in range(5):
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            break
+        except Exception as exc:
+            logger.warning("DB not ready (attempt %d/5): %s", attempt + 1, exc)
+            if attempt == 4:
+                raise
+            await asyncio.sleep(2)
+    ```
+  2. GLOBAL EXCEPTION HANDLER — main.py MUST register a catch-all handler so an unexpected exception returns a clean JSON error instead of leaking a stack trace to the client, while still logging the full traceback server-side:
+    ```python
+    from fastapi.responses import JSONResponse
+    from starlette.requests import Request as StarletteRequest
+
+    @app.exception_handler(Exception)
+    async def _unhandled_exception_handler(request: StarletteRequest, exc: Exception):
+        logger.error("Unhandled exception on %s %s", request.method, request.url.path, exc_info=True)
+        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+    ```
 
 Required file structure (use these exact paths with backend/ prefix):
 - backend/app/main.py       (FastAPI with lifespan table creation, CORS, all routers at prefix="/api")
@@ -3631,6 +4100,15 @@ Required file structure (use these exact paths with backend/ prefix):
 - backend/app/agents/__init__.py
 - backend/requirements.txt
 - backend/Dockerfile
+- backend/tests/__init__.py
+- backend/tests/conftest.py
+- backend/tests/test_smoke.py
+- backend/tests/test_<feature>.py   (one per feature router, see TESTS section above)
+- backend/alembic.ini
+- backend/migrations/env.py
+- backend/migrations/script.py.mako
+- backend/migrations/versions/0001_initial.py
+- .github/workflows/ci.yml
 - docker-compose.yml  (postgres:16-alpine + backend services)
 - .env.example  (DATABASE_URL, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT_NAME, AZURE_OPENAI_API_VERSION — MUST include AZURE_OPENAI_API_VERSION=2024-12-01-preview since config.py reads it via settings.AZURE_OPENAI_API_VERSION, never hardcode it in agent code)
 
@@ -3679,7 +4157,8 @@ async def score_plan(req: ScorerRequest):
         "llm.max_tokens": 500,
     }) as _score_span:
         try:
-            _score_resp = _score_client.chat.completions.create(
+            _score_resp = await asyncio.to_thread(
+                _score_client.chat.completions.create,
                 model=_score_model,
                 messages=[{"role": "user", "content": scoring_prompt}],
                 temperature=0.3,
@@ -3800,6 +4279,65 @@ to know how to actually turn SSO on.
 Do NOT fabricate a fake login form, do NOT skip the JWKS/JWT verification
 logic, do NOT add SSO code paths if this section is absent from the
 requirements."""
+        else:
+            description += """
+
+DEFAULT AUTHENTICATION REQUIRED (email/password, no SSO requested):
+This app has no external identity provider requested, but MUST NOT ship with
+zero authentication -- generate GENUINE, WORKING email/password auth:
+
+BACKEND:
+- Add a User model to models.py: id, email (unique, indexed), hashed_password,
+  created_at.
+- Create backend/app/auth/security.py: hash_password(password: str) -> str and
+  verify_password(password: str, hashed: str) -> bool using passlib's
+  CryptContext(schemes=["bcrypt"]); create_access_token(user_id: int) -> str
+  and a get_current_user FastAPI dependency that reads the "Authorization:
+  Bearer <token>" header, decodes it with python-jose using settings.JWT_SECRET
+  and HS256, and raises HTTPException(401) on any missing/invalid/expired
+  token. Add JWT_SECRET (a long random default) and JWT_EXPIRE_MINUTES=480 to
+  config.py and .env.example.
+- Create backend/app/api/auth.py: POST /api/auth/register (email + password,
+  hash and store, return {access_token}) and POST /api/auth/login (verify
+  credentials, return {access_token}) -- return HTTPException(400) for
+  duplicate email on register, HTTPException(401) for bad credentials on
+  login. Register this router in main.py.
+- Apply Depends(get_current_user) to every business API route that reads or
+  writes app data -- NOT /docs, /health, /api/auth/register, /api/auth/login.
+- Add python-jose[cryptography] and passlib[bcrypt] to requirements.txt.
+
+FRONTEND:
+- Add a simple login/register page (email + password fields, toggle between
+  the two modes) that calls the endpoints above and stores the returned
+  access_token in localStorage.
+- The API client MUST attach `Authorization: Bearer <token>` (read from
+  localStorage) to every request once a token exists.
+- If no token is present, show the login/register page instead of the main
+  app UI; after successful login, show the main app UI.
+- On a 401 response from any API call, clear the stored token and return to
+  the login page.
+
+Do NOT skip password hashing (never store plaintext passwords), do NOT skip
+JWT expiry validation, do NOT fabricate a login screen that doesn't actually
+call the backend."""
+
+        # RATE LIMITING — always required regardless of auth mode, so a single
+        # client can't hammer the API (and, for AI endpoints, run up the LLM
+        # bill) with unlimited requests.
+        description += """
+
+RATE LIMITING REQUIRED:
+- Add slowapi to requirements.txt.
+- In main.py: from slowapi import Limiter; from slowapi.util import get_remote_address
+  limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
+  app.state.limiter = limiter
+  app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+  (import RateLimitExceeded and _rate_limit_exceeded_handler from slowapi/slowapi.errors)
+- Apply a stricter limit (e.g. @limiter.limit("10/minute")) specifically to
+  any endpoint that calls the AI agent (chat/ask/analyze-style routes), since
+  those are the most expensive to abuse -- the route function's first
+  parameter after self/cls MUST be named `request: Request` (from fastapi)
+  for slowapi's decorator to read the caller's IP."""
 
         agents_text = json.dumps(req.agents or [], indent=2)
         endpoints_text = "\n".join(req.api_endpoints or [])
@@ -3820,7 +4358,8 @@ requirements."""
                 .replace("{database_schema}", db_text)
             )
             try:
-                fe_response = client.chat.completions.create(
+                fe_response = await asyncio.to_thread(
+                    client.chat.completions.create,
                     model=_llm_model,
                     messages=[{"role": "user", "content": frontend_prompt}],
                     temperature=0.2,
@@ -3851,7 +4390,8 @@ requirements."""
                 .replace("{database_schema}", db_text)
             )
             try:
-                be_response = client.chat.completions.create(
+                be_response = await asyncio.to_thread(
+                    client.chat.completions.create,
                     model=_llm_model,
                     messages=[{"role": "user", "content": backend_prompt}],
                     temperature=0.2,
@@ -3927,7 +4467,7 @@ requirements."""
         _existing_keys = {line.split("=", 1)[0] for line in _existing_env.splitlines() if "=" in line}
         _otel_defaults = [
             ("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/app"),
-            ("OTEL_EXPORTER", "jaeger"),
+            ("OTEL_EXPORTER", "console"),  # zero-config default -- prints spans to stdout with no extra infra; "jaeger" requires docker-compose.jaeger.yml running first
             ("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318"),
             ("OTEL_SERVICE_NAME", _service_slug),
             ("AZURE_OPENAI_API_KEY", "your-key-here"),
@@ -3987,6 +4527,8 @@ requirements."""
                 "```\n"
             )
             all_files["README.md"] = all_files["README.md"] + _setup_note
+
+        _ensure_scaffold_files(all_files)
 
         span.set_attribute("total.file_count", len(all_files))
         return {"files": all_files, "file_count": len(all_files)}
@@ -4055,7 +4597,8 @@ SANDBOX HTML:
 {req.sandbox_html[:18000]}
 """
 
-    response = client.chat.completions.create(
+    response = await asyncio.to_thread(
+        client.chat.completions.create,
         model=_llm_model,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.1,
@@ -4077,15 +4620,63 @@ SANDBOX HTML:
 async def architect_chat(req: ArchitectChatRequest):
     client, _llm_model, _tok_kwarg, _supports_json = _get_architect_llm()
 
+    # Weaker local models (e.g. Mistral-7B) don't reliably self-track "I
+    # already asked my one round of clarifying questions" from the SYSTEM_PROMPT
+    # instructions alone the way GPT-4o does -- they can loop back into asking
+    # more questions indefinitely. Detect this deterministically from message
+    # history instead of trusting the model's own judgment. NOTE: the frontend
+    # only stores the human-readable "message" text as an assistant turn's
+    # content, never the raw {"type": ..., "questions": [...]} JSON -- so this
+    # can't string-match for "questions". But Phase 1 (clarifying questions) is
+    # always the model's first response per SYSTEM_PROMPT, so ANY prior
+    # assistant turn already existing means Phase 1 has happened.
+    _already_asked_questions = any(m.role == "assistant" for m in req.messages)
+
     conversation = [{"role": "system", "content": SYSTEM_PROMPT}]
     for m in req.messages:
         conversation.append({"role": m.role, "content": m.content})
+    if _architect_provider() == "lmstudio":
+        conversation = _fold_system_messages(conversation)
+        if _already_asked_questions:
+            conversation.append({
+                "role": "user",
+                "content": (
+                    "Reminder: you already asked your one round of clarifying "
+                    "questions earlier in this conversation and the user has "
+                    "answered them. You are FORBIDDEN from asking questions "
+                    "again -- respond with \"type\": \"plan\" now, using the "
+                    "full plan schema from the system prompt (summary, "
+                    "architecture, tech_stack, agents, pages, database)."
+                ),
+            })
+        else:
+            conversation.append({
+                "role": "user",
+                "content": (
+                    "Reminder: if asking clarifying questions, put the actual "
+                    "question text and its choices into the questions[].text and "
+                    "questions[].options fields as real array entries -- do NOT "
+                    "write the questions as prose inside the message field. "
+                    "message should just be a short one-sentence intro."
+                ),
+            })
 
-    response = client.chat.completions.create(
+    # The strict questions-only schema only fits Phase 1 (type: questions/message).
+    # Once questions have already been asked, Phase 2's "plan" shape is a much
+    # larger nested object the schema doesn't cover, so fall back to
+    # unconstrained text (same as before the schema fix) and rely on the
+    # explicit reminder above instead.
+    _use_schema = _architect_provider() == "lmstudio" and not _already_asked_questions
+
+    response = await asyncio.to_thread(
+        client.chat.completions.create,
         model=_llm_model,
         messages=conversation,
         temperature=0.7,
-        **({"response_format": {"type": "json_object"}} if _supports_json else {}),
+        **(
+            {"response_format": {"type": "json_object"}} if _supports_json
+            else ({"response_format": _ARCHITECT_CHAT_SCHEMA} if _use_schema else {})
+        ),
         **{_tok_kwarg: 3000},
     )
 
