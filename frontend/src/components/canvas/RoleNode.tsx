@@ -5,6 +5,10 @@ const ROLE_ICONS: Record<string, string> = {
   classifier: "🔍",
   router: "🔀",
   responder: "💬",
+  // "agent" is the default role for a freshly added node (via "+ Add Agent")
+  // -- alias it to the same icon as "responder" (the role templates use for
+  // their agent steps) so newly added agents match template-loaded ones.
+  agent: "💬",
   guard: "🛡️",
   rag: "📚",
   output: "📤",
@@ -13,14 +17,19 @@ const ROLE_ICONS: Record<string, string> = {
   http_request: "🌐",
 };
 
+// NOTE: green (#22c55e) is reserved for the "done" execution state -- an
+// idle agent/responder node must use a different color so it can't be
+// mistaken for a completed run. Both use violet, distinct from input's blue,
+// running's amber, done's green, and error's red.
 const ROLE_BORDER_COLORS: Record<string, string> = {
   input: "#3b82f6",
   classifier: "#8b5cf6",
   router: "#06b6d4",
-  responder: "#22c55e",
+  responder: "#7c3aed",
+  agent: "#7c3aed",
   guard: "#ef4444",
   rag: "#f59e0b",
-  output: "#166534",
+  output: "#0d9488",
   condition: "#eab308",
   approval: "#ec4899",
   http_request: "#f97316",
@@ -30,10 +39,11 @@ const ROLE_TEXT_COLORS: Record<string, string> = {
   input: "#93c5fd",
   classifier: "#c4b5fd",
   router: "#67e8f9",
-  responder: "#86efac",
+  responder: "#c4b5fd",
+  agent: "#c4b5fd",
   guard: "#fca5a5",
   rag: "#fcd34d",
-  output: "#86efac",
+  output: "#5eead4",
 };
 
 interface RoleNodeData {
