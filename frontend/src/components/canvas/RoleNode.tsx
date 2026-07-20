@@ -67,15 +67,14 @@ export default function RoleNode({ data }: NodeProps) {
   let boxShadow = "none";
   let borderWidth = "1.5px";
 
+  // Status color convention: green = in progress / done (glow strength and
+  // spinner-vs-checkmark badge tell them apart), amber = reserved for a
+  // future "warning" state, red = error.
   if (execState === "running") {
-    // Amber border/spinner stays the "in progress" signal, with an added
-    // outer green glow ring hinting at "moving toward done" without fully
-    // recoloring the node green (that stays exclusive to the done state).
-    borderColor = "#f59e0b";
-    textColor = "#fcd34d";
-    bgColor = "rgba(245,158,11,0.08)";
-    boxShadow =
-      "0 0 0 3px rgba(245,158,11,0.3), 0 0 18px rgba(245,158,11,0.35), 0 0 0 8px rgba(34,197,94,0.45), 0 0 40px rgba(34,197,94,0.55)";
+    borderColor = "#22c55e";
+    textColor = "#86efac";
+    bgColor = "rgba(34,197,94,0.14)";
+    boxShadow = "0 0 0 4px rgba(34,197,94,0.5), 0 0 45px rgba(34,197,94,0.7), 0 0 70px rgba(34,197,94,0.4)";
     borderWidth = "2px";
   } else if (execState === "done") {
     borderColor = "#22c55e";
@@ -125,19 +124,16 @@ export default function RoleNode({ data }: NodeProps) {
         <style>{`
           @keyframes af-pulse-ring {
             0% {
-              box-shadow: 0 0 0 0 rgba(245,158,11,0.5), 0 0 20px rgba(245,158,11,0.3),
-                0 0 0 5px rgba(34,197,94,0.55), 0 0 42px rgba(34,197,94,0.6);
+              box-shadow: 0 0 0 0 rgba(34,197,94,0.7), 0 0 45px rgba(34,197,94,0.7), 0 0 70px rgba(34,197,94,0.4);
             }
             70% {
-              box-shadow: 0 0 0 8px rgba(245,158,11,0), 0 0 20px rgba(245,158,11,0.1),
-                0 0 0 14px rgba(34,197,94,0.12), 0 0 42px rgba(34,197,94,0.25);
+              box-shadow: 0 0 0 14px rgba(34,197,94,0), 0 0 45px rgba(34,197,94,0.25), 0 0 70px rgba(34,197,94,0.15);
             }
             100% {
-              box-shadow: 0 0 0 0 rgba(245,158,11,0), 0 0 20px rgba(245,158,11,0.3),
-                0 0 0 5px rgba(34,197,94,0.55), 0 0 42px rgba(34,197,94,0.6);
+              box-shadow: 0 0 0 0 rgba(34,197,94,0), 0 0 45px rgba(34,197,94,0.7), 0 0 70px rgba(34,197,94,0.4);
             }
           }
-          .af-node-running { animation: af-pulse-ring 1.4s ease-out infinite; }
+          .af-node-running { animation: af-pulse-ring 1.1s ease-out infinite; }
         `}</style>
       )}
 
@@ -159,7 +155,7 @@ export default function RoleNode({ data }: NodeProps) {
           {execState === "running" && (
             <span style={{
               display: "inline-block", width: 8, height: 8,
-              border: "2px solid #f59e0b", borderTopColor: "transparent",
+              border: "2px solid #22c55e", borderTopColor: "transparent",
               borderRadius: "50%",
               animation: "spin 0.7s linear infinite",
             }} />
