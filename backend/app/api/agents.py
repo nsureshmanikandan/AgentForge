@@ -15,16 +15,14 @@ router = APIRouter()
 
 
 @router.get("/active-model")
-async def get_active_model():
+async def get_active_model(model: str | None = None):
     """Returns the model an agent actually runs on right now, resolved the
-    same way AzureOpenAIClient itself resolves it (BUILDER_LLM_PROVIDER,
-    falling back to LLM_PROVIDER). An agent's stored `model` field is just a
-    UI label from a hardcoded GPT-4o/GPT-4.5 dropdown -- orchestrator.py
-    already ignores it entirely when the active provider is lmstudio, so
-    Playground and Agent Studio should display this instead of the stored
-    field to avoid showing e.g. "gpt-4o" while the agent actually runs on a
-    local model."""
-    client = AzureOpenAIClient()
+    same way AgentOrchestrator resolves it for a real run: the agent's
+    `model` field is a per-agent choice of "local" or "azure" (not a UI
+    label), so pass it through here to reflect that exact agent's provider
+    instead of only the global BUILDER_LLM_PROVIDER default."""
+    provider_override = "lmstudio" if (model or "local") == "local" else "azure"
+    client = AzureOpenAIClient(provider=provider_override)
     return {"provider": client.provider, "model": client.deployment}
 
 

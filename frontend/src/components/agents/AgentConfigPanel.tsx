@@ -29,7 +29,7 @@ export default function AgentConfigPanel({ nodeId, nodeData, onUpdate, onSave, o
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("gpt-4o");
+  const [model, setModel] = useState("local");
   const [tools, setTools] = useState<string[]>([]);
   const [nlPrompt, setNlPrompt] = useState("");
   const [loading, setLoading] = useState(false);
@@ -57,7 +57,7 @@ export default function AgentConfigPanel({ nodeId, nodeData, onUpdate, onSave, o
       setName(config.name ?? "");
       setDescription(config.description ?? "");
       setPrompt(config.system_prompt ?? "");
-      setModel(config.model ?? "gpt-4o");
+      setModel(config.model ?? "local");
       setTools(config.tools ?? []);
     } catch {
       // generation failed — leave fields as-is
@@ -304,8 +304,8 @@ export default function AgentConfigPanel({ nodeId, nodeData, onUpdate, onSave, o
             value={model}
             onChange={(e) => setModel(e.target.value)}
           >
-            <option value="gpt-4o">GPT-4o</option>
-            <option value="gpt-4-5">GPT-4.5</option>
+            <option value="local">Local Model</option>
+            <option value="azure">Azure GPT-5.4-mini</option>
           </select>
         </div>
 

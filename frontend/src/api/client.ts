@@ -29,7 +29,7 @@ export const agentsApi = {
     api.post("/agents/generate", { description }),
   suggestInput: (id: string, signal?: AbortSignal) =>
     api.post(`/agents/${id}/suggest-input`, {}, { signal }),
-  activeModel: () => api.get("/agents/active-model"),
+  activeModel: (model?: string) => api.get("/agents/active-model", { params: { model } }),
 };
 
 export const ragApi = {

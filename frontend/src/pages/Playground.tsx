@@ -89,15 +89,14 @@ export default function Playground() {
   }, [agentId]);
 
   useEffect(() => {
-    // The agent's stored `model` field is just a UI label from a hardcoded
-    // GPT-4o/GPT-4.5 dropdown -- the backend ignores it entirely when
-    // BUILDER_LLM_PROVIDER=lmstudio. Fetch the model the agent actually runs
-    // on so this page doesn't show e.g. "gpt-4o" while it's really running
-    // on a local model.
-    agentsApi.activeModel()
+    // agent.model is a per-agent "local"/"azure" choice, not a literal
+    // deployment name -- resolve it to what this agent actually runs on so
+    // this page doesn't show e.g. "gpt-4o" while it's really running locally.
+    if (!agent) return;
+    agentsApi.activeModel(agent.model)
       .then((r) => setActiveModel(r.data?.model ?? null))
       .catch(() => setActiveModel(null));
-  }, []);
+  }, [agent]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

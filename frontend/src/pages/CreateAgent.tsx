@@ -45,7 +45,10 @@ const TOUR_STEPS = [
   { title: "Features Are Organized Here", body: "Memory, Data Query, Responsible AI, and other capabilities are now grouped together.", step: 5 },
 ];
 
-const MODELS = ["gpt-4o", "gpt-4-5", "gpt-4o-mini"];
+const MODELS = [
+  { value: "local", label: "Local Model" },
+  { value: "azure", label: "Azure GPT-5.4-mini" },
+];
 
 // ─── Memory providers ───────────────────────────────────────────────────────
 const MEMORY_PROVIDERS = [
@@ -386,7 +389,7 @@ export default function CreateAgent() {
   const [agentName, setAgentName] = useState("My AI Agent");
 
   // Right panel
-  const [model, setModel] = useState("gpt-4o");
+  const [model, setModel] = useState("local");
   const [outputFormatOpen, setOutputFormatOpen] = useState(true);
   const [outputToggles, setOutputToggles] = useState<OutputToggles>({
     example_text: false,
@@ -891,9 +894,9 @@ export default function CreateAgent() {
             </div>
             <div className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 mb-3">
               <span className="text-sm">🤖</span>
-              <span className="text-xs text-gray-500">Azure OpenAI /</span>
+              <span className="text-xs text-gray-500">Model /</span>
               <select className="flex-1 text-sm font-medium text-gray-800 outline-none bg-transparent" value={model} onChange={(e) => setModel(e.target.value)}>
-                {MODELS.map((m) => <option key={m}>{m}</option>)}
+                {MODELS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
             </div>
             {showAdvancedModel && (

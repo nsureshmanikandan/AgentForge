@@ -145,7 +145,7 @@ export default function Home() {
         name: result.name as string,
         description: result.description as string,
         system_prompt: result.system_prompt as string,
-        model: (result.model as string) || "gpt-4o",
+        model: (result.model as string) || "local",
         tools: (result.tools as string[]) || [],
         guardrails: (result.guardrails as object) || { pii: true, hallucination: true },
       });
