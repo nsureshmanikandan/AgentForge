@@ -75,6 +75,7 @@ export default function Playground() {
   const [latencies, setLatencies] = useState<number[]>([]);
   const [suggesting, setSuggesting] = useState(false);
   const [activeModel, setActiveModel] = useState<string | null>(null);
+  const [changingModel, setChangingModel] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -97,6 +98,20 @@ export default function Playground() {
       .then((r) => setActiveModel(r.data?.model ?? null))
       .catch(() => setActiveModel(null));
   }, [agent]);
+
+  const changeModel = async (value: string) => {
+    if (!agent || changingModel) return;
+    const previous = agent.model;
+    setAgent({ ...agent, model: value });
+    setChangingModel(true);
+    try {
+      await agentsApi.update(agent.id, { ...agent, model: value });
+    } catch {
+      setAgent({ ...agent, model: previous });
+    } finally {
+      setChangingModel(false);
+    }
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -288,8 +303,20 @@ export default function Playground() {
         <div className="px-5 py-4 border-b border-slate-700">
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Model Settings</p>
           <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-slate-400 shrink-0">Model</span>
+              <select
+                className="text-xs text-slate-200 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 font-mono disabled:opacity-50"
+                value={agent.model === "local" ? "local" : "azure"}
+                disabled={changingModel}
+                onChange={(e) => changeModel(e.target.value)}
+              >
+                <option value="local">Local Model</option>
+                <option value="azure">Azure GPT-5.4-mini</option>
+              </select>
+            </div>
             <div className="flex items-center justify-between">
-              <span className="text-xs text-slate-400">Model</span>
+              <span className="text-xs text-slate-400">Resolved to</span>
               <span className="text-xs text-slate-300 font-mono">{activeModel ?? agent.model}</span>
             </div>
             <div className="flex items-center justify-between">
