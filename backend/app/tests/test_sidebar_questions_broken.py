@@ -1,4 +1,4 @@
-from app.api.architect import _sidebar_questions_broken, _nav_items_broken
+from app.api.architect import _sidebar_questions_broken, _nav_items_broken, _duplicate_welcome_broken
 
 
 def test_not_flagged_when_no_topic_filter_feature():
@@ -59,3 +59,27 @@ def test_nav_items_not_flagged_when_rendered_as_tabs():
     navItems.map(item => (<button key={item.id} onClick={()=>setActiveNav(item.id)}>{item.label}</button>))
     """
     assert _nav_items_broken(html) is False
+
+
+def test_duplicate_welcome_not_flagged_when_no_welcome_feature():
+    html = "<html><body>No welcome message logic here at all</body></html>"
+    assert _duplicate_welcome_broken(html) is False
+
+
+def test_duplicate_welcome_flagged_when_seeded_and_rendered_statically():
+    html = """
+    const APP_CONFIG = { welcomeMessage: "Hi there" };
+    const [messages, setMessages] = React.useState([{role:"bot", id:"bot_welcome", answer:APP_CONFIG.welcomeMessage}]);
+    <div className="text-slate-700">{APP_CONFIG.welcomeMessage}</div>
+    {messages.map((msg, idx) => (<div key={msg.id||idx}>{msg.answer}</div>))}
+    """
+    assert _duplicate_welcome_broken(html) is True
+
+
+def test_duplicate_welcome_not_flagged_when_only_seeded_in_messages():
+    html = """
+    const APP_CONFIG = { welcomeMessage: "Hi there" };
+    const [messages, setMessages] = React.useState([{role:"bot", id:"bot_welcome", answer:APP_CONFIG.welcomeMessage}]);
+    {messages.map((msg, idx) => (<div key={msg.id||idx}>{msg.answer}</div>))}
+    """
+    assert _duplicate_welcome_broken(html) is False

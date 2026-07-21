@@ -124,6 +124,23 @@ def _nav_items_broken(html: str) -> bool:
     return "navItems.map(" not in html and "navItems.map (" not in html
 
 
+def _duplicate_welcome_broken(html: str) -> bool:
+    """A distinct rendering bug observed live: the chatbot's initial greeting
+    is seeded as the first entry of the `messages` state array (so it renders
+    once via `messages.map(...)`) AND ALSO hardcoded as a separate static
+    bubble directly above that map -- so the same welcome text appears twice
+    on screen. Detected by the co-occurrence of a seeded "bot_welcome" message
+    entry in the initial state with a standalone `{APP_CONFIG.welcomeMessage}`
+    (or equivalent bare variable) render outside of any `.map(`."""
+    if "welcomeMessage" not in html or "bot_welcome" not in html:
+        return False
+    static_render_patterns = (
+        "{APP_CONFIG.welcomeMessage}",
+        "APP_CONFIG.welcomeMessage)",  # React.createElement(..., APP_CONFIG.welcomeMessage)
+    )
+    return any(p in html for p in static_render_patterns)
+
+
 def _ensure_scaffold_files(all_files: dict) -> None:
     """Deterministically backfill Custom Code's mandatory tests/CI/migrations
     scaffold files if the LLM's generation happened to omit them -- the model
@@ -994,8 +1011,10 @@ _DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
 <style>
 * { box-sizing:border-box; margin:0; padding:0; }
 body { font-family:'Inter','Segoe UI',sans-serif; background:#f8fafc; }
-::-webkit-scrollbar { width:4px; }
-::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:4px; }
+::-webkit-scrollbar { width:8px; height:8px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:#94a3b8; border-radius:4px; }
+::-webkit-scrollbar-thumb:hover { background:#64748b; }
 </style>
 </head>
 <body>
@@ -1961,8 +1980,10 @@ CSS in <head> <style>:
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 * { box-sizing:border-box; margin:0; padding:0; }
 body { font-family:'Inter',sans-serif; }
-::-webkit-scrollbar { width:4px; }
-::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:4px; }
+::-webkit-scrollbar { width:8px; height:8px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:#94a3b8; border-radius:4px; }
+::-webkit-scrollbar-thumb:hover { background:#64748b; }
 @keyframes bounce { 0%,80%,100%{transform:scale(0)} 40%{transform:scale(1)} }
 .dot { width:8px;height:8px;background:#94a3b8;border-radius:50%;display:inline-block;margin:0 3px;animation:bounce 1.4s infinite; }
 .dot:nth-child(2){animation-delay:.2s} .dot:nth-child(3){animation-delay:.4s}
@@ -2356,6 +2377,41 @@ ANY sidebar or left-nav menu MUST be interactive. Use this exact pattern:
 
 !! ABSOLUTE BAN: NEVER use plain <li> or <a> tags for navigation. ALWAYS use <button onClick={() => setActiveNav(item.id)}> !!
 !! Each nav section MUST render different content in the main area when clicked !!
+
+==================================================
+MANDATORY SCROLLING RULE (applies to every page/view rendered by renderContent())
+==================================================
+Every individual page component (e.g. DashboardView, ChatView, DocumentsView, AdminView,
+ReportsView) MUST wrap its own content in a container styled with
+{flex:1, minHeight:0, overflowY:'auto'} (or the Tailwind equivalent
+"flex-1 min-h-0 overflow-y-auto"). The outer app shell uses overflow:hidden so that ONLY
+this per-page inner container scrolls -- never rely on the page body or the shell itself
+to scroll. A page whose content (KPI cards + charts + tables, etc.) is taller than the
+viewport MUST still be fully reachable by scrolling within that page's own container.
+
+==================================================
+MANDATORY REAL-DATA RULE (applies to any KPI, stat, or metric widget)
+==================================================
+!! ABSOLUTE BAN: NEVER initialize a KPI/metric with a fabricated starting number like
+"1,284", "1,842", "94%", "18 sec" -- these are FAKE and must never appear, even as a
+"realistic-looking" placeholder. !!
+
+Every KPI/stat widget MUST start at its true empty-state value (0, 0%, "--", etc.) and
+update LIVE in real time as the user actually interacts with the app -- exactly like the
+existing "Session: Messages" counter pattern already used elsewhere in this app. Concretely:
+
+  const [msgCount, setMsgCount] = React.useState(0);           // starts at 0, ++ on each real question asked
+  const [confidenceSum, setConfidenceSum] = React.useState(0); // starts at 0
+  const [confidenceCount, setConfidenceCount] = React.useState(0);
+  const avgConfidence = confidenceCount > 0 ? Math.round(confidenceSum / confidenceCount) : 0;
+  // Documents Indexed = documents.length (real array length, not a fabricated number)
+  // Questions Resolved = msgCount (real counter, incremented in handleSend's bot-response callback)
+
+If a metric has no real underlying data source at all in this single-page sandbox (e.g.
+"Avg. First Response" has no timing data available), either compute it from something
+real (e.g. message count) or DELETE that metric entirely rather than inventing a number
+for it. A KPI card showing "0" or "--" until the user actually acts is CORRECT and
+expected -- it is never acceptable to show a fabricated non-zero number "for realism".
 
 ==================================================
 PHASE 4 -- ENTERPRISE QUALITY STANDARDS
@@ -2866,8 +2922,10 @@ Incorporate ALL of the above changes while keeping everything else from the orig
             "<style>\n"
             "* { box-sizing:border-box; margin:0; padding:0; }\n"
             "body { font-family:'Inter',sans-serif; }\n"
-            "::-webkit-scrollbar { width:4px; }\n"
-            "::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:4px; }\n"
+            "::-webkit-scrollbar { width:8px; height:8px; }\n"
+            "::-webkit-scrollbar-track { background:transparent; }\n"
+            "::-webkit-scrollbar-thumb { background:#94a3b8; border-radius:4px; }\n"
+            "::-webkit-scrollbar-thumb:hover { background:#64748b; }\n"
             "@keyframes bounce { 0%,80%,100%{transform:scale(0)} 40%{transform:scale(1)} }\n"
             ".dot { width:8px;height:8px;background:#94a3b8;border-radius:50%;display:inline-block;margin:0 3px;animation:bounce 1.4s infinite; }\n"
             ".dot:nth-child(2){animation-delay:.2s} .dot:nth-child(3){animation-delay:.4s}\n"
@@ -2930,7 +2988,8 @@ Incorporate ALL of the above changes while keeping everything else from the orig
     _max_tokens_ui = 8000 if detected_type == "CUSTOM" else 16000
     _repair_note = None
     html = ""
-    for _attempt in range(2):
+    _max_attempts = 3
+    for _attempt in range(_max_attempts):
         _send_messages_ui = (
             _fold_system_messages(messages_payload)
             if _architect_provider() == "lmstudio" else messages_payload
@@ -2960,7 +3019,9 @@ Incorporate ALL of the above changes while keeping everything else from the orig
         html = response.choices[0].message.content or ""
         html = html.strip()
 
-        if _attempt == 0 and (_sidebar_questions_broken(html) or _nav_items_broken(html)):
+        if _attempt < _max_attempts - 1 and (
+            _sidebar_questions_broken(html) or _nav_items_broken(html) or _duplicate_welcome_broken(html)
+        ):
             _bugs = []
             if _sidebar_questions_broken(html):
                 _bugs.append(
@@ -2980,6 +3041,17 @@ Incorporate ALL of the above changes while keeping everything else from the orig
                     "a user can click to switch pages. Fix this: render `navItems.map(item => ...)` "
                     "as clickable buttons that call `setActiveNav(item.id)`, in the top nav bar or "
                     "sidebar wherever the layout calls for it."
+                )
+            if _duplicate_welcome_broken(html):
+                _bugs.append(
+                    "The welcome/greeting message renders twice: once as a hardcoded static bubble "
+                    "(e.g. `{APP_CONFIG.welcomeMessage}` rendered directly above the messages list), "
+                    "and again because it is ALSO seeded as the first entry of the `messages` state "
+                    "array (id `bot_welcome`), which then gets rendered a second time via "
+                    "`messages.map(...)`. Fix this by picking exactly ONE approach: either seed the "
+                    "welcome message into the initial `messages` state and rely solely on "
+                    "`messages.map(...)` to render it, OR render it as a static bubble and do NOT "
+                    "seed a `bot_welcome` entry into `messages`. Do not do both."
                 )
             _repair_note = (
                 "Your previous response has real functional bug(s), each computing the right data "
