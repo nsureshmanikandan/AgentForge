@@ -1788,10 +1788,12 @@ LEFT SIDEBAR (width:280px, minWidth:280px, background:#1e293b, color:#ffffff, di
 
   Scrollable question list (flex:1, overflowY:auto, padding:12px 10px):
     -- Active topic banner (shown only when a topic filter is active):
+    !! ONLY ONE "Clear" control should exist in the whole app -- it lives in the
+       "Filter by Topic" panel below (next to that heading), NOT here. This banner
+       is informational only, no button. !!
     IF activeTopic:
-      <div style={{background:"rgba(79,70,229,0.2)", borderRadius:8, padding:"6px 10px", marginBottom:8, fontSize:11, color:"#a5b4fc", display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+      <div style={{background:"rgba(79,70,229,0.2)", borderRadius:8, padding:"6px 10px", marginBottom:8, fontSize:11, color:"#a5b4fc"}}>
         <span>Showing: {activeTopic}</span>
-        <button onClick={()=>setActiveTopic(null)} style={{background:"none",border:"none",color:"#f87171",cursor:"pointer",fontSize:11,fontWeight:700}}>Clear</button>
       </div>
     -- Section label:
     <div style={{fontSize:10, fontWeight:700, letterSpacing:"0.12em", color:"#64748b", textTransform:"uppercase", padding:"0 6px", marginBottom:8}}>

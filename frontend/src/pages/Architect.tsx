@@ -1025,8 +1025,16 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
     const el = document.getElementById("uploads-grid");
     if(!docs.length){ el.innerHTML=''; return; }
     el.innerHTML = docs.map(d=>{ const fn=d.filename||d.name||"File"; return (
-      \`<div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm"><div class="flex items-start gap-3"><div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0"><span class="text-[10px] font-bold text-blue-700">\${escHtml(getExt(fn))}</span></div><div class="min-w-0"><p class="text-sm font-semibold text-slate-800 truncate">\${escHtml(fn)}</p><p class="text-[11px] font-semibold mt-0.5 \${d.indexed?"text-emerald-600":"text-amber-500"}">\${d.indexed?"✓ Indexed":"⏳ Pending"}</p></div></div></div>\`
+      \`<div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm"><div class="flex items-start gap-3"><div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0"><span class="text-[10px] font-bold text-blue-700">\${escHtml(getExt(fn))}</span></div><div class="min-w-0 flex-1"><p class="text-sm font-semibold text-slate-800 truncate">\${escHtml(fn)}</p><p class="text-[11px] font-semibold mt-0.5 \${d.indexed?"text-emerald-600":"text-amber-500"}">\${d.indexed?"✓ Indexed":"⏳ Pending"}</p></div><button data-delete-doc="\${escHtml(d.id)}" title="Remove from index" class="text-slate-300 hover:text-red-500 flex-shrink-0 text-sm">✕</button></div></div>\`
     ); }).join("");
+  }
+
+  async function doDelete(docId){
+    if(!docId) return;
+    try{ await fetch(API+"/api/documents/"+encodeURIComponent(docId),{method:"DELETE"}); }catch(e){}
+    await loadDocs();
+    if(currentPage==="uploads") renderUploadsGrid();
+    if(currentPage==="questions") renderQuestionsPage();
   }
 
   function renderAnalytics(){
@@ -1132,6 +1140,8 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
   document.getElementById("drop-zone").addEventListener("click",()=>document.getElementById("file-input").click());
   document.getElementById("file-input").addEventListener("change",e=>{ if(e.target.files?.length) doUpload(e.target.files); e.target.value=""; });
   document.body.addEventListener("click",e=>{
+    const delBtn=e.target.closest("[data-delete-doc]");
+    if(delBtn){ const id=delBtn.getAttribute("data-delete-doc"); if(id && confirm("Remove this document from the index? Questions and answers relying on it will no longer be available.")) doDelete(id); return; }
     const tBtn=e.target.closest("[data-topic]");
     if(tBtn){ const t=tBtn.getAttribute("data-topic"); selectedTopic=(selectedTopic===t?null:t); buildTopicFilters(); buildTopQuestions(); return; }
     const qBtn=e.target.closest("[data-q]"); if(qBtn){ const q=qBtn.getAttribute("data-q"); if(q) sendMsg(q); }
@@ -1574,6 +1584,14 @@ def _embed_batched(texts: list[str], batch_size: int = 16) -> np.ndarray:
         all_vecs.extend([e.embedding for e in resp.data])
     return np.array(all_vecs, dtype="float32")
 
+def _persist_index() -> None:
+    with open(INDEX_PATH, "wb") as f:
+        pickle.dump({
+            "index": faiss.serialize_index(_index) if _index is not None else None,
+            "chunks": _chunks,
+            "sources": _chunk_sources,
+        }, f)
+
 def add_document(text: str, source_name: str = "") -> None:
     global _index, _chunks, _chunk_sources
     sentences = _chunk_text(text, max_words=150)
@@ -1585,8 +1603,29 @@ def add_document(text: str, source_name: str = "") -> None:
     _index.add(vecs)
     _chunks.extend(sentences)
     _chunk_sources.extend([source_name] * len(sentences))
-    with open(INDEX_PATH, "wb") as f:
-        pickle.dump({"index": faiss.serialize_index(_index), "chunks": _chunks, "sources": _chunk_sources}, f)
+    _persist_index()
+
+def remove_document(source_name: str) -> bool:
+    """Remove all indexed chunks for a given document and rebuild the FAISS
+    index from what remains. FAISS's IndexFlatL2 has no in-place vector
+    removal, so a full rebuild from the surviving chunks is the simplest
+    correct approach at this scale."""
+    global _index, _chunks, _chunk_sources
+    _load_index()
+    if source_name not in _chunk_sources:
+        return False
+    keep = [i for i, s in enumerate(_chunk_sources) if s != source_name]
+    if not keep:
+        _index, _chunks, _chunk_sources = None, [], []
+    else:
+        kept_chunks = [_chunks[i] for i in keep]
+        kept_sources = [_chunk_sources[i] for i in keep]
+        vecs = _embed_batched(kept_chunks)
+        new_index = faiss.IndexFlatL2(vecs.shape[1])
+        new_index.add(vecs)
+        _index, _chunks, _chunk_sources = new_index, kept_chunks, kept_sources
+    _persist_index()
+    return True
 
 def _load_index() -> None:
     global _index, _chunks, _chunk_sources
@@ -1684,6 +1723,16 @@ async def upload(file: UploadFile):
 @router.get("/documents")
 async def list_docs():
     return _docs
+
+@router.delete("/documents/{doc_id}")
+async def delete_document(doc_id: str):
+    global _docs
+    doc = next((d for d in _docs if d["id"] == doc_id), None)
+    if not doc:
+        return {"error": "Document not found"}
+    rag.remove_document(doc.get("filename") or doc.get("name") or "")
+    _docs = [d for d in _docs if d["id"] != doc_id]
+    return {"deleted": doc_id}
 `);
 
   // ── backend/main.py ───────────────────────────────────────────────────────
@@ -3800,6 +3849,20 @@ async def list_documents(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Document).order_by(Document.uploaded_at.desc()))
     docs = result.scalars().all()
     return [{"id": d.id, "name": d.name, "indexed": d.embedding_indexed} for d in docs]
+
+@router.delete("/{doc_id}")
+async def delete_document(doc_id: int, db: AsyncSession = Depends(get_db)):
+    doc = await db.get(Document, doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    await db.delete(doc)
+    await db.commit()
+
+    # Rebuild FAISS index from whatever documents remain, same as on upload
+    result = await db.execute(select(Document))
+    all_docs = result.scalars().all()
+    rag.build_index([{"name": d.name, "content": d.content} for d in all_docs])
+    return {"deleted": doc_id}
 `;
 
   // ── docker-compose.yml ─────────────────────────────────────────────────────────
