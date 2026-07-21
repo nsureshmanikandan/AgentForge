@@ -141,6 +141,73 @@ def _duplicate_welcome_broken(html: str) -> bool:
     return any(p in html for p in static_render_patterns)
 
 
+def _patch_duplicate_welcome(html: str) -> str:
+    """Deterministic fallback for _duplicate_welcome_broken -- applied only after the
+    LLM repair-retry loop has exhausted its attempts and the bug is still present.
+    Strips the standalone `{APP_CONFIG.welcomeMessage}` JSX expression (the static
+    duplicate render) so only the `messages.map(...)`-rendered, seeded `bot_welcome`
+    entry remains visible. Leaves the now-empty wrapper markup (e.g. an avatar bubble)
+    in place rather than attempting to remove it, since locating its enclosing JSX
+    element reliably would require a real JSX parser -- a harmless empty element is a
+    much safer trade-off than risking broken markup from a naive removal."""
+    return html.replace("{APP_CONFIG.welcomeMessage}", "")
+
+
+def _find_matching_paren_close(html: str, open_paren_idx: int) -> int:
+    """Given the index of an opening '(' in html, return the index just after its
+    matching closing ')' using simple depth counting. Sufficient for well-formed
+    generated JSX where the only nesting that matters structurally is parentheses."""
+    depth = 0
+    for i in range(open_paren_idx, len(html)):
+        if html[i] == "(":
+            depth += 1
+        elif html[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+    return -1
+
+
+def _patch_sidebar_questions(html: str) -> str:
+    """Deterministic fallback for _sidebar_questions_broken -- applied only after the
+    LLM repair-retry loop has exhausted its attempts and the bug is still present.
+    The topic/department filter chips (`{APP_CONFIG.topics.map(...)}` or
+    `{TOPICS.map(...)}`) are the one part of this feature the LLM reliably renders,
+    so they're used as the structural anchor: a proven-working `sidebarQuestions.map(...)`
+    block (mirroring the hand-authored, correct _CHATBOT_LOGIC_AND_UI reference
+    template) is inserted as a new sibling JSX expression immediately after that map
+    call's enclosing `{...}` container. If the anchor can't be found, the HTML is
+    returned unchanged rather than risking a broken insertion."""
+    anchor_idx = -1
+    for pat in (".topics.map(", "TOPICS.map("):
+        idx = html.find(pat)
+        if idx != -1:
+            anchor_idx = idx + len(pat) - 1  # index of the call's own '('
+            break
+    if anchor_idx == -1:
+        return html
+    close_idx = _find_matching_paren_close(html, anchor_idx)
+    if close_idx == -1:
+        return html
+    brace_idx = html.find("}", close_idx)
+    if brace_idx == -1:
+        return html
+    insert_at = brace_idx + 1
+    injected = (
+        "\n{sidebarQuestions.map((item, idx) => (\n"
+        "  <button key={item.id ?? idx} onClick={() => handleSend(item.question)}\n"
+        "    style={{display:'flex', alignItems:'flex-start', gap:8, width:'100%', textAlign:'left',\n"
+        "            padding:'8px 10px', marginTop:6, borderRadius:8, border:'none', cursor:'pointer',\n"
+        "            background:'rgba(255,255,255,0.05)', color:'#e2e8f0', fontSize:12}}>\n"
+        "    <span style={{minWidth:20, height:20, borderRadius:'50%', background:'#4f46e5', color:'#fff',\n"
+        "                  display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, flexShrink:0}}>{idx+1}</span>\n"
+        "    <span>{item.question}</span>\n"
+        "  </button>\n"
+        "))}\n"
+    )
+    return html[:insert_at] + injected + html[insert_at:]
+
+
 def _ensure_scaffold_files(all_files: dict) -> None:
     """Deterministically backfill Custom Code's mandatory tests/CI/migrations
     scaffold files if the LLM's generation happened to omit them -- the model
@@ -1504,6 +1571,16 @@ UPLOAD: If the plan's features or pages describe an upload/context-file/document
   - FORBIDDEN: an Upload control whose only action is a toast/alert with no real file input and no
     real parsing — this is a fake, non-functional placeholder, exactly as forbidden for EXPORT
     buttons above. If the plan has no upload/document-intake feature, do not add one.
+
+DOCUMENT DELETE: If the app has a document/FAQ/topic-filtered chatbot feature (i.e. it uses
+  `activeTopic`, `TOPIC_QUESTIONS`, and a list of indexed/attached documents), the nav MUST include
+  a page (e.g. "Documents", "Admin Uploads") listing every document card from the documents/upload
+  state array, and EACH card MUST have a small ✕ / delete button that removes that one entry from
+  the array via its setState updater (e.g. `setUploadStatus(prev => prev.filter((_, i) => i !== idx))`
+  or by matching a unique id/name), with a `window.confirm(...)` guard before removing. This is
+  required alongside the Upload control above — a document list with no way to remove an entry is
+  incomplete. Do not fabricate a backend delete call; this scaffold has no server-side document
+  store, so removing it from local React state is the correct and complete behavior here.
 
 RESPONSIVE: At screen width < 768px, the left sidebar's NAV LIST must be HIDDEN by default and
   only shown when the user taps the hamburger button — do NOT just reflow the full nav list to
@@ -2988,14 +3065,23 @@ Incorporate ALL of the above changes while keeping everything else from the orig
     _max_tokens_ui = 8000 if detected_type == "CUSTOM" else 16000
     _repair_note = None
     html = ""
-    _max_attempts = 3
+    _max_attempts = 4
     for _attempt in range(_max_attempts):
         _send_messages_ui = (
             _fold_system_messages(messages_payload)
             if _architect_provider() == "lmstudio" else messages_payload
         )
         if _repair_note:
-            _send_messages_ui = _send_messages_ui + [{"role": "user", "content": _repair_note}]
+            # Include the previous attempt's actual (broken) output as an assistant turn
+            # before the repair note -- without this, the conversation is two consecutive
+            # user messages with no assistant turn in between, so the model never actually
+            # sees what it generated last time and cannot targetedly fix it; it just
+            # re-generates from scratch against the same prompt and often reproduces the
+            # same bug.
+            _send_messages_ui = _send_messages_ui + [
+                {"role": "assistant", "content": html},
+                {"role": "user", "content": _repair_note},
+            ]
         with _tracer.start_as_current_span("architect.generate_ui", attributes={
             "app.detected_type": detected_type,
             "llm.model": _llm_model,
@@ -3025,39 +3111,66 @@ Incorporate ALL of the above changes while keeping everything else from the orig
             _bugs = []
             if _sidebar_questions_broken(html):
                 _bugs.append(
-                    "The topic/department filter feature: the filter chips and their counts "
-                    "render, but (1) the question list underneath stays empty because "
-                    "`sidebarQuestions` is computed but never rendered, and/or (2) there is no "
-                    "\"Clear\" control to reset an active filter. Fix both: render "
-                    "`sidebarQuestions.map((item, idx) => ...)` as clickable buttons in the left "
-                    "sidebar question list, and include the \"Clear\" button next to the active "
-                    "topic banner and in the Filter by Topic panel."
+                    "FILTER BUG: `sidebarQuestions` is computed but never actually rendered, so "
+                    "clicking a topic/department filter chip shows nothing. You MUST add this "
+                    "exact block (adjust class names to match your existing sidebar styling, but "
+                    "keep the logic identical) directly below your topic filter chips, replacing "
+                    "whatever currently renders (or fails to render) the question list there:\n"
+                    "```jsx\n"
+                    "<div style={{flex:1, minHeight:0, overflowY:'auto'}}>\n"
+                    "  {sidebarQuestions.map((item, idx) => (\n"
+                    "    <button key={item.id ?? idx} onClick={() => handleSend(item.question)}\n"
+                    "      style={{display:'block', width:'100%', textAlign:'left', padding:'8px 10px',\n"
+                    "              marginBottom:4, borderRadius:6, border:'none', cursor:'pointer',\n"
+                    "              background:'transparent', color:'#cbd5e1'}}>\n"
+                    "      {item.question}\n"
+                    "    </button>\n"
+                    "  ))}\n"
+                    "</div>\n"
+                    "{activeTopic && (\n"
+                    "  <button onClick={() => setActiveTopic(null)}\n"
+                    "    style={{fontSize:12, color:'#f87171', background:'none', border:'none', cursor:'pointer'}}>\n"
+                    "    Clear\n"
+                    "  </button>\n"
+                    ")}\n"
+                    "```"
                 )
             if _nav_items_broken(html):
                 _bugs.append(
-                    "The multi-page navigation: a `navItems` array and `activeNav` state exist "
-                    "and `renderMain()` branches on `activeNav`, but `navItems` is never actually "
-                    "rendered as clickable nav tabs/buttons anywhere -- so there is no UI element "
-                    "a user can click to switch pages. Fix this: render `navItems.map(item => ...)` "
-                    "as clickable buttons that call `setActiveNav(item.id)`, in the top nav bar or "
-                    "sidebar wherever the layout calls for it."
+                    "NAV BUG: `navItems` is declared and `activeNav` is branched on, but "
+                    "`navItems` is never rendered as clickable buttons, so there is no way to "
+                    "switch pages. You MUST add this exact block (adjust class names/styling to "
+                    "match your sidebar) wherever the nav menu should appear:\n"
+                    "```jsx\n"
+                    "{navItems.map(item => (\n"
+                    "  <button key={item.id} onClick={() => setActiveNav(item.id)}\n"
+                    "    style={{display:'flex', alignItems:'center', gap:10, width:'100%',\n"
+                    "            padding:'10px 14px', marginBottom:4, borderRadius:8, border:'none',\n"
+                    "            cursor:'pointer', textAlign:'left',\n"
+                    "            background: activeNav === item.id ? '#4f46e5' : 'transparent',\n"
+                    "            color: activeNav === item.id ? '#ffffff' : '#94a3b8'}}>\n"
+                    "    <span>{item.icon}</span><span>{item.label}</span>\n"
+                    "  </button>\n"
+                    "))}\n"
+                    "```"
                 )
             if _duplicate_welcome_broken(html):
                 _bugs.append(
-                    "The welcome/greeting message renders twice: once as a hardcoded static bubble "
-                    "(e.g. `{APP_CONFIG.welcomeMessage}` rendered directly above the messages list), "
-                    "and again because it is ALSO seeded as the first entry of the `messages` state "
-                    "array (id `bot_welcome`), which then gets rendered a second time via "
-                    "`messages.map(...)`. Fix this by picking exactly ONE approach: either seed the "
-                    "welcome message into the initial `messages` state and rely solely on "
-                    "`messages.map(...)` to render it, OR render it as a static bubble and do NOT "
-                    "seed a `bot_welcome` entry into `messages`. Do not do both."
+                    "DUPLICATE WELCOME BUG: the greeting text renders twice on screen -- once as "
+                    "a hardcoded static bubble (`{APP_CONFIG.welcomeMessage}` rendered directly "
+                    "above the messages list) AND again because it is ALSO seeded as the first "
+                    "`messages` entry (id `bot_welcome`), which `messages.map(...)` then renders a "
+                    "second time. You MUST DELETE the static bubble entirely -- find and remove the "
+                    "JSX element that renders `{APP_CONFIG.welcomeMessage}` directly (NOT inside "
+                    "`messages.map(...)`) and keep ONLY the seeded `messages` array version, since "
+                    "that is the one wired into the reaction/citation UI."
                 )
             _repair_note = (
                 "Your previous response has real functional bug(s), each computing the right data "
-                "but never rendering the UI to use it:\n\n"
+                "but never rendering the UI to use it. Apply the EXACT code shown below for each "
+                "one -- do not paraphrase or invent your own alternative structure:\n\n"
                 + "\n\n".join(f"{i+1}. {b}" for i, b in enumerate(_bugs))
-                + "\n\nFix exactly these bugs, keeping everything else the same. Return the complete "
+                + "\n\nKeep everything else in the document exactly the same. Return the complete "
                 "corrected HTML document again."
             )
             continue
@@ -3149,6 +3262,15 @@ Incorporate ALL of the above changes while keeping everything else from the orig
 
     for old, new in _DOMAIN_LABEL_FIXES.get(detected_type, []):
         html = html.replace(old, new)
+
+    # Deterministic guaranteed fallback -- if the LLM still didn't fix these bugs after
+    # exhausting every repair attempt, patch the HTML directly rather than shipping a
+    # known-broken result. Never blocks: falls through unchanged if the expected
+    # structural anchors aren't found.
+    if _duplicate_welcome_broken(html):
+        html = _patch_duplicate_welcome(html)
+    if _sidebar_questions_broken(html):
+        html = _patch_sidebar_questions(html)
 
     return {"html": html}
 
