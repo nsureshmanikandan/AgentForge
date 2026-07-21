@@ -422,6 +422,9 @@ function Sidebar() {
         <NavLink to="/architect" className={linkClass} title={collapsed ? "Architect" : undefined}>
           <IconArchitect />{!collapsed && "Architect"}
         </NavLink>
+        <NavLink to="/prompts" className={linkClass} title={collapsed ? "Prompt Library" : undefined}>
+          <IconSparkle />{!collapsed && "Prompt Library"}
+        </NavLink>
         <NavLink to="/knowledge-bases" className={linkClass} title={collapsed ? "Knowledge Bases" : undefined}>
           <IconDatabase />{!collapsed && "Knowledge Bases"}
         </NavLink>
@@ -431,9 +434,6 @@ function Sidebar() {
         {collapsed && <div className="pt-3" />}
         <NavLink to="/builder" className={linkClass} title={collapsed ? "Visual Builder" : undefined}>
           <IconWrench />{!collapsed && "Visual Builder"}
-        </NavLink>
-        <NavLink to="/prompts" className={linkClass} title={collapsed ? "Prompt Library" : undefined}>
-          <IconSparkle />{!collapsed && "Prompt Library"}
         </NavLink>
         <NavLink to="/blueprints" className={linkClass} title={collapsed ? "Blueprints" : undefined}>
           <IconArchitect />{!collapsed && "Blueprints"}

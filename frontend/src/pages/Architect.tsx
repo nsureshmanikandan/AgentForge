@@ -5119,22 +5119,34 @@ export default function Architect() {
     if (openProjectId) {
       window.history.replaceState({}, '', location.pathname);
       if (autoDownload) pendingAutoDownloadRef.current = true;
+      const existing = sessions.find((s) => s.projectId === openProjectId);
+      if (existing) {
+        setActiveSid(existing.id);
+        setTab("plan");
+        return;
+      }
       projectsApi.get(openProjectId).then((res) => {
         const p = res.data;
         const id = crypto.randomUUID();
-        setSessions((prev) => [
-          {
-            id,
-            title: p.name,
-            messages: p.chat_history ?? [],
-            plan: p.plan,
-            uiHtml: p.ui_html || undefined,
-            projectId: p.id,
-            ts: Date.now(),
-          },
-          ...prev,
-        ]);
-        setActiveSid(id);
+        let activateId = id;
+        setSessions((prev) => {
+          // Guard against a duplicate if this project was opened again while the fetch was in flight
+          const already = prev.find((s) => s.projectId === openProjectId);
+          if (already) { activateId = already.id; return prev; }
+          return [
+            {
+              id,
+              title: p.name,
+              messages: p.chat_history ?? [],
+              plan: p.plan,
+              uiHtml: p.ui_html || undefined,
+              projectId: p.id,
+              ts: Date.now(),
+            },
+            ...prev,
+          ];
+        });
+        setActiveSid(activateId);
         setTab("plan");
       }).catch(() => {});
       return;
