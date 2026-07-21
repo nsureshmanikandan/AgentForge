@@ -7,6 +7,7 @@ class ProjectCreate(BaseModel):
     summary: str = ""
     original_prompt: str = ""
     plan: dict = {}
+    ui_html: str = ""
     files: dict = {}
     chat_history: list[dict] = []
     app_type: str = "custom_code"
@@ -16,6 +17,7 @@ class ProjectUpdate(BaseModel):
     name: str | None = None
     summary: str | None = None
     plan: dict | None = None
+    ui_html: str | None = None
     files: dict | None = None
     chat_history: list[dict] | None = None
     app_type: str | None = None
@@ -33,6 +35,7 @@ class ProjectOut(BaseModel):
     summary: str
     original_prompt: str
     plan: dict
+    ui_html: str
     files: dict
     chat_history: list[dict]
     app_type: str

@@ -27,6 +27,7 @@ def upgrade() -> None:
     sa.Column('summary', sa.String(), nullable=False),
     sa.Column('original_prompt', sa.Text(), nullable=False),
     sa.Column('plan', sa.JSON(), nullable=False),
+    sa.Column('ui_html', sa.Text(), nullable=False),
     sa.Column('files', sa.JSON(), nullable=False),
     sa.Column('chat_history', sa.JSON(), nullable=False),
     sa.Column('app_type', sa.String(), nullable=False),

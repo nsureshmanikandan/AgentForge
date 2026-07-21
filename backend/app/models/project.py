@@ -16,6 +16,7 @@ class Project(Base):
     summary: Mapped[str] = mapped_column(String, default="")
     original_prompt: Mapped[str] = mapped_column(Text, default="")
     plan: Mapped[dict] = mapped_column(JSON, default=dict)
+    ui_html: Mapped[str] = mapped_column(Text, default="")
     files: Mapped[dict] = mapped_column(JSON, default=dict)
     chat_history: Mapped[list] = mapped_column(JSON, default=list)
     app_type: Mapped[str] = mapped_column(String, default="custom_code")  # "rag" | "custom_code"
