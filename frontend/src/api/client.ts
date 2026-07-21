@@ -4,9 +4,38 @@ const api = axios.create({ baseURL: "/api", timeout: 180000 });
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+    // Tag the request with the token it was actually sent with, so a 401
+    // response can tell a genuinely-expired session apart from a stale
+    // in-flight request that started before the user already logged back in
+    // with a newer token (which must NOT force another logout).
+    (config as { _authToken?: string })._authToken = token;
+  }
   return config;
 });
+
+// Without this, an expired/invalid JWT makes every authenticated call (most
+// visibly Architect's auto-save of a session to /api/projects) fail with a
+// silent 401 that calling code catches and ignores -- the user sees nothing
+// ever get saved, with no indication their session expired. Redirect to
+// login so the failure is visible and recoverable instead of silent forever.
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const requestToken = (error.config as { _authToken?: string } | undefined)?._authToken;
+    const currentToken = localStorage.getItem("token");
+    if (
+      error.response?.status === 401 &&
+      window.location.pathname !== "/login" &&
+      requestToken === currentToken
+    ) {
+      localStorage.removeItem("token");
+      window.location.href = "/login";
+    }
+    return Promise.reject(error);
+  }
+);
 
 export const authApi = {
   login: (email: string, password: string) =>

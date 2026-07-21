@@ -4986,6 +4986,37 @@ export default function Architect() {
   const uiHtml = active?.uiHtml;
 
   const [downloadingCustom, setDownloadingCustom] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const publishCurrentProject = async () => {
+    if (!active || publishing) return;
+    setPublishing(true);
+    try {
+      let projectId = active.projectId;
+      if (!projectId) {
+        // Session hasn't been auto-saved to the backend yet (e.g. published
+        // immediately after the plan finished, before the 2s debounce ran) --
+        // create the project row now so there is something to publish.
+        const isRag = /\brag\b|knowledge.?base/i.test(`${active.plan?.summary ?? ""} ${active.plan?.architecture ?? ""}`);
+        const res = await projectsApi.create({
+          name: active.title,
+          summary: active.plan?.summary?.slice(0, 300) ?? "",
+          original_prompt: active.messages.find((m) => m.role === "user")?.content ?? "",
+          plan: active.plan,
+          ui_html: active.uiHtml ?? "",
+          chat_history: active.messages,
+          app_type: isRag ? "rag" : "custom_code",
+        });
+        projectId = res.data.id;
+        setSessions((prev) => prev.map((s) => (s.id === active.id ? { ...s, projectId } : s)));
+      }
+      await projectsApi.setVisibility(projectId, "published");
+      window.alert("Published — this project is now visible to everyone in your org under Published Projects.");
+    } catch {
+      window.alert("Failed to publish this project. Please try again.");
+    } finally {
+      setPublishing(false);
+    }
+  };
   const pendingAutoDownloadRef = useRef(false);
   const downloadZip = async () => {
     if (downloadingCustom || !plan) return;
@@ -6264,6 +6295,17 @@ export default function Architect() {
                     </svg>
                   )}
                   {downloadingCustom ? "Generating…" : "Deploy Plan"}
+                </button>
+                <button
+                  onClick={publishCurrentProject}
+                  disabled={publishing}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 border border-gray-200 hover:bg-gray-50 disabled:opacity-60 text-gray-700 rounded-lg text-xs font-medium transition-colors"
+                  title="Publish this project org-wide"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
+                  </svg>
+                  {publishing ? "Publishing…" : "Publish"}
                 </button>
                 {plan && (
                   <button
