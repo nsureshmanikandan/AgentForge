@@ -110,6 +110,20 @@ def _sidebar_questions_broken(html: str) -> bool:
     return missing_render or missing_clear
 
 
+def _nav_items_broken(html: str) -> bool:
+    """Same failure class as _sidebar_questions_broken, different variable:
+    when a multi-page nav is generated (a `navItems` array of {id, label}
+    entries used to switch `activeNav`), the LLM sometimes declares the array
+    and branches rendering on `activeNav` without ever actually rendering
+    `navItems` as clickable tabs/buttons -- so the page-switching logic
+    exists but there is no UI element a user can click to use it (observed
+    live: a Chat/Documents/Reports/Settings nav was computed but the nav bar
+    itself never rendered, leaving no way to navigate between pages)."""
+    if "navItems" not in html or "activeNav" not in html:
+        return False
+    return "navItems.map(" not in html and "navItems.map (" not in html
+
+
 def _ensure_scaffold_files(all_files: dict) -> None:
     """Deterministically backfill Custom Code's mandatory tests/CI/migrations
     scaffold files if the LLM's generation happened to omit them -- the model
@@ -2944,16 +2958,33 @@ Incorporate ALL of the above changes while keeping everything else from the orig
         html = response.choices[0].message.content or ""
         html = html.strip()
 
-        if _attempt == 0 and _sidebar_questions_broken(html):
+        if _attempt == 0 and (_sidebar_questions_broken(html) or _nav_items_broken(html)):
+            _bugs = []
+            if _sidebar_questions_broken(html):
+                _bugs.append(
+                    "The topic/department filter feature: the filter chips and their counts "
+                    "render, but (1) the question list underneath stays empty because "
+                    "`sidebarQuestions` is computed but never rendered, and/or (2) there is no "
+                    "\"Clear\" control to reset an active filter. Fix both: render "
+                    "`sidebarQuestions.map((item, idx) => ...)` as clickable buttons in the left "
+                    "sidebar question list, and include the \"Clear\" button next to the active "
+                    "topic banner and in the Filter by Topic panel."
+                )
+            if _nav_items_broken(html):
+                _bugs.append(
+                    "The multi-page navigation: a `navItems` array and `activeNav` state exist "
+                    "and `renderMain()` branches on `activeNav`, but `navItems` is never actually "
+                    "rendered as clickable nav tabs/buttons anywhere -- so there is no UI element "
+                    "a user can click to switch pages. Fix this: render `navItems.map(item => ...)` "
+                    "as clickable buttons that call `setActiveNav(item.id)`, in the top nav bar or "
+                    "sidebar wherever the layout calls for it."
+                )
             _repair_note = (
-                "Your previous response has a real functional bug in the topic/department filter "
-                "feature: the filter chips and their counts render, but (1) the question list "
-                "underneath stays empty because `sidebarQuestions` is computed but never rendered, "
-                "and/or (2) there is no \"Clear\" control to reset an active filter. Fix both: "
-                "render `sidebarQuestions.map((item, idx) => ...)` as clickable buttons in the left "
-                "sidebar question list, and include the \"Clear\" button next to the active topic "
-                "banner and in the Filter by Topic panel, exactly as the CRITICAL instructions in "
-                "the system prompt specify. Return the complete corrected HTML document again."
+                "Your previous response has real functional bug(s), each computing the right data "
+                "but never rendering the UI to use it:\n\n"
+                + "\n\n".join(f"{i+1}. {b}" for i, b in enumerate(_bugs))
+                + "\n\nFix exactly these bugs, keeping everything else the same. Return the complete "
+                "corrected HTML document again."
             )
             continue
         break
