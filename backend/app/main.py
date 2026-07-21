@@ -13,6 +13,7 @@ from app.api.safety import router as safety_router
 from app.api.evaluations import router as evaluations_router
 from app.api.voice import router as voice_router
 from app.api.builder import router as builder_router
+from app.api.projects import router as projects_router
 from app.core.telemetry import setup_telemetry
 from app.core.seed import seed_admin
 
@@ -62,6 +63,7 @@ async def on_startup():
     import app.models.rag       # noqa
     import app.models.workflow  # noqa
     import app.models.voice     # noqa
+    import app.models.project   # noqa
     from app.database import Base, engine
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -88,6 +90,7 @@ app.include_router(safety_router, prefix="/api/safety", tags=["safety"])
 app.include_router(evaluations_router, prefix="/api/evaluations", tags=["evaluations"])
 app.include_router(voice_router, prefix="/api/voice", tags=["voice"])
 app.include_router(builder_router, prefix="/api/builder", tags=["builder"])
+app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
 
 @app.get("/health")
 async def health():
