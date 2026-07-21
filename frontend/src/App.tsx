@@ -5,6 +5,8 @@ import Login from "./pages/Login";
 import Home from "./pages/Home";
 import AgentStudio from "./pages/AgentStudio";
 import MyProjects from "./pages/MyProjects";
+import PublishedProjects from "./pages/PublishedProjects";
+import SharedProjects from "./pages/SharedProjects";
 import Usage from "./pages/Usage";
 import PromptLibrary from "./pages/PromptLibrary";
 import Blueprints from "./pages/Blueprints";
@@ -556,8 +558,8 @@ export default function App() {
                   <Route path="/studio" element={<AgentStudio />} />
                   <Route path="/studio/create" element={<CreateAgent />} />
                   <Route path="/projects" element={<MyProjects />} />
-                  <Route path="/published" element={<MyProjects />} />
-                  <Route path="/shared" element={<MyProjects />} />
+                  <Route path="/published" element={<PublishedProjects />} />
+                  <Route path="/shared" element={<SharedProjects />} />
                   <Route path="/usage" element={<Usage />} />
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/workflow-runs" element={<WorkflowObservability />} />
