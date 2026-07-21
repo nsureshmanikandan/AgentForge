@@ -741,6 +741,7 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
   const zip = new JSZip();
   const appTitle = extractAppTitle(plan.summary);
   const appName = appTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "agentforge-app";
+  const useSso = /\b(sso|azure ad|entra id|okta|single sign-on|single sign on)\b/i.test(plan.summary || "");
 
   // ── sandbox.html — 5-page layout matching React App.tsx exactly ─────────────
   zip.file("sandbox.html", `<!doctype html>
@@ -921,6 +922,18 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
 (function(){
   const API = "http://localhost:8000";
   let docs = [], msgCount = 0, currentPage = "chat", selectedTopic = null, accuracySum = 0, accuracyCount = 0;
+  let authToken = null;
+
+  async function ensureAuth(){
+    ${useSso ? "// SSO plan: get_current_user is a no-op pass-through while SSO_ENABLED=false, no bootstrap token needed locally" : `try{
+      const creds = { username: "demo", password: "demo-pass-12345" };
+      await fetch(API+"/api/auth/register",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(creds)});
+      const form = new URLSearchParams({ username: creds.username, password: creds.password });
+      const r = await fetch(API+"/api/auth/login",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:form});
+      if(r.ok){ const d = await r.json(); authToken = d.access_token; }
+    }catch(e){ /* backend unreachable -- fetches below will surface the error to the user */ }`}
+  }
+  function authHeaders(extra){ return authToken ? Object.assign({ "Authorization": "Bearer "+authToken }, extra||{}) : (extra||{}); }
 
   function getTopicName(fn){ return (fn||"").replace(/\\.[^.]+$/,"").replace(/[-_]/g," ").replace(/\\b\\w/g,c=>c.toUpperCase()); }
   function docConfidence(fn){ let h=0; for(const c of (fn||"")) h=((h<<5)-h)+c.charCodeAt(0); return 80+Math.abs(h%18); }
@@ -1031,7 +1044,7 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
 
   async function doDelete(docId){
     if(!docId) return;
-    try{ await fetch(API+"/api/documents/"+encodeURIComponent(docId),{method:"DELETE"}); }catch(e){}
+    try{ await fetch(API+"/api/documents/"+encodeURIComponent(docId),{method:"DELETE",headers:authHeaders()}); }catch(e){}
     await loadDocs();
     if(currentPage==="uploads") renderUploadsGrid();
     if(currentPage==="questions") renderQuestionsPage();
@@ -1074,7 +1087,7 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
     const ind = document.getElementById("typing-ind");
     ind.classList.remove("hidden");
     try{
-      const r = await fetch(API+"/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({question:text,workspace_id:1})});
+      const r = await fetch(API+"/api/chat",{method:"POST",headers:authHeaders({"Content-Type":"application/json"}),body:JSON.stringify({question:text,workspace_id:1})});
       ind.classList.add("hidden");
       if(!r.ok) throw new Error("HTTP "+r.status);
       const d = await r.json();
@@ -1091,7 +1104,7 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
     btn.textContent="⏳ Indexing…"; btn.disabled=true;
     for(const f of Array.from(files)){
       const fd=new FormData(); fd.append("file",f);
-      try{ await fetch(API+"/api/documents/upload",{method:"POST",body:fd}); }catch(e){}
+      try{ await fetch(API+"/api/documents/upload",{method:"POST",headers:authHeaders(),body:fd}); }catch(e){}
     }
     btn.textContent="📎 Upload Documents"; btn.disabled=false;
     await loadDocs();
@@ -1101,7 +1114,7 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
 
   async function loadDocs(){
     try{
-      const r=await fetch(API+"/api/documents");
+      const r=await fetch(API+"/api/documents",{headers:authHeaders()});
       if(!r.ok) return;
       docs=await r.json();
     }catch(e){ return; }
@@ -1150,7 +1163,7 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
   buildNav();
   buildTopQuestions();
   buildQuickSuggestions();
-  loadDocs();
+  ensureAuth().then(loadDocs);
   setInterval(loadDocs, 15000);
 })();
 </script>
@@ -1187,6 +1200,19 @@ function renderMarkdown(text: string): React.ReactNode {
   });
 }
 
+let authToken: string | null = null;
+async function ensureAuth(): Promise<void> {
+  ${useSso ? "// SSO plan: get_current_user is a no-op pass-through while SSO_ENABLED=false, no bootstrap token needed locally" : `try {
+    const creds = { username: "demo", password: "demo-pass-12345" };
+    await fetch("/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(creds) });
+    const form = new URLSearchParams({ username: creds.username, password: creds.password });
+    const r = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: form });
+    if (r.ok) { const d = await r.json(); authToken = d.access_token; }
+  } catch { /* backend unreachable -- calls below will surface the error */ }`}
+}
+function authHeaders(extra?: Record<string, string>): Record<string, string> {
+  return authToken ? { ...(extra || {}), Authorization: \`Bearer \${authToken}\` } : (extra || {});
+}
 async function apiHealth(): Promise<string> {
   const r = await fetch("/api/health");
   if (!r.ok) return "AI Assistant";
@@ -1194,12 +1220,12 @@ async function apiHealth(): Promise<string> {
   return d.app || "AI Assistant";
 }
 async function apiDocs(): Promise<ApiDoc[]> {
-  const r = await fetch("/api/documents");
+  const r = await fetch("/api/documents", { headers: authHeaders() });
   return r.ok ? r.json() : [];
 }
 async function apiChat(question: string): Promise<Omit<BotMsg, "id" | "role" | "ts">> {
   const r = await fetch("/api/chat", {
-    method: "POST", headers: { "Content-Type": "application/json" },
+    method: "POST", headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ question, workspace_id: 1 }),
   });
   if (!r.ok) throw new Error("Chat API " + r.status);
@@ -1207,7 +1233,7 @@ async function apiChat(question: string): Promise<Omit<BotMsg, "id" | "role" | "
 }
 async function apiUpload(file: File): Promise<any> {
   const fd = new FormData(); fd.append("file", file);
-  const r = await fetch("/api/documents/upload", { method: "POST", body: fd });
+  const r = await fetch("/api/documents/upload", { method: "POST", headers: authHeaders(), body: fd });
   if (!r.ok) throw new Error("Upload " + r.status);
   return r.json().catch(() => ({}));
 }
@@ -1266,8 +1292,10 @@ export default function App() {
   const unanswered = botMsgs.filter(m => m.out_of_scope || (m.confidence !== undefined && (m.confidence > 1 ? m.confidence : m.confidence * 100) < 50));
 
   useEffect(() => {
-    apiHealth().then(t => { setAppTitle(t); setMessages([{ id: "welcome", role: "bot", answer: \`Hello! I'm your AI assistant for \${t}. Upload documents and ask me anything.\`, ts: new Date().toLocaleTimeString() }]); });
-    apiDocs().then(setDocs);
+    ensureAuth().then(() => {
+      apiHealth().then(t => { setAppTitle(t); setMessages([{ id: "welcome", role: "bot", answer: \`Hello! I'm your AI assistant for \${t}. Upload documents and ask me anything.\`, ts: new Date().toLocaleTimeString() }]); });
+      apiDocs().then(setDocs);
+    });
   }, []);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
 
@@ -1663,9 +1691,10 @@ def answer(question: str, top_k: int = 5) -> dict:
 `);
 
   // ── backend/app/api/chat.py ───────────────────────────────────────────────
-  zip.file("backend/app/api/chat.py", `from fastapi import APIRouter
+  zip.file("backend/app/api/chat.py", `from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from app import rag
+from app.auth.${useSso ? "sso" : "security"} import get_current_user
 
 router = APIRouter()
 
@@ -1676,7 +1705,7 @@ class ChatRequest(BaseModel):
     session_id: str = ""
 
 @router.post("/chat")
-async def chat(req: ChatRequest):
+async def chat(req: ChatRequest, user: str = Depends(get_current_user)):
     text = req.question or req.message
     if not text:
         return {"answer": "Please provide a question.", "source": "N/A", "confidence": 0}
@@ -1686,8 +1715,9 @@ async def chat(req: ChatRequest):
 
   // ── backend/app/api/documents.py ─────────────────────────────────────────
   zip.file("backend/app/api/documents.py", `import io
-from fastapi import APIRouter, UploadFile
+from fastapi import APIRouter, UploadFile, Depends
 from app import rag
+from app.auth.${useSso ? "sso" : "security"} import get_current_user
 
 router = APIRouter()
 _docs: list[dict] = []
@@ -1712,7 +1742,7 @@ def extract_text(filename: str, data: bytes) -> str:
         return data.decode("utf-8", errors="replace")
 
 @router.post("/documents/upload")
-async def upload(file: UploadFile):
+async def upload(file: UploadFile, user: str = Depends(get_current_user)):
     data = await file.read()
     content = extract_text(file.filename or "", data)
     rag.add_document(content, source_name=file.filename or "")
@@ -1721,11 +1751,11 @@ async def upload(file: UploadFile):
     return doc
 
 @router.get("/documents")
-async def list_docs():
+async def list_docs(user: str = Depends(get_current_user)):
     return _docs
 
 @router.delete("/documents/{doc_id}")
-async def delete_document(doc_id: str):
+async def delete_document(doc_id: str, user: str = Depends(get_current_user)):
     global _docs
     doc = next((d for d in _docs if d["id"] == doc_id), None)
     if not doc:
@@ -1735,28 +1765,223 @@ async def delete_document(doc_id: str):
     return {"deleted": doc_id}
 `);
 
+  // ── backend/app/auth/security.py — default JWT auth (bcrypt + jose) ────────
+  if (!useSso) {
+    zip.file("backend/app/auth/__init__.py", "");
+    zip.file("backend/app/auth/security.py", `import os, datetime
+from fastapi import Depends, HTTPException, APIRouter
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from jose import jwt, JWTError
+from passlib.context import CryptContext
+from pydantic import BaseModel
+
+JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-me")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_MINUTES = 480
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+router = APIRouter()
+_users: dict[str, str] = {}  # username -> bcrypt hash, in-memory (DB-less scaffold)
+
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+
+def create_access_token(username: str) -> str:
+    expire = datetime.datetime.utcnow() + datetime.timedelta(minutes=JWT_EXPIRE_MINUTES)
+    return jwt.encode({"sub": username, "exp": expire}, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+@router.post("/auth/register")
+async def register(req: RegisterRequest):
+    if req.username in _users:
+        return {"status": "already_registered"}
+    _users[req.username] = pwd_context.hash(req.password)
+    return {"status": "registered"}
+
+@router.post("/auth/login")
+async def login(form: OAuth2PasswordRequestForm = Depends()):
+    hashed = _users.get(form.username)
+    if not hashed or not pwd_context.verify(form.password, hashed):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    return {"access_token": create_access_token(form.username), "token_type": "bearer"}
+
+async def get_current_user(token: str = Depends(oauth2_scheme)) -> str:
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        username = payload.get("sub")
+        if not username:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return username
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+`);
+  }
+
+  // ── backend/app/auth/sso.py — real Azure AD / Entra ID JWKS validation ─────
+  if (useSso) {
+    zip.file("backend/app/auth/__init__.py", "");
+    zip.file("backend/app/auth/sso.py", `import os, time
+import httpx
+from fastapi import Depends, HTTPException
+from fastapi.security import OAuth2PasswordBearer
+from jose import jwt, JWTError
+
+SSO_ENABLED = os.environ.get("SSO_ENABLED", "false").lower() == "true"
+AZURE_TENANT_ID = os.environ.get("AZURE_TENANT_ID", "")
+AZURE_CLIENT_ID = os.environ.get("AZURE_CLIENT_ID", "")
+
+# Pass-through no-op when SSO_ENABLED is False so the app runs locally
+# without a real Azure AD tenant. Set SSO_ENABLED=true + fill in the tenant
+# and client IDs above to enforce real Azure AD sign-in.
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+_jwks_cache: dict = {"keys": {}, "fetched_at": 0.0}
+_JWKS_TTL_SECONDS = 24 * 60 * 60
+
+def _get_jwks_key(kid: str) -> dict | None:
+    now = time.time()
+    if kid not in _jwks_cache["keys"] or now - _jwks_cache["fetched_at"] > _JWKS_TTL_SECONDS:
+        url = f"https://login.microsoftonline.com/{AZURE_TENANT_ID}/discovery/v2.0/keys"
+        resp = httpx.get(url, timeout=10.0)
+        resp.raise_for_status()
+        _jwks_cache["keys"] = {k["kid"]: k for k in resp.json().get("keys", [])}
+        _jwks_cache["fetched_at"] = now
+    return _jwks_cache["keys"].get(kid)
+
+async def get_current_user(token: str | None = Depends(oauth2_scheme)) -> str:
+    if not SSO_ENABLED:
+        return "local-dev-user"
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+    try:
+        header = jwt.get_unverified_header(token)
+        key = _get_jwks_key(header.get("kid", ""))
+        if not key:
+            raise HTTPException(status_code=401, detail="Unknown signing key")
+        issuer = f"https://login.microsoftonline.com/{AZURE_TENANT_ID}/v2.0"
+        payload = jwt.decode(token, key, algorithms=[key.get("alg", "RS256")], audience=AZURE_CLIENT_ID, issuer=issuer)
+        return payload.get("preferred_username") or payload.get("sub", "unknown")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+`);
+  }
+
+  // ── frontend/src/auth — MSAL scaffold (SSO plans only) ──────────────────────
+  if (useSso) {
+    zip.file("frontend/src/auth/msalConfig.ts", `import { Configuration, PublicClientApplication } from "@azure/msal-browser";
+
+const msalConfig: Configuration = {
+  auth: {
+    clientId: import.meta.env.VITE_AZURE_CLIENT_ID || "",
+    authority: \`https://login.microsoftonline.com/\${import.meta.env.VITE_AZURE_TENANT_ID || ""}\`,
+    redirectUri: window.location.origin,
+  },
+  cache: { cacheLocation: "sessionStorage" },
+};
+
+export const msalInstance = new PublicClientApplication(msalConfig);
+export const loginRequest = { scopes: ["User.Read"] };
+`);
+    zip.file("frontend/src/auth/useAuth.ts", `import { useCallback, useEffect, useState } from "react";
+import { msalInstance, loginRequest } from "./msalConfig";
+import type { AccountInfo } from "@azure/msal-browser";
+
+export function useAuth() {
+  const [account, setAccount] = useState<AccountInfo | null>(null);
+
+  useEffect(() => {
+    msalInstance.initialize().then(() => {
+      const accounts = msalInstance.getAllAccounts();
+      if (accounts.length) setAccount(accounts[0]);
+    });
+  }, []);
+
+  const login = useCallback(async () => {
+    const result = await msalInstance.loginRedirect(loginRequest);
+    return result;
+  }, []);
+
+  const getAccessToken = useCallback(async (): Promise<string | null> => {
+    if (!account) return null;
+    try {
+      const result = await msalInstance.acquireTokenSilent({ ...loginRequest, account });
+      return result.accessToken;
+    } catch {
+      await msalInstance.acquireTokenRedirect(loginRequest);
+      return null;
+    }
+  }, [account]);
+
+  return { account, login, getAccessToken };
+}
+`);
+  }
+
+  // ── backend/telemetry.py — OpenTelemetry console exporter by default ───────
+  zip.file("backend/telemetry.py", `import os
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+def setup_telemetry(app) -> None:
+    exporter_kind = os.environ.get("OTEL_EXPORTER", "console")
+    provider = TracerProvider()
+    if exporter_kind == "console":
+        provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
+    trace.set_tracer_provider(provider)
+    FastAPIInstrumentor.instrument_app(app)
+`);
+
   // ── backend/main.py ───────────────────────────────────────────────────────
-  zip.file("backend/main.py", `from fastapi import FastAPI
+  zip.file("backend/main.py", `import logging
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from app.api.chat import router as chat_router
 from app.api.documents import router as docs_router
+${useSso ? "" : "from app.auth.security import router as auth_router\n"}from telemetry import setup_telemetry
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("${appName}")
+
+limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
 
 app = FastAPI(title="${appTitle}")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-@app.middleware("http")
-async def cors_middleware(request, call_next):
-    if request.method == "OPTIONS":
-        from fastapi.responses import Response
-        return Response(status_code=200, headers={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"*","Access-Control-Allow-Headers":"*"})
-    response = await call_next(request)
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "*"
-    return response
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+@app.on_event("startup")
+async def startup_guard():
+    try:
+        from app import rag  # noqa: F401 -- import triggers Azure OpenAI client init
+    except Exception:
+        logger.exception("Failed to initialize RAG/embedding client -- check AZURE_OPENAI_* env vars")
+
+try:
+    setup_telemetry(app)
+except Exception:
+    logger.exception("Failed to initialize OpenTelemetry -- continuing without tracing")
 
 app.include_router(chat_router, prefix="/api")
 app.include_router(docs_router, prefix="/api")
-
+${useSso ? "" : "app.include_router(auth_router, prefix=\"/api\")\n"}
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "app": "${appTitle}"}
@@ -1770,24 +1995,165 @@ faiss-cpu>=1.8.0
 numpy>=1.26.0
 python-multipart>=0.0.9
 python-docx>=1.1.0
-`);
+slowapi>=0.1.9
+opentelemetry-api>=1.24.0
+opentelemetry-sdk>=1.24.0
+opentelemetry-instrumentation-fastapi>=0.45b0
+pytest>=8.2.0
+pytest-asyncio>=0.23.0
+httpx>=0.27.0
+${useSso ? "python-jose[cryptography]>=3.3.0\n" : "python-jose[cryptography]>=3.3.0\npasslib[bcrypt]>=1.7.4\n"}`);
 
   // ── backend/.env.example ─────────────────────────────────────────────────
   zip.file("backend/.env.example", `AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
 AZURE_OPENAI_API_KEY=your-key-here
 AZURE_CHAT_DEPLOYMENT=gpt-4o
 AZURE_EMBED_DEPLOYMENT=text-embedding-ada-002
+OTEL_EXPORTER=console
+${useSso ? "SSO_ENABLED=false\nAZURE_TENANT_ID=\nAZURE_CLIENT_ID=\n" : "JWT_SECRET=change-this-in-production\n"}`);
+
+  // ── backend/tests — smoke/chat/documents pytest suite ───────────────────────
+  zip.file("backend/tests/conftest.py", `import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import pytest
+from fastapi.testclient import TestClient
+from main import app
+
+
+@pytest.fixture
+def client():
+    return TestClient(app)
+
+
+@pytest.fixture
+def auth_headers(client):
+    ${useSso ? `return {}  # SSO disabled by default in tests (SSO_ENABLED=false pass-through)` : `creds = {"username": "testuser", "password": "testpass123"}
+    client.post("/api/auth/register", json=creds)
+    r = client.post("/api/auth/login", data=creds)
+    token = r.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}`}
+`);
+    zip.file("backend/tests/test_smoke.py", `def test_health(client):
+    r = client.get("/api/health")
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"
+
+${useSso ? `
+def test_chat_allowed_when_sso_disabled(client):
+    # SSO_ENABLED defaults to false -- get_current_user is a pass-through locally
+    r = client.post("/api/chat", json={"question": "hello"})
+    assert r.status_code != 401
+
+
+def test_documents_allowed_when_sso_disabled(client):
+    r = client.get("/api/documents")
+    assert r.status_code != 401
+` : `
+def test_chat_requires_auth(client):
+    r = client.post("/api/chat", json={"question": "hello"})
+    assert r.status_code == 401
+
+
+def test_documents_requires_auth(client):
+    r = client.get("/api/documents")
+    assert r.status_code == 401
+`}`);
+    zip.file("backend/tests/test_chat.py", `def test_chat_rejects_empty_question(client, auth_headers, monkeypatch):
+    monkeypatch.setattr("app.rag.answer", lambda q, top_k=5: {"answer": "n/a", "source": "N/A", "confidence": 0})
+    r = client.post("/api/chat", json={"question": ""}, headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["confidence"] == 0
+
+
+def test_chat_returns_rag_answer(client, auth_headers, monkeypatch):
+    monkeypatch.setattr(
+        "app.rag.answer",
+        lambda q, top_k=5: {"answer": "It's 42.", "source": "FAISS RAG", "source_doc": "faq.txt", "confidence": 90, "suggested_followups": []},
+    )
+    r = client.post("/api/chat", json={"question": "What is the answer?"}, headers=auth_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["answer"] == "It's 42."
+    assert body["confidence"] == 90
+`);
+    zip.file("backend/tests/test_documents.py", `def test_list_documents_empty(client, auth_headers):
+    r = client.get("/api/documents", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+def test_upload_and_delete_document(client, auth_headers, monkeypatch):
+    monkeypatch.setattr("app.rag.add_document", lambda text, source_name="": None)
+    monkeypatch.setattr("app.rag.remove_document", lambda source_name: True)
+    r = client.post("/api/documents/upload", files={"file": ("faq.txt", b"hello world", "text/plain")}, headers=auth_headers)
+    assert r.status_code == 200
+    doc_id = r.json()["id"]
+
+    r = client.get("/api/documents", headers=auth_headers)
+    assert len(r.json()) == 1
+
+    r = client.delete(f"/api/documents/{doc_id}", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["deleted"] == doc_id
+`);
+
+  // ── .github/workflows/ci.yml ─────────────────────────────────────────────
+  zip.file(".github/workflows/ci.yml", `name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+      - name: Run tests
+        working-directory: backend
+        env:
+          AZURE_OPENAI_ENDPOINT: https://placeholder.openai.azure.com/
+          AZURE_OPENAI_API_KEY: placeholder
+        run: pytest -v
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm install
+      - name: Build
+        working-directory: frontend
+        run: npm run build
 `);
 
   // ── README.md ─────────────────────────────────────────────────────────────
   zip.file("README.md", `# ${appTitle}
 
-> RAG Scaffold generated by AgentForge · ${new Date().toLocaleDateString()}
+> RAG Template Code generated by AgentForge · ${new Date().toLocaleDateString()}
 
 ## Stack
 - **Frontend**: React 18 + Vite + TypeScript + Tailwind CSS
 - **Backend**: FastAPI + FAISS + Azure OpenAI GPT-4o (sync client)
 - **RAG**: FAISS vector store, text-embedding-ada-002, document ingestion
+- **Auth**: ${useSso ? "Azure AD / Entra ID SSO (JWKS-validated JWT, real MSAL login)" : "Default JWT auth (bcrypt password hashing + python-jose)"}
+- **Rate limiting**: slowapi, 100 requests/minute per client by default
+- **Observability**: OpenTelemetry, console exporter by default
 
 ## Quick Start
 
@@ -1795,7 +2161,7 @@ AZURE_EMBED_DEPLOYMENT=text-embedding-ada-002
 \`\`\`bash
 cd backend
 pip install -r requirements.txt
-cp .env.example .env   # fill in your Azure keys
+cp .env.example .env   # fill in your Azure keys${useSso ? " and Azure AD tenant/client IDs (or leave SSO_ENABLED=false for local dev)" : " and JWT_SECRET"}
 uvicorn main:app --reload --port 8000
 \`\`\`
 
@@ -1806,10 +2172,23 @@ npm install
 npm run dev            # opens http://localhost:5173
 \`\`\`
 
+### Tests
+\`\`\`bash
+cd backend
+pytest -v
+\`\`\`
+
+## Auth
+${useSso ? `This app uses real Azure AD / Entra ID single sign-on (\`backend/app/auth/sso.py\`). With \`SSO_ENABLED=false\` (the default), the backend runs as a no-op pass-through so you can develop locally without a real tenant. To enforce real sign-in, set \`SSO_ENABLED=true\` and fill in \`AZURE_TENANT_ID\` / \`AZURE_CLIENT_ID\` in \`.env\`, and \`VITE_AZURE_CLIENT_ID\` / \`VITE_AZURE_TENANT_ID\` for the frontend (see \`src/auth/msalConfig.ts\`).` : `This app uses a built-in JWT auth flow (\`backend/app/auth/security.py\`) — register via \`POST /api/auth/register\`, log in via \`POST /api/auth/login\` (form-encoded) to get a bearer token, then send it as \`Authorization: Bearer <token>\` on \`/api/chat\` and \`/api/documents\` requests. \`sandbox.html\` and the React app both auto-register/login a demo user on load so the preview works with zero manual steps.`}
+
+## CI
+\`.github/workflows/ci.yml\` runs \`pytest\` against the backend and \`npm run build\` against the frontend on every push/PR to \`main\`.
+
 ## Features
 - Upload documents (PDF/DOCX/TXT) → indexed into FAISS
 - Ask questions → RAG retrieval + GPT-4o answer
 - Open \`sandbox.html\` in browser for a self-contained preview
+- Delete an indexed document → FAISS index rebuilt from the remaining documents
 `);
 
   return zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
