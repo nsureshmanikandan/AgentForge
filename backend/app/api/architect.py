@@ -3028,6 +3028,14 @@ Incorporate ALL of the above changes while keeping everything else from the orig
             + _CHATBOT_LOGIC_AND_UI.replace("%%COMPANY%%", _company).replace("%%APP_TITLE%%", _app_title)
             + "\n</script>\n</body>\n</html>"
         )
+        # This early-return path bypasses the LLM repair-retry loop entirely, so it must
+        # apply the same guaranteed deterministic patches as the fallback at the bottom
+        # of this function -- otherwise this branch can ship the known duplicate-welcome/
+        # sidebar-questions bugs baked into _CHATBOT_LOGIC_AND_UI without ever being fixed.
+        if _duplicate_welcome_broken(html):
+            html = _patch_duplicate_welcome(html)
+        if _sidebar_questions_broken(html):
+            html = _patch_sidebar_questions(html)
         return {"html": html, "app_type": detected_type}
     else:
         # ── Layer 5C: few-shot injection from top-rated plans ───────────────
