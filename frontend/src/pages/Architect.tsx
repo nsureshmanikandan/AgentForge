@@ -4544,6 +4544,7 @@ export default function Architect() {
   const uiHtml = active?.uiHtml;
 
   const [downloadingCustom, setDownloadingCustom] = useState(false);
+  const pendingAutoDownloadRef = useRef(false);
   const downloadZip = async () => {
     if (downloadingCustom || !plan) return;
     setDownloadingCustom(true);
@@ -4561,6 +4562,16 @@ export default function Architect() {
       setDownloadingCustom(false);
     }
   };
+
+  // Fires once after a project opened via "Download ZIP" from My Projects
+  // finishes hydrating -- reuses the saved plan/ui_html with no recomputation.
+  useEffect(() => {
+    if (pendingAutoDownloadRef.current && plan) {
+      pendingAutoDownloadRef.current = false;
+      downloadZip();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan]);
 
   function detectChangeType(text: string): PromptChangeType {
     const t = text.toLowerCase();
@@ -4660,6 +4671,32 @@ export default function Architect() {
     processedLocationKey.current = location.key;
     const queued = (location.state as any)?.prompt as string | undefined;
     const sampleFile = (location.state as any)?.sampleFile as { name: string; url: string } | undefined;
+    const openProjectId = (location.state as any)?.openProjectId as string | undefined;
+    const autoDownload = (location.state as any)?.autoDownload as boolean | undefined;
+
+    if (openProjectId) {
+      window.history.replaceState({}, '', location.pathname);
+      if (autoDownload) pendingAutoDownloadRef.current = true;
+      projectsApi.get(openProjectId).then((res) => {
+        const p = res.data;
+        const id = crypto.randomUUID();
+        setSessions((prev) => [
+          {
+            id,
+            title: p.name,
+            messages: p.chat_history ?? [],
+            plan: p.plan,
+            uiHtml: p.ui_html || undefined,
+            projectId: p.id,
+            ts: Date.now(),
+          },
+          ...prev,
+        ]);
+        setActiveSid(id);
+        setTab("plan");
+      }).catch(() => {});
+      return;
+    }
 
     if (queued) {
       // Clear history state without re-rendering (navigate() would abort the in-flight request)
