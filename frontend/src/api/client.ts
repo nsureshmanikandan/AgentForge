@@ -93,6 +93,20 @@ export const architectApi = {
   }) => api.post("/architect/generate-ui", payload),
 };
 
+export const projectsApi = {
+  list: (visibility: "private" | "published" | "shared", mine?: boolean) =>
+    api.get("/projects/", { params: { visibility, mine } }),
+  trash: () => api.get("/projects/trash"),
+  get: (id: string) => api.get(`/projects/${id}`),
+  create: (data: object) => api.post("/projects/", data),
+  update: (id: string, data: object) => api.put(`/projects/${id}`, data),
+  setVisibility: (id: string, visibility: string, shared_with: string[] = []) =>
+    api.put(`/projects/${id}/visibility`, { visibility, shared_with }),
+  remove: (id: string) => api.delete(`/projects/${id}`),
+  restore: (id: string) => api.post(`/projects/${id}/restore`),
+  permanentDelete: (id: string) => api.delete(`/projects/${id}/permanent`),
+};
+
 export const apiKeysApi = {
   list: () => api.get("/api-keys/"),
   create: (name: string) => api.post("/api-keys/", { name }),

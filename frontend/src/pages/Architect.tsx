@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import JSZip from "jszip";
-import { architectApi } from "../api/client";
+import { architectApi, projectsApi } from "../api/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -73,6 +73,7 @@ interface Session {
   promptHistory?: PromptVersion[];                       // Tracked prompt evolution across all turns
   commits?: { sha: string; message: string; ts: number; planSnapshot: Plan; uiHtmlSnapshot?: string }[];
   ts: number;
+  projectId?: string; // backend Project row this session auto-saves to, once it has a plan
 }
 
 type Mode = "build" | "suggest" | "features";
@@ -4744,6 +4745,47 @@ export default function Architect() {
     if (activeSid) localStorage.setItem(ACTIVE_KEY, activeSid);
     else localStorage.removeItem(ACTIVE_KEY);
   }, [activeSid]);
+
+  // Auto-save the active session to the backend (debounced) once it has a
+  // plan worth persisting -- gives it a real home in My Projects instead of
+  // living only in this browser's localStorage. Non-blocking: failures are
+  // silently retried on the next change rather than interrupting the user.
+  const projectSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSyncedSnapshot = useRef<Record<string, string>>({});
+  useEffect(() => {
+    if (!active?.plan) return;
+    const sid = active.id;
+    const snapshot = JSON.stringify({ plan: active.plan, uiHtml: active.uiHtml, messages: active.messages });
+    if (lastSyncedSnapshot.current[sid] === snapshot) return;
+
+    if (projectSyncTimer.current) clearTimeout(projectSyncTimer.current);
+    projectSyncTimer.current = setTimeout(async () => {
+      const isRag = /\brag\b|knowledge.?base/i.test(`${active.plan!.summary} ${active.plan!.architecture}`);
+      const payload = {
+        name: active.title,
+        summary: active.plan!.summary?.slice(0, 300) ?? "",
+        original_prompt: active.messages.find((m) => m.role === "user")?.content ?? "",
+        plan: active.plan,
+        ui_html: active.uiHtml ?? "",
+        chat_history: active.messages,
+        app_type: isRag ? "rag" : "custom_code",
+      };
+      try {
+        if (active.projectId) {
+          await projectsApi.update(active.projectId, payload);
+        } else {
+          const res = await projectsApi.create(payload);
+          setSessions((prev) => prev.map((s) => (s.id === sid ? { ...s, projectId: res.data.id } : s)));
+        }
+        lastSyncedSnapshot.current[sid] = snapshot;
+      } catch {
+        // Backend save failed silently -- localStorage still has the latest
+        // state, and the next session change will retry the sync.
+      }
+    }, 2000);
+    return () => { if (projectSyncTimer.current) clearTimeout(projectSyncTimer.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions, activeSid]);
 
   function nextCtr() {
     const n = sessionCtr + 1;
