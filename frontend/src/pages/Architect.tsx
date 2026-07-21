@@ -4347,7 +4347,7 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
               </svg>
             )}
-            {downloadingRag ? "Packaging…" : "⬇ RAG Scaffold"}
+            {downloadingRag ? "Packaging…" : "⬇ RAG Template Code"}
           </button>
           )}
           {/* Custom Code download — GPT-4o generated, ~40s */}
@@ -4365,7 +4365,7 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
             ) : (
               <span className="text-sm">🤖</span>
             )}
-            {downloadingCustom ? "Generating… (~40s)" : "Custom Code"}
+            {downloadingCustom ? "Generating… (~40s)" : "Agentic Code"}
           </button>
           <button
             onClick={openInBrowser}
