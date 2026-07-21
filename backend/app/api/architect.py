@@ -93,6 +93,23 @@ def _fold_system_messages(messages: list[dict]) -> list[dict]:
     return [{"role": "user", "content": preamble}] + rest
 
 
+def _sidebar_questions_broken(html: str) -> bool:
+    """The generate-ui prompt requires: when a topic/department filter is
+    generated (activeTopic + TOPIC_QUESTIONS present), (1) the derived
+    `sidebarQuestions` variable MUST actually be rendered via
+    `sidebarQuestions.map(...)` in the sidebar, and (2) a "Clear" control must
+    exist to reset the filter -- otherwise clicking a filter computes the
+    right data but never displays it, and there's no way back to the
+    unfiltered view (a real bug observed live: filter chips and counts
+    render, but the question list underneath stays empty and no Clear button
+    exists anywhere). Only flag it when the filter feature was attempted at all."""
+    if "activeTopic" not in html or "TOPIC_QUESTIONS" not in html:
+        return False
+    missing_render = "sidebarQuestions" in html and "sidebarQuestions.map(" not in html and "sidebarQuestions.map (" not in html
+    missing_clear = "Clear" not in html
+    return missing_render or missing_clear
+
+
 def _ensure_scaffold_files(all_files: dict) -> None:
     """Deterministically backfill Custom Code's mandatory tests/CI/migrations
     scaffold files if the LLM's generation happened to omit them -- the model
@@ -2895,31 +2912,51 @@ Incorporate ALL of the above changes while keeping everything else from the orig
         ]
 
     _max_tokens_ui = 8000 if detected_type == "CUSTOM" else 16000
-    with _tracer.start_as_current_span("architect.generate_ui", attributes={
-        "app.detected_type": detected_type,
-        "llm.model": _llm_model,
-        "llm.max_tokens": _max_tokens_ui,
-    }) as _ui_span:
-        try:
-            _send_messages_ui = (
-                _fold_system_messages(messages_payload)
-                if _architect_provider() == "lmstudio" else messages_payload
-            )
-            response = await asyncio.to_thread(
-                client.chat.completions.create,
-                model=_llm_model,
-                messages=_send_messages_ui,
-                temperature=0.2,
-                **{_tok_kwarg: _max_tokens_ui},
-            )
-            _ui_span.set_status(trace_status("OK"))
-        except Exception as _e_ui:
-            _ui_span.record_exception(_e_ui)
-            _ui_span.set_status(trace_status("ERROR", str(_e_ui)))
-            raise
+    _repair_note = None
+    html = ""
+    for _attempt in range(2):
+        _send_messages_ui = (
+            _fold_system_messages(messages_payload)
+            if _architect_provider() == "lmstudio" else messages_payload
+        )
+        if _repair_note:
+            _send_messages_ui = _send_messages_ui + [{"role": "user", "content": _repair_note}]
+        with _tracer.start_as_current_span("architect.generate_ui", attributes={
+            "app.detected_type": detected_type,
+            "llm.model": _llm_model,
+            "llm.max_tokens": _max_tokens_ui,
+            "app.repair_attempt": _attempt,
+        }) as _ui_span:
+            try:
+                response = await asyncio.to_thread(
+                    client.chat.completions.create,
+                    model=_llm_model,
+                    messages=_send_messages_ui,
+                    temperature=0.2,
+                    **{_tok_kwarg: _max_tokens_ui},
+                )
+                _ui_span.set_status(trace_status("OK"))
+            except Exception as _e_ui:
+                _ui_span.record_exception(_e_ui)
+                _ui_span.set_status(trace_status("ERROR", str(_e_ui)))
+                raise
 
-    html = response.choices[0].message.content or ""
-    html = html.strip()
+        html = response.choices[0].message.content or ""
+        html = html.strip()
+
+        if _attempt == 0 and _sidebar_questions_broken(html):
+            _repair_note = (
+                "Your previous response has a real functional bug in the topic/department filter "
+                "feature: the filter chips and their counts render, but (1) the question list "
+                "underneath stays empty because `sidebarQuestions` is computed but never rendered, "
+                "and/or (2) there is no \"Clear\" control to reset an active filter. Fix both: "
+                "render `sidebarQuestions.map((item, idx) => ...)` as clickable buttons in the left "
+                "sidebar question list, and include the \"Clear\" button next to the active topic "
+                "banner and in the Filter by Topic panel, exactly as the CRITICAL instructions in "
+                "the system prompt specify. Return the complete corrected HTML document again."
+            )
+            continue
+        break
 
     if html.startswith("```"):
         parts = html.split("```")
