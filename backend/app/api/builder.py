@@ -69,6 +69,7 @@ class WorkflowRunLog(BaseModel):
 
 class TriggerRequest(BaseModel):
     input: str = ""
+    forced_branches: dict[str, str] = {}
 
 
 # ─── Helper: topological sort ────────────────────────────────────────────────
@@ -329,6 +330,7 @@ async def _run_pipeline_from(
     start_index: int,
     previous_output: str,
     run_id: str = "",
+    forced_branches: dict[str, str] | None = None,
 ) -> dict:
     """Execute nodes starting at start_index in the given order. Returns a dict:
     {"status": "completed" | PAUSED, "logs": [...], "final_output": str,
@@ -337,6 +339,7 @@ async def _run_pipeline_from(
     Follows only the matching labeled edge when it reaches a condition node.
     """
     client = AzureOpenAIClient()
+    forced_branches = forced_branches or {}
     logs: list[WorkflowRunLog] = []
     node_by_id = {n["id"]: n for n in ordered_nodes}
     remaining = ordered_nodes[start_index:]
@@ -429,29 +432,36 @@ async def _run_pipeline_from(
             }
 
         if node_role == "router":
-            try:
-                messages = [
-                    {
-                        "role": "system",
-                        "content": (
-                            f"You are a {node_role} agent. "
-                            f"{node_description}. "
-                            "Process the input and return a brief output (2-3 sentences)."
-                        ),
-                    },
-                    {"role": "user", "content": previous_output or "Start the pipeline."},
-                ]
-                start = time.time()
-                output = await client.chat(messages, temperature=0.3)
-                duration_ms = int((time.time() - start) * 1000)
-            except Exception as exc:
-                log = WorkflowRunLog(node_id=node_id, node_label=node_label, status="error", output=f"Error: {str(exc)}", duration_ms=0)
-                logs.append(log)
-                i += 1
-                continue
-
             outgoing_labels = sorted({e.get("label") for e in edges if e.get("source") == node_id and e.get("label")})
-            chosen_label = await _choose_branch_label(output, outgoing_labels, client) if outgoing_labels else None
+            forced_label = forced_branches.get(node_id)
+
+            if forced_label and forced_label in outgoing_labels:
+                output = f"Branch forced to '{forced_label}' for testing (LLM classification skipped)."
+                duration_ms = 0
+                chosen_label = forced_label
+            else:
+                try:
+                    messages = [
+                        {
+                            "role": "system",
+                            "content": (
+                                f"You are a {node_role} agent. "
+                                f"{node_description}. "
+                                "Process the input and return a brief output (2-3 sentences)."
+                            ),
+                        },
+                        {"role": "user", "content": previous_output or "Start the pipeline."},
+                    ]
+                    start = time.time()
+                    output = await client.chat(messages, temperature=0.3)
+                    duration_ms = int((time.time() - start) * 1000)
+                except Exception as exc:
+                    log = WorkflowRunLog(node_id=node_id, node_label=node_label, status="error", output=f"Error: {str(exc)}", duration_ms=0)
+                    logs.append(log)
+                    i += 1
+                    continue
+
+                chosen_label = await _choose_branch_label(output, outgoing_labels, client) if outgoing_labels else None
 
             if chosen_label is None:
                 # No labeled branches (or classification didn't match one) -- behave like a plain agent node.
@@ -770,7 +780,7 @@ async def trigger_workflow(workflow_id: str, body: TriggerRequest, db: AsyncSess
 
     ordered = _topo_sort(wf["nodes"], wf["edges"])
     run_id_placeholder = str(uuid.uuid4())
-    result = await _run_pipeline_from(ordered, wf["edges"], 0, body.input, run_id=run_id_placeholder)
+    result = await _run_pipeline_from(ordered, wf["edges"], 0, body.input, run_id=run_id_placeholder, forced_branches=body.forced_branches)
 
     if result["status"] == PAUSED:
         run = WorkflowRun(
@@ -886,6 +896,7 @@ async def trigger_workflow_stream(workflow_id: str, body: TriggerRequest, db: As
     nodes = wf["nodes"]
     edges = wf["edges"]
     trigger_input = body.input
+    forced_branches = body.forced_branches
 
     async def event_stream():
         ordered = _topo_sort(nodes, edges)
@@ -977,7 +988,7 @@ async def trigger_workflow_stream(workflow_id: str, body: TriggerRequest, db: As
                     f"<p>A workflow run requires your approval.</p><p>Context: {previous_output}</p>"
                     f'<p><a href="{link}">Review and respond</a></p>',
                 )
-                yield f"data: {json.dumps({'event': 'pipeline_paused', 'node_id': node_id, 'node_label': node_label})}\n\n"
+                yield f"data: {json.dumps({'event': 'pipeline_paused', 'node_id': node_id, 'node_label': node_label, 'run_id': run_id_for_email})}\n\n"
                 try:
                     async with AsyncSessionLocal() as session:
                         run = WorkflowRun(
@@ -997,22 +1008,29 @@ async def trigger_workflow_stream(workflow_id: str, body: TriggerRequest, db: As
                 return
 
             if node_role == "router":
-                try:
-                    messages = [
-                        {"role": "system", "content": f"You are a {node_role} agent. {node_description}. Process the input and return a brief output (2-3 sentences)."},
-                        {"role": "user", "content": previous_output or "Start the pipeline."},
-                    ]
-                    start = time.time()
-                    output = await client.chat(messages, temperature=0.3)
-                    duration_ms = int((time.time() - start) * 1000)
-                except Exception as exc:
-                    log = WorkflowRunLog(node_id=node_id, node_label=node_label, status="error", output=f"Error: {str(exc)}", duration_ms=0)
-                    logs.append(log)
-                    yield f"data: {json.dumps({'event': 'node_error', 'node_id': node_id, 'node_label': node_label, 'error': str(exc)})}\n\n"
-                    continue
-
                 outgoing_labels = sorted({e.get("label") for e in edges if e.get("source") == node_id and e.get("label")})
-                chosen_label = await _choose_branch_label(output, outgoing_labels, client) if outgoing_labels else None
+                forced_label = forced_branches.get(node_id)
+
+                if forced_label and forced_label in outgoing_labels:
+                    output = f"Branch forced to '{forced_label}' for testing (LLM classification skipped)."
+                    duration_ms = 0
+                    chosen_label = forced_label
+                else:
+                    try:
+                        messages = [
+                            {"role": "system", "content": f"You are a {node_role} agent. {node_description}. Process the input and return a brief output (2-3 sentences)."},
+                            {"role": "user", "content": previous_output or "Start the pipeline."},
+                        ]
+                        start = time.time()
+                        output = await client.chat(messages, temperature=0.3)
+                        duration_ms = int((time.time() - start) * 1000)
+                    except Exception as exc:
+                        log = WorkflowRunLog(node_id=node_id, node_label=node_label, status="error", output=f"Error: {str(exc)}", duration_ms=0)
+                        logs.append(log)
+                        yield f"data: {json.dumps({'event': 'node_error', 'node_id': node_id, 'node_label': node_label, 'error': str(exc)})}\n\n"
+                        continue
+
+                    chosen_label = await _choose_branch_label(output, outgoing_labels, client) if outgoing_labels else None
 
                 if chosen_label is None:
                     log = WorkflowRunLog(node_id=node_id, node_label=node_label, status="done", output=output, duration_ms=duration_ms)

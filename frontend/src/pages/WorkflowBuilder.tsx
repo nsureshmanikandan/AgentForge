@@ -102,6 +102,14 @@ export default function WorkflowBuilder() {
   const [running, setRunning] = useState(false);
   const [autoFillLoading, setAutoFillLoading] = useState(false);
   const suggestAbortRef = useRef<AbortController | null>(null);
+  // Router node id -> forced outgoing edge label ("" means Auto / let the LLM decide).
+  // Lets a tester deterministically exercise a specific branch instead of guessing
+  // wording that will make the router's LLM classification land on it.
+  const [forcedBranches, setForcedBranches] = useState<Record<string, string>>({});
+  // Set when a test run pauses at an approval node, so we can offer an in-canvas
+  // Approve/Reject affordance instead of requiring a trip to /approvals/{runId}.
+  const [pausedApproval, setPausedApproval] = useState<{ runId: string; nodeId: string; nodeLabel: string } | null>(null);
+  const [resolvingApproval, setResolvingApproval] = useState(false);
 
   // Save Workflow name-prompt modal state
   const [showSaveModal, setShowSaveModal] = useState(false);
@@ -269,6 +277,7 @@ export default function WorkflowBuilder() {
     setAutoFillLoading(false);
     setRunning(true);
     setRunLogs(null);
+    setPausedApproval(null);
     const token = localStorage.getItem("token") || localStorage.getItem("agentforge_token");
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -297,7 +306,7 @@ export default function WorkflowBuilder() {
       // Start SSE stream
       const streamRes = await fetch(`${API_BASE}/builder/workflows/${workflow_id}/trigger-stream`, {
         method: "POST", headers,
-        body: JSON.stringify({ input: runInput }),
+        body: JSON.stringify({ input: runInput, forced_branches: forcedBranches }),
       });
       if (!streamRes.ok) throw new Error("Stream failed");
 
@@ -343,7 +352,8 @@ export default function WorkflowBuilder() {
               edgeList.forEach((e) => edgeUpdaterRef.current?.(e.source, e.target, { active: true }));
             } else if (evt.event === "pipeline_paused") {
               setRunLogs(collectedLogs);
-              showToast(`⏸ Paused — waiting for email approval (node: ${evt.node_label as string})`);
+              setPausedApproval({ runId: evt.run_id as string, nodeId: evt.node_id as string, nodeLabel: evt.node_label as string });
+              showToast(`⏸ Paused — waiting for approval (node: ${evt.node_label as string})`);
             } else if (evt.event === "pipeline_done") {
               setRunLogs(collectedLogs);
               showToast(`✅ Run complete — ${collectedLogs.length} nodes executed`);
@@ -357,6 +367,62 @@ export default function WorkflowBuilder() {
       showToast(err instanceof Error ? err.message : "Run failed");
     } finally {
       setRunning(false);
+    }
+  };
+
+  const resolvePausedRun = async (decision: "approve" | "reject") => {
+    if (!pausedApproval || resolvingApproval) return;
+    setResolvingApproval(true);
+    const token = localStorage.getItem("token") || localStorage.getItem("agentforge_token");
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    try {
+      const res = await fetch(`${API_BASE}/builder/runs/${pausedApproval.runId}/${decision}`, {
+        method: "POST", headers,
+      });
+      if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+      nodeUpdaterRef.current?.(pausedApproval.nodeId, { executionState: "done" });
+      if (decision === "approve") {
+        const data = await res.json() as { status: string; final_output: string };
+        // The /approve response only carries the final output, not a per-node
+        // trace, so we can't replay each downstream node's animation -- but we
+        // can still mark every node reachable from the approval gate as done
+        // once the resumed run completes, so the canvas doesn't stay stuck
+        // showing only the approval node as "done" while the rest look untouched.
+        if (data.status !== "waiting_approval" && workflowRef.current) {
+          const edges = workflowRef.current.edges;
+          const visited = new Set<string>();
+          const queue = [pausedApproval.nodeId];
+          while (queue.length) {
+            const current = queue.shift()!;
+            for (const e of edges) {
+              if (e.source === current && !visited.has(e.target)) {
+                visited.add(e.target);
+                queue.push(e.target);
+              }
+            }
+          }
+          visited.forEach((nodeId) => nodeUpdaterRef.current?.(nodeId, { executionState: "done" }));
+        }
+        setRunLogs((prev) => [
+          ...(prev ?? []),
+          {
+            node_id: pausedApproval.nodeId,
+            node_label: pausedApproval.nodeLabel,
+            status: "done",
+            output: `Approved. Run resumed and reached status: ${data.status}.\n\nFinal output: ${data.final_output}`,
+            duration_ms: 0,
+          },
+        ]);
+        showToast(data.status === "waiting_approval" ? "✅ Approved — run resumed (paused again downstream)" : "✅ Approved — run resumed and completed");
+      } else {
+        showToast("Rejected — run stopped");
+      }
+      setPausedApproval(null);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to resolve approval");
+    } finally {
+      setResolvingApproval(false);
     }
   };
 
@@ -1304,6 +1370,32 @@ if __name__ == "__main__":
               placeholder={autoFillLoading ? "Generating a realistic example input…" : "e.g. Analyse Q3 sales trends for APAC region and flag anomalies..."}
               className="bg-gray-800 text-white text-sm border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500 resize-none"
             />
+            {(workflowRef.current?.nodes ?? [])
+              .filter((n) => (n.data as { role?: string })?.role === "router")
+              .map((routerNode) => {
+                const label = (routerNode.data as { label?: string })?.label ?? routerNode.id;
+                const outgoingLabels = Array.from(new Set(
+                  (workflowRef.current?.edges ?? [])
+                    .filter((e) => e.source === routerNode.id && e.label)
+                    .map((e) => e.label as string)
+                ));
+                if (outgoingLabels.length === 0) return null;
+                return (
+                  <div key={routerNode.id} className="flex items-center justify-between gap-3 bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2">
+                    <span className="text-gray-300 text-xs">🔀 Force branch: <span className="font-semibold text-white">{label}</span></span>
+                    <select
+                      value={forcedBranches[routerNode.id] ?? ""}
+                      onChange={(e) => setForcedBranches((prev) => ({ ...prev, [routerNode.id]: e.target.value }))}
+                      className="bg-gray-900 text-white text-xs border border-gray-600 rounded-md px-2 py-1 focus:outline-none focus:border-emerald-500"
+                    >
+                      <option value="">Auto (LLM decides)</option>
+                      {outgoingLabels.map((l) => (
+                        <option key={l} value={l}>{l}</option>
+                      ))}
+                    </select>
+                  </div>
+                );
+              })}
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setShowRunModal(false)}
@@ -1324,6 +1416,37 @@ if __name__ == "__main__":
                 ) : "▶ Execute & Save Trace"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Paused-approval banner: lets a tester resolve an approval node without leaving the Builder */}
+      {pausedApproval && (
+        <div className="fixed bottom-6 right-6 z-50 bg-gray-900 border border-amber-600/60 rounded-xl shadow-2xl p-4 w-full max-w-sm flex flex-col gap-3">
+          <div className="flex items-start gap-2">
+            <span className="text-amber-400 text-lg leading-none">⏸</span>
+            <div>
+              <p className="text-white text-sm font-semibold">Run paused for approval</p>
+              <p className="text-gray-400 text-xs mt-0.5">
+                Waiting on <span className="text-gray-300 font-medium">{pausedApproval.nodeLabel}</span>. Resolve it here to continue testing.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => resolvePausedRun("reject")}
+              disabled={resolvingApproval}
+              className="text-red-400 hover:text-red-300 disabled:opacity-50 px-3 py-1.5 rounded-lg text-xs border border-red-800"
+            >
+              Reject
+            </button>
+            <button
+              onClick={() => resolvePausedRun("approve")}
+              disabled={resolvingApproval}
+              className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg text-xs font-medium"
+            >
+              Approve
+            </button>
           </div>
         </div>
       )}
