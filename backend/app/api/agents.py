@@ -5,8 +5,8 @@ from pydantic import BaseModel
 from app.database import get_db
 from app.models.agent import Agent, AgentVersion
 from app.models.audit import AuditLog
-from app.schemas.agent import AgentCreate, AgentOut, AgentRunRequest, AgentRunResponse, GenerateRequest
-from app.core.orchestrator import AgentOrchestrator
+from app.schemas.agent import AgentCreate, AgentOut, AgentRunRequest, AgentRunResponse, ManagerRunResponse, GenerateRequest
+from app.core.orchestrator import AgentOrchestrator, MultiAgentOrchestrator
 from app.core.prompt_to_agent import generate_agent_config
 from app.core.azure_openai import AzureOpenAIClient
 import json
@@ -163,18 +163,71 @@ async def delete_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
     await db.commit()
 
 
-@router.post("/{agent_id}/run", response_model=AgentRunResponse)
-async def run_agent(agent_id: str, body: AgentRunRequest, db: AsyncSession = Depends(get_db)):
-    agent = await db.get(Agent, agent_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    config = {
+def _agent_config(agent: Agent) -> dict:
+    return {
         "name": agent.name,
         "system_prompt": agent.system_prompt,
         "model": agent.model,
         "tools": agent.tools,
         "guardrails": agent.guardrails,
     }
+
+
+async def _run_managerial(agent: Agent, body: AgentRunRequest, db: AsyncSession) -> ManagerRunResponse:
+    worker_agents = []
+    for worker_id in agent.worker_agent_ids:
+        worker = await db.get(Agent, worker_id)
+        if worker is not None:
+            worker_agents.append(worker)
+        # Deleted/missing workers are silently skipped -- a manager should
+        # degrade gracefully as its worker roster changes over time.
+
+    if not worker_agents:
+        raise HTTPException(status_code=400, detail="No workers configured for this manager agent")
+
+    manager_config = _agent_config(agent)
+    worker_configs = [_agent_config(w) for w in worker_agents]
+
+    orch = MultiAgentOrchestrator(manager_config, worker_configs)
+    result = await orch.run(body.input)
+
+    step_results = [s["result"] for s in result["steps"]]
+    pii_triggered = any(r.get("pii_triggered", False) for r in step_results)
+    hallucination_triggered = any(r.get("hallucination_triggered", False) for r in step_results)
+    latency_ms = sum(r.get("latency_ms", 0) for r in step_results)
+
+    log = AuditLog(
+        action="agent.run",
+        resource_type="agent",
+        resource_id=agent.id,
+        input_snapshot={"input": body.input},
+        output_snapshot={"output": result["final_output"], "worker_order": [s["agent"] for s in result["steps"]]},
+        guardrail_triggered=result["guardrail_triggered"],
+        latency_ms=latency_ms,
+    )
+    db.add(log)
+    await db.commit()
+
+    return ManagerRunResponse(
+        output=result["final_output"],
+        guardrail_triggered=result["guardrail_triggered"],
+        pii_triggered=pii_triggered,
+        hallucination_triggered=hallucination_triggered,
+        latency_ms=latency_ms,
+        steps=result["steps"],
+    )
+
+
+@router.post("/{agent_id}/run")
+async def run_agent(agent_id: str, body: AgentRunRequest, db: AsyncSession = Depends(get_db)):
+    agent = await db.get(Agent, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    if agent.agent_type == "managerial":
+        return await _run_managerial(agent, body, db)
+
+    config = _agent_config(agent)
     orch = AgentOrchestrator(config)
     result = await orch.run(body.input, body.chat_history or None)
     log = AuditLog(
