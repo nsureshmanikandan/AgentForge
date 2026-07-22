@@ -103,6 +103,11 @@ export default function WorkflowBuilder() {
   const [autoFillLoading, setAutoFillLoading] = useState(false);
   const suggestAbortRef = useRef<AbortController | null>(null);
 
+  // Save Workflow name-prompt modal state
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [saveNameInput, setSaveNameInput] = useState("");
+  const [saving, setSaving] = useState(false);
+
   // Resizable left panel
   const [panelWidth, setPanelWidth] = useState(288);
   const startResize = useCallback((e: React.MouseEvent) => {
@@ -666,9 +671,31 @@ if __name__ == "__main__":
 
   const handleSave = () => {
     if (!workflowRef.current) return;
-    const payload = JSON.stringify(workflowRef.current);
-    localStorage.setItem("af_workflow_current", payload);
-    showToast("Saved!");
+    setSaveNameInput(lastLoadedTemplate?.name ?? "");
+    setShowSaveModal(true);
+  };
+
+  const confirmSaveWorkflow = async () => {
+    if (!workflowRef.current || !saveNameInput.trim() || saving) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/builder/workflows`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: saveNameInput.trim(),
+          nodes: workflowRef.current.nodes,
+          edges: workflowRef.current.edges,
+        }),
+      });
+      if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+      setShowSaveModal(false);
+      showToast(`Saved: ${saveNameInput.trim()}`);
+    } catch {
+      showToast("Failed to save workflow. Is the backend running?");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleLoad = async () => {
@@ -1295,6 +1322,48 @@ if __name__ == "__main__":
                     Running...
                   </>
                 ) : "▶ Execute & Save Trace"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Save Workflow name-prompt modal */}
+      {showSaveModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-lg p-6 flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-white font-semibold text-base">Save Workflow</h2>
+              <button onClick={() => setShowSaveModal(false)} className="text-gray-400 hover:text-white text-xl leading-none">×</button>
+            </div>
+            <p className="text-gray-400 text-sm">Give this workflow a real name so you can find it again later in the Load picker.</p>
+            <input
+              type="text"
+              autoFocus
+              value={saveNameInput}
+              onChange={(e) => setSaveNameInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && saveNameInput.trim()) confirmSaveWorkflow(); }}
+              placeholder="e.g. IT Incident Triage & Escalation"
+              className="bg-gray-800 text-white text-sm border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500 placeholder-gray-500"
+            />
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowSaveModal(false)}
+                className="text-gray-400 hover:text-white px-4 py-2 rounded-lg text-sm border border-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmSaveWorkflow}
+                disabled={saving || !saveNameInput.trim()}
+                className="bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white px-5 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
+              >
+                {saving ? (
+                  <>
+                    <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Saving...
+                  </>
+                ) : "Save"}
               </button>
             </div>
           </div>
