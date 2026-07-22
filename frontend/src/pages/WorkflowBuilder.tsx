@@ -817,7 +817,7 @@ if __name__ == "__main__":
         <span className="text-white font-semibold text-sm flex-shrink-0 mr-2 whitespace-nowrap">Workflow Builder</span>
         <div className="flex items-center gap-2 flex-shrink-0">
         <button
-          onClick={handleLoad}
+          onClick={() => { handleLoad(); setShowTemplates(false); setShowAutoBuild(false); }}
           className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow whitespace-nowrap"
         >
           Load
@@ -1072,6 +1072,59 @@ if __name__ == "__main__":
                     <div className="mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       <span className="text-violet-400 text-xs font-medium">Click to load →</span>
                     </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {showLoadPicker && (
+          <div className="absolute top-0 right-0 h-full w-96 bg-gray-900 border-l border-gray-700 shadow-2xl z-20 flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 flex-shrink-0">
+              <div>
+                <span className="text-white font-semibold text-sm">Saved Workflows</span>
+                <p className="text-gray-400 text-xs mt-0.5">Select a workflow to load it into the canvas</p>
+              </div>
+              <button
+                onClick={() => setShowLoadPicker(false)}
+                className="text-gray-400 hover:text-white text-lg leading-none"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="px-3 pt-3 pb-2 flex-shrink-0">
+              <input
+                type="text"
+                value={loadSearch}
+                onChange={(e) => setLoadSearch(e.target.value)}
+                placeholder="Search saved workflows..."
+                className="w-full bg-gray-800 text-white text-sm border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500 placeholder-gray-500"
+              />
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-3 pb-4 space-y-2">
+              {loadPickerError ? (
+                <p className="text-red-400 text-sm text-center py-8">{loadPickerError}</p>
+              ) : filteredSavedWorkflows.length === 0 ? (
+                <p className="text-gray-500 text-sm text-center py-8">
+                  {savedWorkflows.length === 0 ? "No saved workflows yet." : "No workflows match your search."}
+                </p>
+              ) : (
+                filteredSavedWorkflows.map((wf) => (
+                  <div
+                    key={wf.id}
+                    className="bg-gray-800 hover:bg-gray-750 border border-gray-700 hover:border-violet-600 rounded-xl p-3 cursor-pointer transition-all group"
+                    onClick={() => handleSelectSavedWorkflow(wf)}
+                  >
+                    <div className="flex items-start gap-2 mb-1">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm font-semibold leading-tight truncate">{wf.name}</p>
+                      </div>
+                      <span className="text-gray-500 text-xs flex-shrink-0">{wf.nodes.length} nodes</span>
+                    </div>
+                    <p className="text-gray-500 text-xs">Updated {timeAgo(wf.updated_at)}</p>
                   </div>
                 ))
               )}
