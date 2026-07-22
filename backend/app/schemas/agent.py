@@ -11,6 +11,7 @@ class AgentCreate(BaseModel):
     tools: list[str] = []
     guardrails: dict = Field(default_factory=lambda: {"pii": True, "hallucination": True})
     agent_type: str = "agent"
+    worker_agent_ids: list[str] = []
 
 
 class AgentOut(BaseModel):
@@ -24,6 +25,7 @@ class AgentOut(BaseModel):
     created_by: str
     current_version: int
     agent_type: str
+    worker_agent_ids: list[str]
     created_at: datetime
     updated_at: datetime
 
@@ -44,6 +46,15 @@ class AgentRunResponse(BaseModel):
     output_pii_triggered: bool = False  # PII found in LLM output (redacted before response)
     hallucination_triggered: bool
     latency_ms: int
+
+
+class ManagerRunResponse(BaseModel):
+    output: str
+    guardrail_triggered: bool
+    pii_triggered: bool
+    hallucination_triggered: bool
+    latency_ms: int
+    steps: list[dict]
 
 
 class GenerateRequest(BaseModel):
