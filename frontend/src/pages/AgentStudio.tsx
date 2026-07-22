@@ -703,7 +703,10 @@ export default function AgentStudio() {
                 {runResult[agent.id] && (
                   <AgentResponse
                     text={runResult[agent.id]}
-                    onClear={() => setRunResult((p) => { const n = {...p}; delete n[agent.id]; return n; })}
+                    onClear={() => {
+                      setRunResult((p) => { const n = {...p}; delete n[agent.id]; return n; });
+                      setRunSteps((p) => { const n = {...p}; delete n[agent.id]; return n; });
+                    }}
                   />
                 )}
 
