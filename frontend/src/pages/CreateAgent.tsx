@@ -425,10 +425,20 @@ export default function CreateAgent() {
   const [fileFormats, setFileFormats] = useState<{ docx: boolean; pdf: boolean; csv: boolean; ppt: boolean }>({ docx: true, pdf: false, csv: false, ppt: false });
 
   // Managerial agent state
-  const [managerialAgents, setManagerialAgents] = useState<{ id: string; name: string; type: "agent" | "a2a" }[]>([]);
+  const [managerialAgents, setManagerialAgents] = useState<{ id: string; name: string }[]>([]);
   const [managerialModalOpen, setManagerialModalOpen] = useState(false);
-  const [managerialModalType, setManagerialModalType] = useState<"agent" | "a2a">("agent");
-  const [newAgentName, setNewAgentName] = useState("");
+  const [availableAgents, setAvailableAgents] = useState<{ id: string; name: string; agent_type?: string }[]>([]);
+  const [selectedWorkerId, setSelectedWorkerId] = useState("");
+
+  useEffect(() => {
+    if (!managerialModalOpen) return;
+    agentsApi.list().then((res) => {
+      const plain = (res.data as { id: string; name: string; agent_type?: string }[]).filter(
+        (a) => (a.agent_type ?? "agent") === "agent" && a.id !== editId
+      );
+      setAvailableAgents(plain);
+    }).catch(() => setAvailableAgents([]));
+  }, [managerialModalOpen, editId]);
 
   // Automation
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
@@ -629,6 +639,9 @@ export default function CreateAgent() {
         },
         temperature,
         top_p: topP,
+        ...(managerialAgents.length > 0
+          ? { agent_type: "managerial", worker_agent_ids: managerialAgents.map((a) => a.id) }
+          : {}),
       };
 
       if (editId) {
@@ -804,27 +817,17 @@ export default function CreateAgent() {
             <div className="border border-gray-200 rounded-xl p-4 relative">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-gray-700">Managerial Agent</span>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => { setManagerialModalType("agent"); setManagerialModalOpen(true); setNewAgentName(""); }}
-                    className="flex items-center gap-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50"
-                  >+ Agent</button>
-                  <button
-                    onClick={() => { setManagerialModalType("a2a"); setManagerialModalOpen(true); setNewAgentName(""); }}
-                    className="flex items-center gap-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50"
-                  >+ A2A</button>
-                </div>
+                <button
+                  onClick={() => { setManagerialModalOpen(true); setSelectedWorkerId(""); }}
+                  className="flex items-center gap-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50"
+                >+ Worker Agent</button>
               </div>
-              <p className="text-xs text-gray-400 mb-3">Add worker agents under this manager or connect Agent-to-Agent (A2A) flows</p>
+              <p className="text-xs text-gray-400 mb-3">Add existing agents as workers this manager can delegate to at runtime</p>
               {managerialAgents.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {managerialAgents.map((a) => (
-                    <span key={a.id} className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border font-medium ${
-                      a.type === "a2a"
-                        ? "bg-violet-50 border-violet-200 text-violet-700"
-                        : "bg-teal-50 border-teal-200 text-teal-700"
-                    }`}>
-                      {a.type === "a2a" ? "⇄" : "🤖"} {a.name}
+                    <span key={a.id} className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border font-medium bg-teal-50 border-teal-200 text-teal-700">
+                      🤖 {a.name}
                       <button
                         onClick={() => setManagerialAgents((p) => p.filter((x) => x.id !== a.id))}
                         className="ml-0.5 opacity-60 hover:opacity-100"
@@ -834,39 +837,39 @@ export default function CreateAgent() {
                 </div>
               )}
 
-              {/* Managerial modal */}
               {managerialModalOpen && (
                 <div className="absolute left-0 right-0 top-0 z-20 bg-white border border-gray-200 rounded-xl shadow-xl p-4">
                   <div className="flex items-center justify-between mb-3">
-                    <p className="text-sm font-semibold text-gray-800">
-                      {managerialModalType === "a2a" ? "Connect A2A Flow" : "Add Worker Agent"}
-                    </p>
+                    <p className="text-sm font-semibold text-gray-800">Add Worker Agent</p>
                     <button onClick={() => setManagerialModalOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
                   </div>
-                  <label className="block text-xs text-gray-500 mb-1">Agent name</label>
-                  <input
-                    autoFocus
+                  <label className="block text-xs text-gray-500 mb-1">Choose an existing agent</label>
+                  <select
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-teal-500 mb-3"
-                    placeholder={managerialModalType === "a2a" ? "e.g. EmailAgent" : "e.g. ResearchAgent"}
-                    value={newAgentName}
-                    onChange={(e) => setNewAgentName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && newAgentName.trim()) {
-                        setManagerialAgents((p) => [...p, { id: crypto.randomUUID(), name: newAgentName.trim(), type: managerialModalType }]);
-                        setManagerialModalOpen(false);
-                      }
-                    }}
-                  />
+                    value={selectedWorkerId}
+                    onChange={(e) => setSelectedWorkerId(e.target.value)}
+                  >
+                    <option value="">Select an agent…</option>
+                    {availableAgents
+                      .filter((a) => !managerialAgents.some((m) => m.id === a.id))
+                      .map((a) => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
+                      ))}
+                  </select>
+                  {availableAgents.length === 0 && (
+                    <p className="text-xs text-amber-600 mb-3">No other agents exist yet — create one first, then come back to add it as a worker.</p>
+                  )}
                   <div className="flex gap-2">
                     <button
                       onClick={() => setManagerialModalOpen(false)}
                       className="flex-1 py-2 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50"
                     >Cancel</button>
                     <button
-                      disabled={!newAgentName.trim()}
+                      disabled={!selectedWorkerId}
                       onClick={() => {
-                        if (!newAgentName.trim()) return;
-                        setManagerialAgents((p) => [...p, { id: crypto.randomUUID(), name: newAgentName.trim(), type: managerialModalType }]);
+                        const picked = availableAgents.find((a) => a.id === selectedWorkerId);
+                        if (!picked) return;
+                        setManagerialAgents((p) => [...p, { id: picked.id, name: picked.name }]);
                         setManagerialModalOpen(false);
                       }}
                       className="flex-1 py-2 bg-teal-500 hover:bg-teal-600 disabled:opacity-40 text-white rounded-lg text-xs font-medium"
