@@ -193,3 +193,21 @@ async def test_managerial_agent_skips_self_reference_and_duplicate_worker_ids(mo
     # Only the one real, non-self, de-duplicated worker should have run.
     assert len(body["steps"]) == 1
     assert body["steps"][0]["agent"] == real_worker_name["name"]
+
+
+@pytest.mark.asyncio
+async def test_delete_agent_with_version_history_succeeds():
+    """Every agent gets an AgentVersion row on creation (current_version=1),
+    and AgentVersion.agent_id has no ON DELETE CASCADE -- deleting an agent
+    used to hit an uncaught foreign key violation (500) instead of actually
+    deleting it. delete_agent must clear its versions first."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        create_res = await ac.post("/api/agents/", json={"name": "Deletable Agent", "system_prompt": "Temp."})
+        agent_id = create_res.json()["id"]
+
+        delete_res = await ac.delete(f"/api/agents/{agent_id}")
+        assert delete_res.status_code == 204
+
+        get_res = await ac.get(f"/api/agents/{agent_id}")
+        assert get_res.status_code == 404

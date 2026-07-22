@@ -1,6 +1,6 @@
 ﻿from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from pydantic import BaseModel
 from app.database import get_db
 from app.models.agent import Agent, AgentVersion
@@ -159,6 +159,11 @@ async def delete_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
     agent = await db.get(Agent, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
+    # AgentVersion.agent_id has no ON DELETE CASCADE, so every agent (which
+    # always has at least one version row from creation) must have its
+    # versions deleted first -- otherwise this raises an uncaught foreign
+    # key violation (500) instead of actually deleting the agent.
+    await db.execute(delete(AgentVersion).where(AgentVersion.agent_id == agent_id))
     await db.delete(agent)
     await db.commit()
 
