@@ -761,7 +761,12 @@ if __name__ == "__main__":
   }, [abName, showAutoBuild]);
 
   const handleSelectSavedWorkflow = (wf: SavedWorkflow) => {
-    setLoadedNodes(wf.nodes);
+    // Older saved workflows predate the roleNode renderer and were stored
+    // with no type, or the old built-in "input"/"output" types -- normalize
+    // all of them to roleNode so icons/colors render consistently (same
+    // normalization the ?workflowId= URL-param loader above already applies).
+    const nodes = wf.nodes.map((n) => (n.type === "roleNode" ? n : { ...n, type: "roleNode" }));
+    setLoadedNodes(nodes);
     setLoadedEdges(wf.edges);
     setCanvasKey((k) => k + 1);
     setShowLoadPicker(false);
