@@ -249,10 +249,19 @@ const SIDEBAR_DEFAULT = 256;
 const SIDEBAR_COLLAPSED = 64;
 
 function Sidebar() {
-  const { logout } = useAuth();
+  const { logout, user, fetchUser } = useAuth();
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem("af_sidebar_collapsed") === "true"
   );
+
+  useEffect(() => {
+    if (!user) fetchUser();
+  }, [user, fetchUser]);
+
+  const displayName = user?.full_name || "…";
+  const displayRole = user ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : "";
+  const displayEmail = user?.email || "";
+  const initial = (user?.full_name || user?.email || "?").charAt(0).toUpperCase();
   const [width, setWidth] = useState(
     () => parseInt(localStorage.getItem("af_sidebar_width") || String(SIDEBAR_DEFAULT), 10)
   );
@@ -369,12 +378,12 @@ function Sidebar() {
       <div className={`${collapsed ? "px-2 justify-center" : "px-5"} py-3 border-b border-gray-200 flex items-center gap-2.5 flex-shrink-0`}>
         <div
           className="w-7 h-7 bg-indigo-600 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-          title={collapsed ? "n.sureshmanikandan — Accenture Org" : undefined}
-        >N</div>
+          title={collapsed ? `${displayName} — ${displayRole}` : undefined}
+        >{initial}</div>
         {!collapsed && (
           <div className="min-w-0">
-            <p className="text-xs font-medium text-gray-700 truncate">n.sureshmanikandan</p>
-            <p className="text-xs text-gray-400 truncate">Accenture Org</p>
+            <p className="text-xs font-medium text-gray-700 truncate">{displayName}</p>
+            <p className="text-xs text-gray-400 truncate">{displayRole}</p>
           </div>
         )}
       </div>
@@ -481,11 +490,11 @@ function Sidebar() {
           }
           title={collapsed ? "My Profile" : undefined}
         >
-          <div className="w-7 h-7 bg-indigo-600 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">N</div>
+          <div className="w-7 h-7 bg-indigo-600 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">{initial}</div>
           {!collapsed && (
             <div className="flex-1 min-w-0">
               <p className="text-xs font-medium text-gray-800 truncate">My Profile</p>
-              <p className="text-xs text-gray-400 truncate">n.sureshmanikandan@accenture.com</p>
+              <p className="text-xs text-gray-400 truncate">{displayEmail}</p>
             </div>
           )}
         </NavLink>
