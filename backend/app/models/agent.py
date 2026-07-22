@@ -21,10 +21,12 @@ class Agent(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     current_version: Mapped[int] = mapped_column(Integer, default=1)
     agent_type: Mapped[str] = mapped_column(String, default="agent", server_default="agent")
+    worker_agent_ids: Mapped[list] = mapped_column(JSON, default=list, server_default="[]")
     versions: Mapped[list["AgentVersion"]] = relationship("AgentVersion", back_populates="agent")
 
     def __init__(self, **kwargs):
         kwargs.setdefault("current_version", 1)
+        kwargs.setdefault("worker_agent_ids", [])
         super().__init__(**kwargs)
 
 class AgentVersion(Base):
