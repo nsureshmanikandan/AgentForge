@@ -7,6 +7,15 @@ import type { NodeUpdateData } from "../components/canvas/AgentCanvas";
 import { WORKFLOW_TEMPLATES, TEMPLATE_CATEGORIES } from "../data/workflowTemplates";
 import type { WorkflowTemplate } from "../data/workflowTemplates";
 
+type SavedWorkflow = {
+  id: string;
+  name: string;
+  nodes: Node[];
+  edges: Edge[];
+  created_at: string | null;
+  updated_at: string | null;
+};
+
 const API_BASE = "http://localhost:8000/api";
 
 const ROLE_ICONS: Record<string, string> = {
@@ -87,6 +96,11 @@ export default function WorkflowBuilder() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [templateCategory, setTemplateCategory] = useState("All");
   const [templateSearch, setTemplateSearch] = useState("");
+
+  const [showLoadPicker, setShowLoadPicker] = useState(false);
+  const [savedWorkflows, setSavedWorkflows] = useState<SavedWorkflow[]>([]);
+  const [loadSearch, setLoadSearch] = useState("");
+  const [loadPickerError, setLoadPickerError] = useState<string | null>(null);
 
   // Auto-Build panel state
   const [showAutoBuild, setShowAutoBuild] = useState(false);
