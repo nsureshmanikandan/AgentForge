@@ -40,6 +40,14 @@ interface RunLog {
   duration_ms: number;
 }
 
+// Older saved workflows predate the roleNode renderer and were stored with no
+// type, or the old built-in "input"/"output" types -- normalize all of them
+// to roleNode so icons/colors render consistently, regardless of which path
+// (URL-param load or the saved-workflows picker) loaded them.
+function normalizeToRoleNodes(nodes: Node[]): Node[] {
+  return nodes.map((n) => (n.type === "roleNode" ? n : { ...n, type: "roleNode" }));
+}
+
 export default function WorkflowBuilder() {
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [selectedNodeData, setSelectedNodeData] = useState<{
@@ -125,11 +133,7 @@ export default function WorkflowBuilder() {
       .get(`${API_BASE}/builder/workflows/${workflowId}`)
       .then((res) => {
         const data = res.data as { nodes: Node[]; edges: Edge[] };
-        // Older saved workflows predate the roleNode renderer and were stored
-        // with no type, or the old built-in "input"/"output" types — normalize
-        // all of them to roleNode so icons/colors render consistently.
-        const nodes = data.nodes.map((n) => (n.type === "roleNode" ? n : { ...n, type: "roleNode" }));
-        setLoadedNodes(nodes);
+        setLoadedNodes(normalizeToRoleNodes(data.nodes));
         setLoadedEdges(data.edges);
         setCanvasKey((k) => k + 1);
         setLastLoadedTemplate(null);
@@ -761,12 +765,7 @@ if __name__ == "__main__":
   }, [abName, showAutoBuild]);
 
   const handleSelectSavedWorkflow = (wf: SavedWorkflow) => {
-    // Older saved workflows predate the roleNode renderer and were stored
-    // with no type, or the old built-in "input"/"output" types -- normalize
-    // all of them to roleNode so icons/colors render consistently (same
-    // normalization the ?workflowId= URL-param loader above already applies).
-    const nodes = wf.nodes.map((n) => (n.type === "roleNode" ? n : { ...n, type: "roleNode" }));
-    setLoadedNodes(nodes);
+    setLoadedNodes(normalizeToRoleNodes(wf.nodes));
     setLoadedEdges(wf.edges);
     setCanvasKey((k) => k + 1);
     setShowLoadPicker(false);
