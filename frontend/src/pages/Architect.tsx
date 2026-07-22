@@ -2100,6 +2100,45 @@ def test_upload_and_delete_document(client, auth_headers, monkeypatch):
     assert r.json()["deleted"] == doc_id
 `);
 
+  // ── docker-compose.yml + Dockerfiles ─────────────────────────────────────
+  // No db service here -- the RAG template is intentionally stateless (FAISS
+  // in-memory index only), unlike Custom Code's Postgres-backed compose.
+  zip.file("docker-compose.yml", `version: "3.9"
+services:
+  backend:
+    build: ./backend
+    env_file: ./backend/.env
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+`);
+
+  zip.file("backend/Dockerfile", `FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+`);
+
+  zip.file("frontend/Dockerfile", `FROM node:18-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=builder /app/dist /usr/share/nginx/html
+EXPOSE 80
+`);
+
   // ── .github/workflows/ci.yml ─────────────────────────────────────────────
   zip.file(".github/workflows/ci.yml", `name: CI
 
@@ -2157,7 +2196,17 @@ jobs:
 
 ## Quick Start
 
-### Backend
+### Option 1: Docker Compose (Recommended — runs everything)
+\`\`\`bash
+cp backend/.env.example backend/.env   # fill in your Azure keys${useSso ? " and Azure AD tenant/client IDs (or leave SSO_ENABLED=false for local dev)" : " and JWT_SECRET"}
+docker-compose up --build
+\`\`\`
+- Frontend: http://localhost:5173
+- Backend API: http://localhost:8000
+
+### Option 2: Manual
+
+#### Backend
 \`\`\`bash
 cd backend
 pip install -r requirements.txt
@@ -2165,7 +2214,7 @@ cp .env.example .env   # fill in your Azure keys${useSso ? " and Azure AD tenant
 uvicorn main:app --reload --port 8000
 \`\`\`
 
-### Frontend
+#### Frontend
 \`\`\`bash
 cd frontend
 npm install
