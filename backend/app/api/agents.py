@@ -175,7 +175,14 @@ def _agent_config(agent: Agent) -> dict:
 
 async def _run_managerial(agent: Agent, body: AgentRunRequest, db: AsyncSession) -> ManagerRunResponse:
     worker_agents = []
+    seen_ids = set()
     for worker_id in agent.worker_agent_ids:
+        # Skip self-reference and duplicate ids -- MultiAgentOrchestrator keys
+        # its workers dict by name, so duplicate/self entries would otherwise
+        # silently collapse or let a manager invoke itself as a worker.
+        if worker_id == agent.id or worker_id in seen_ids:
+            continue
+        seen_ids.add(worker_id)
         worker = await db.get(Agent, worker_id)
         if worker is not None:
             worker_agents.append(worker)

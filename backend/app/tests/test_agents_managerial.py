@@ -1,3 +1,4 @@
+import json
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
@@ -138,3 +139,57 @@ async def test_managerial_agent_falls_back_to_first_worker_on_malformed_manager_
     body = run_res.json()
     assert len(body["steps"]) == 1
     assert body["output"] == "worker ran anyway"
+
+
+@pytest.mark.asyncio
+async def test_managerial_agent_skips_self_reference_and_duplicate_worker_ids(monkeypatch):
+    """A manager should never invoke itself as a worker, and duplicate ids in
+    worker_agent_ids shouldn't be resolved/counted twice."""
+    call_count = {"n": 0}
+    # Populated after the worker agent is created below -- create_agent
+    # auto-renames on a name collision (e.g. "Worker Five" -> "Worker Five_v2"
+    # if a prior test run left one behind), so the manager's worker-selection
+    # JSON must reference whatever name the worker actually ended up with.
+    real_worker_name = {}
+
+    async def fake_run(self, user_input, chat_history=None):
+        call_count["n"] += 1
+        # First call is the manager deciding which workers to invoke -- return
+        # a JSON array naming the one real worker so MultiAgentOrchestrator
+        # actually dispatches to it (subsequent calls are worker runs).
+        output = json.dumps([real_worker_name["name"]]) if call_count["n"] == 1 else "ok"
+        return {
+            "output": output, "raw_output": output, "guardrail_triggered": False,
+            "pii_triggered": False, "input_pii_triggered": False,
+            "output_pii_triggered": False, "hallucination_triggered": False, "latency_ms": 5,
+        }
+
+    from app.core.orchestrator import AgentOrchestrator
+    monkeypatch.setattr(AgentOrchestrator, "run", fake_run)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        worker_res = await ac.post("/api/agents/", json={"name": "Worker Five", "system_prompt": "Worker."})
+        worker_id = worker_res.json()["id"]
+        real_worker_name["name"] = worker_res.json()["name"]
+
+        create_res = await ac.post("/api/agents/", json={
+            "name": "Manager Five", "system_prompt": "You manage.",
+            "agent_type": "managerial", "worker_agent_ids": [worker_id],
+        })
+        manager_id = create_res.json()["id"]
+
+        # Update the manager to reference itself and a duplicate of the real worker.
+        update_res = await ac.put(f"/api/agents/{manager_id}", json={
+            "name": "Manager Five", "system_prompt": "You manage.",
+            "agent_type": "managerial", "worker_agent_ids": [manager_id, worker_id, worker_id],
+        })
+        assert update_res.status_code == 200
+
+        run_res = await ac.post(f"/api/agents/{manager_id}/run", json={"input": "go"})
+
+    assert run_res.status_code == 200
+    body = run_res.json()
+    # Only the one real, non-self, de-duplicated worker should have run.
+    assert len(body["steps"]) == 1
+    assert body["steps"][0]["agent"] == real_worker_name["name"]
