@@ -645,21 +645,16 @@ if __name__ == "__main__":
     showToast("Saved!");
   };
 
-  const handleLoad = () => {
-    const raw = localStorage.getItem("af_workflow_current");
-    if (!raw) {
-      showToast("No saved workflow found.");
-      return;
-    }
+  const handleLoad = async () => {
+    setShowLoadPicker(true);
+    setLoadPickerError(null);
     try {
-      const { nodes, edges } = JSON.parse(raw) as { nodes: Node[]; edges: Edge[] };
-      setLoadedNodes(nodes);
-      setLoadedEdges(edges);
-      setCanvasKey((k) => k + 1);
-      setLastLoadedTemplate(null);
-      showToast("Workflow loaded!");
+      const res = await fetch(`${API_BASE}/builder/workflows`);
+      if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+      const data = (await res.json()) as SavedWorkflow[];
+      setSavedWorkflows(data);
     } catch {
-      showToast("Failed to load workflow.");
+      setLoadPickerError("Failed to load saved workflows. Is the backend running?");
     }
   };
 
@@ -765,6 +760,18 @@ if __name__ == "__main__":
     return () => clearTimeout(timer);
   }, [abName, showAutoBuild]);
 
+  const handleSelectSavedWorkflow = (wf: SavedWorkflow) => {
+    setLoadedNodes(wf.nodes);
+    setLoadedEdges(wf.edges);
+    setCanvasKey((k) => k + 1);
+    setShowLoadPicker(false);
+    setSelectedNode(null);
+    setSelectedNodeData(undefined);
+    setRunLogs(null);
+    setWebhookUrl(null);
+    showToast(`Loaded: ${wf.name}`);
+  };
+
   const handleLoadTemplate = (tpl: WorkflowTemplate) => {
     setLoadedNodes(tpl.nodes);
     setLoadedEdges(tpl.edges);
@@ -785,6 +792,22 @@ if __name__ == "__main__":
     const matchSearch = !q || t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q) || t.tags.some((tag) => tag.includes(q));
     return matchCat && matchSearch;
   });
+
+  const filteredSavedWorkflows = savedWorkflows.filter((wf) => {
+    const q = loadSearch.toLowerCase();
+    return !q || wf.name.toLowerCase().includes(q);
+  });
+
+  function timeAgo(iso: string | null): string {
+    if (!iso) return "unknown";
+    const diffMs = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diffMs / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
+  }
 
   return (
     <div className="flex h-full bg-gray-950 flex-col">
