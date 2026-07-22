@@ -351,6 +351,7 @@ export default function AgentStudio() {
   const [loading, setLoading] = useState(true);
   const [runInput, setRunInput] = useState<{ [id: string]: string }>({});
   const [runResult, setRunResult] = useState<{ [id: string]: string }>({});
+  const [runSteps, setRunSteps] = useState<{ [id: string]: { agent: string; result: { output: string } }[] }>({});
   const [runningId, setRunningId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -443,10 +444,12 @@ export default function AgentStudio() {
       const res = await agentsApi.run(id, input);
       const output = res.data.output;
       setRunResult((p) => ({ ...p, [id]: output }));
+      setRunSteps((p) => ({ ...p, [id]: res.data.steps ?? [] }));
       // Record run in evolution history with self-healing
       recordRun(id, input, output);
     } catch {
       setRunResult((p) => ({ ...p, [id]: "Error running agent" }));
+      setRunSteps((p) => ({ ...p, [id]: [] }));
     } finally {
       setRunningId(null);
     }
@@ -702,6 +705,21 @@ export default function AgentStudio() {
                     text={runResult[agent.id]}
                     onClear={() => setRunResult((p) => { const n = {...p}; delete n[agent.id]; return n; })}
                   />
+                )}
+
+                {(agent.agent_type ?? "agent") === "managerial" && (runSteps[agent.id]?.length ?? 0) > 0 && (
+                  <details className="mt-2 text-xs text-gray-500">
+                    <summary className="cursor-pointer hover:text-gray-700">
+                      {runSteps[agent.id].length} worker{runSteps[agent.id].length === 1 ? "" : "s"} invoked
+                    </summary>
+                    <ul className="mt-1.5 space-y-1 pl-3 border-l border-gray-200">
+                      {runSteps[agent.id].map((s, i) => (
+                        <li key={i}>
+                          <span className="font-medium text-gray-700">{s.agent}</span>: {s.result.output}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
                 )}
 
                 {/* Run Evolution — shows after first successful run */}
