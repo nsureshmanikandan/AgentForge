@@ -801,6 +801,7 @@ if __name__ == "__main__":
   function timeAgo(iso: string | null): string {
     if (!iso) return "unknown";
     const diffMs = Date.now() - new Date(iso).getTime();
+    if (Number.isNaN(diffMs)) return "unknown";
     const mins = Math.floor(diffMs / 60000);
     if (mins < 1) return "just now";
     if (mins < 60) return `${mins}m ago`;
