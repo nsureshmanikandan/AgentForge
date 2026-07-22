@@ -44,8 +44,30 @@ interface RunLog {
 // type, or the old built-in "input"/"output" types -- normalize all of them
 // to roleNode so icons/colors render consistently, regardless of which path
 // (URL-param load or the saved-workflows picker) loaded them.
+//
+// The very oldest workflows (from before React Flow's node shape was adopted
+// at all) are missing "data" and "position" entirely -- just a flat
+// {id, label, role} shape. RoleNode crashes with no error boundary if handed
+// one of these directly, taking down the whole page. Wrap those into a real
+// React Flow node here, mirroring the equivalent GPT-flat-node conversion
+// already done server-side in backend/app/api/builder.py's auto-build endpoint.
 function normalizeToRoleNodes(nodes: Node[]): Node[] {
-  return nodes.map((n) => (n.type === "roleNode" ? n : { ...n, type: "roleNode" }));
+  return nodes.map((n) => {
+    if (!n.data) {
+      const flat = n as unknown as { id: string; label?: string; role?: string; description?: string; x?: number; y?: number };
+      return {
+        id: flat.id,
+        type: "roleNode",
+        position: { x: flat.x ?? 80, y: flat.y ?? 200 },
+        data: {
+          label: flat.label ?? flat.role ?? "Agent",
+          role: flat.role ?? "agent",
+          description: flat.description ?? "",
+        },
+      } as Node;
+    }
+    return n.type === "roleNode" ? n : { ...n, type: "roleNode" };
+  });
 }
 
 export default function WorkflowBuilder() {
