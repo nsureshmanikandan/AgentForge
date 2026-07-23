@@ -746,7 +746,8 @@ export default function CreateAgent() {
           </button>
           <button
             onClick={handleSubmit}
-            disabled={creating}
+            disabled={creating || !role.trim() || !goal.trim() || !instructions.trim()}
+            title={!role.trim() || !goal.trim() || !instructions.trim() ? "Role, Goal, and Instructions are all required" : undefined}
             className="px-5 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-colors"
           >
             {creating ? (editId ? "Saving..." : "Creating...") : (editId ? "Save Changes" : "Create")}
@@ -787,7 +788,7 @@ export default function CreateAgent() {
             </div>
 
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Role</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Role <span className="text-red-500">*</span></label>
               <input
                 className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm text-gray-700 placeholder-gray-400 outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
                 placeholder="e.g., Customer Support Agent, Research Assistant"
@@ -797,7 +798,7 @@ export default function CreateAgent() {
             </div>
 
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Goal</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Goal <span className="text-red-500">*</span></label>
               <input
                 className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm text-gray-700 placeholder-gray-400 outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
                 placeholder="e.g., Answer customer questions, summarize documents"
@@ -807,7 +808,7 @@ export default function CreateAgent() {
             </div>
 
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Instructions</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Instructions <span className="text-red-500">*</span></label>
               <textarea
                 className="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-700 placeholder-gray-400 outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent resize-none"
                 placeholder={"Write instructions in plain English. Example: 'You are a helpful customer support agent. Answer questions politely using our FAQ docs.' Use @ to mention other agents."}
