@@ -31,7 +31,10 @@ const ROLE_BORDER_COLORS: Record<string, string> = {
   rag: "#f59e0b",
   output: "#0d9488",
   condition: "#eab308",
-  approval: "#ec4899",
+  // Amber, not red -- red is reserved for the "error" execution state (see
+  // note above), and this role commonly sits on a workflow's "Critical"
+  // escalation branch, which used to be colored the same red as an error.
+  approval: "#f59e0b",
   http_request: "#f97316",
 };
 

@@ -398,6 +398,7 @@ export default function WorkflowBuilder() {
             for (const e of edges) {
               if (e.source === current && !visited.has(e.target)) {
                 visited.add(e.target);
+                edgeUpdaterRef.current?.(e.source, e.target, { active: true });
                 queue.push(e.target);
               }
             }
