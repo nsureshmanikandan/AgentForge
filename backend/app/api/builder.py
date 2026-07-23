@@ -51,6 +51,8 @@ class SuggestIdeasRequest(BaseModel):
 
 class SuggestInputRequest(BaseModel):
     nodes: list[dict]
+    target_node_id: str | None = None
+    target_label: str | None = None
 
 
 class WorkflowSaveRequest(BaseModel):
@@ -626,7 +628,14 @@ async def suggest_ideas(body: SuggestIdeasRequest):
 
 @router.post("/suggest-input")
 async def suggest_input(body: SuggestInputRequest):
-    """Given a workflow's nodes, generate one realistic example input to trigger it with."""
+    """Given a workflow's nodes, generate one realistic example input to trigger it with.
+
+    If target_node_id/target_label are given (a specific router branch was forced in the
+    Run modal), the example is written to plausibly satisfy that router node's OWN
+    classification criteria -- e.g. its "Critical (production down...) or Routine
+    (single-user issue...)" description -- so a forced branch no longer looks narratively
+    mismatched against a randomly-generated, unrelated input.
+    """
     client = AzureOpenAIClient()
     node_summary = "\n".join(
         f"- {(n.get('data') or {}).get('label', n.get('id'))} "
@@ -634,15 +643,39 @@ async def suggest_input(body: SuggestInputRequest):
         f"{(n.get('data') or {}).get('description', '')}"
         for n in body.nodes
     )
-    messages = [
-        {"role": "system", "content": (
-            "You are helping a user test an AI agent pipeline. Given the pipeline's nodes below, "
-            "write ONE realistic, specific example input a real user might submit to trigger this "
-            "exact pipeline. Return ONLY the example input text, no quotes, no explanation, no "
-            "markdown."
-        )},
-        {"role": "user", "content": f"Pipeline nodes:\n{node_summary}"},
-    ]
+
+    target_node = next((n for n in body.nodes if n.get("id") == body.target_node_id), None) if body.target_node_id else None
+
+    if target_node and body.target_label:
+        target_label = body.target_label
+        target_description = (target_node.get("data") or {}).get("description", "")
+        target_node_label = (target_node.get("data") or {}).get("label", target_node.get("id"))
+        messages = [
+            {"role": "system", "content": (
+                "You are helping a user test an AI agent pipeline that starts by classifying the "
+                "input into one of several branches. Given the pipeline's nodes below, write ONE "
+                "realistic, specific example input that would clearly and unambiguously be "
+                f'classified as "{target_label}" by the "{target_node_label}" node, based on that '
+                "node's own classification criteria. Return ONLY the example input text, no quotes, "
+                "no explanation, no markdown."
+            )},
+            {"role": "user", "content": (
+                f"Pipeline nodes:\n{node_summary}\n\n"
+                f'Classifier node "{target_node_label}" criteria: {target_description}\n'
+                f'Target classification: "{target_label}"'
+            )},
+        ]
+    else:
+        messages = [
+            {"role": "system", "content": (
+                "You are helping a user test an AI agent pipeline. Given the pipeline's nodes below, "
+                "write ONE realistic, specific example input a real user might submit to trigger this "
+                "exact pipeline. Return ONLY the example input text, no quotes, no explanation, no "
+                "markdown."
+            )},
+            {"role": "user", "content": f"Pipeline nodes:\n{node_summary}"},
+        ]
+
     raw = await client.chat(messages, temperature=0.5)
     return {"suggested_input": raw.strip()}
 

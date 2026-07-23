@@ -244,8 +244,13 @@ export default function WorkflowBuilder() {
     }
   };
 
-  const fetchSuggestedInput = useCallback(async () => {
-    if (!workflowRef.current || lastLoadedTemplate || autoFillLoading) return;
+  const fetchSuggestedInput = useCallback(async (target?: { nodeId: string; label: string }) => {
+    if (!workflowRef.current || autoFillLoading) return;
+    // A template's canned sample input is only the default for the initial, untargeted
+    // suggestion -- once the user deliberately forces a specific branch, they want an
+    // example that actually matches it, so that override should win regardless.
+    if (lastLoadedTemplate && !target) return;
+    if (userEditedRunInputRef.current) return;
     setAutoFillLoading(true);
     const controller = new AbortController();
     suggestAbortRef.current = controller;
@@ -253,7 +258,10 @@ export default function WorkflowBuilder() {
       const token = localStorage.getItem("token") || localStorage.getItem("agentforge_token");
       const res = await axios.post(
         `${API_BASE}/builder/suggest-input`,
-        { nodes: workflowRef.current.nodes },
+        {
+          nodes: workflowRef.current.nodes,
+          ...(target ? { target_node_id: target.nodeId, target_label: target.label } : {}),
+        },
         { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal }
       );
       const suggested = (res.data as { suggested_input: string }).suggested_input;
@@ -1386,7 +1394,19 @@ if __name__ == "__main__":
                     <span className="text-gray-300 text-xs">🔀 Force branch: <span className="font-semibold text-white">{label}</span></span>
                     <select
                       value={forcedBranches[routerNode.id] ?? ""}
-                      onChange={(e) => setForcedBranches((prev) => ({ ...prev, [routerNode.id]: e.target.value }))}
+                      onChange={(e) => {
+                        const newLabel = e.target.value;
+                        setForcedBranches((prev) => ({ ...prev, [routerNode.id]: newLabel }));
+                        // Keep the example input narratively consistent with whichever branch was
+                        // just forced, instead of leaving a possibly-mismatched input from before
+                        // (e.g. a trivial Wi-Fi issue paired with a forced "Critical" escalation).
+                        suggestAbortRef.current?.abort();
+                        if (newLabel) {
+                          void fetchSuggestedInput({ nodeId: routerNode.id, label: newLabel });
+                        } else {
+                          void fetchSuggestedInput();
+                        }
+                      }}
                       className="bg-gray-900 text-white text-xs border border-gray-600 rounded-md px-2 py-1 focus:outline-none focus:border-emerald-500"
                     >
                       <option value="">Auto (LLM decides)</option>
