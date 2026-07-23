@@ -398,6 +398,15 @@ function Sidebar() {
         <NavLink to="/studio" className={linkClass} title={collapsed ? "Agent Studio" : undefined}>
           <IconRobot />{!collapsed && "Agent Studio"}
         </NavLink>
+        <NavLink to="/architect" className={linkClass} title={collapsed ? "Architect" : undefined}>
+          <IconArchitect />{!collapsed && "Architect"}
+        </NavLink>
+        <NavLink to="/prompts" className={linkClass} title={collapsed ? "Prompt Library" : undefined}>
+          <IconSparkle />{!collapsed && "Prompt Library"}
+        </NavLink>
+        <NavLink to="/knowledge-bases" className={linkClass} title={collapsed ? "Knowledge Bases" : undefined}>
+          <IconDatabase />{!collapsed && "Knowledge Bases"}
+        </NavLink>
 
         {/* PROJECTS */}
         {!collapsed && <p className="text-xs font-semibold text-gray-400 px-3 pt-4 pb-2 uppercase tracking-wider">Projects</p>}
@@ -423,19 +432,6 @@ function Sidebar() {
         </NavLink>
         <NavLink to="/workflow-runs" className={linkClass} title={collapsed ? "Workflow Observability" : undefined}>
           <IconChart />{!collapsed && "Workflow Observability"}
-        </NavLink>
-
-        {/* BUILD */}
-        {!collapsed && <p className="text-xs font-semibold text-gray-400 px-3 pt-4 pb-2 uppercase tracking-wider">Build</p>}
-        {collapsed && <div className="pt-3" />}
-        <NavLink to="/architect" className={linkClass} title={collapsed ? "Architect" : undefined}>
-          <IconArchitect />{!collapsed && "Architect"}
-        </NavLink>
-        <NavLink to="/prompts" className={linkClass} title={collapsed ? "Prompt Library" : undefined}>
-          <IconSparkle />{!collapsed && "Prompt Library"}
-        </NavLink>
-        <NavLink to="/knowledge-bases" className={linkClass} title={collapsed ? "Knowledge Bases" : undefined}>
-          <IconDatabase />{!collapsed && "Knowledge Bases"}
         </NavLink>
 
         {/* GET STARTED */}
