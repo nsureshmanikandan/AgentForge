@@ -93,8 +93,10 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
     )
 
     # Avg latency from WorkflowRun.total_duration_ms (most reliable source)
-    avg_latency_wf = await db.scalar(select(func.avg(WorkflowRun.total_duration_ms))) or 0.0
-    avg_latency_audit = await db.scalar(select(func.avg(AuditLog.latency_ms))) or 0.0
+    # Postgres returns a Decimal for an Integer column's avg() but a float for a
+    # Float column's -- cast both to float or "Decimal + float" raises TypeError.
+    avg_latency_wf = float(await db.scalar(select(func.avg(WorkflowRun.total_duration_ms))) or 0.0)
+    avg_latency_audit = float(await db.scalar(select(func.avg(AuditLog.latency_ms))) or 0.0)
     # Weighted average: prefer workflow runs if they exist
     if workflow_run_count > 0 and audit_run_count > 0:
         avg_latency = (avg_latency_wf * workflow_run_count + avg_latency_audit * audit_run_count) / total_runs

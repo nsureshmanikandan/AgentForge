@@ -418,8 +418,8 @@ function Sidebar() {
         <NavLink to="/usage" className={linkClass} title={collapsed ? "Usage & Traceability" : undefined}>
           <IconChart />{!collapsed && "Usage & Traceability"}
         </NavLink>
-        <NavLink to="/dashboard" className={linkClass} title={collapsed ? "Dashboard" : undefined}>
-          <IconMonitor />{!collapsed && "Dashboard"}
+        <NavLink to="/dashboard" className={linkClass} title={collapsed ? "Control Plane" : undefined}>
+          <IconMonitor />{!collapsed && "Control Plane"}
         </NavLink>
         <NavLink to="/workflow-runs" className={linkClass} title={collapsed ? "Workflow Observability" : undefined}>
           <IconChart />{!collapsed && "Workflow Observability"}
