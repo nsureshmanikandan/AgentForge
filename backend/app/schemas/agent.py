@@ -7,6 +7,12 @@ class AgentCreate(BaseModel):
     name: str
     description: str = ""
     system_prompt: str
+    # Structured source fields from the Create Agent form's Role/Goal inputs,
+    # kept separate from system_prompt so editing an agent doesn't have to
+    # regex-parse them back out of the composed prompt text. None for agents
+    # authored without the structured Role/Goal flow.
+    role: str | None = None
+    goal: str | None = None
     model: str = Field(default_factory=lambda: settings.azure_openai_deployment_gpt4o)
     tools: list[str] = []
     guardrails: dict = Field(default_factory=lambda: {"pii": True, "hallucination": True})
@@ -19,6 +25,8 @@ class AgentOut(BaseModel):
     name: str
     description: str
     system_prompt: str
+    role: str | None = None
+    goal: str | None = None
     model: str
     tools: list[str]
     guardrails: dict

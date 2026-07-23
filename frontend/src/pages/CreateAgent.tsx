@@ -479,8 +479,18 @@ export default function CreateAgent() {
       if (agent.tools) setSelectedTools(agent.tools);
       if (agent.temperature != null) setTemperature(agent.temperature);
 
-      // Parse system_prompt into role/goal/instructions
-      if (agent.system_prompt) {
+      // Prefer the real role/goal columns (saved directly, not derived) --
+      // only fall back to regex-parsing system_prompt for agents saved before
+      // these columns existed, which never had role/goal stored separately.
+      if (agent.role != null || agent.goal != null) {
+        if (agent.role) setRole(agent.role);
+        if (agent.goal) setGoal(agent.goal);
+        if (agent.system_prompt) {
+          const sp: string = agent.system_prompt;
+          const instrMatch = sp.match(/^Instructions:\s*([\s\S]+?)(?=\nRole:|\nGoal:|$)/ms);
+          setInstructions(instrMatch ? instrMatch[1].trim() : sp);
+        }
+      } else if (agent.system_prompt) {
         const sp: string = agent.system_prompt;
         const roleMatch = sp.match(/^Role:\s*(.+?)(?=\nGoal:|\nInstructions:|$)/ms);
         const goalMatch = sp.match(/^Goal:\s*(.+?)(?=\nRole:|\nInstructions:|$)/ms);
@@ -632,6 +642,8 @@ export default function CreateAgent() {
         description: goal || instructions || role || agentName,
         model,
         system_prompt: systemPrompt || `You are ${agentName}, a helpful AI assistant.`,
+        role: role || null,
+        goal: goal || null,
         tools: [...selectedTools, ...selectedSkills],
         guardrails: {
           pii: responsibleAIConfig.enabledPolicies.includes("pii"),

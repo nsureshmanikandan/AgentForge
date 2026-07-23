@@ -11,6 +11,13 @@ class Agent(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str] = mapped_column(String, default="")
     system_prompt: Mapped[str] = mapped_column(String, default="")
+    # Nullable: role/goal are the Create Agent form's own structured fields, kept
+    # separate from system_prompt (which stays the single field the orchestrator
+    # actually reads at runtime) so editing an agent doesn't have to regex-parse
+    # them back out of the composed prompt text. NULL for agents created before
+    # this column existed -- CreateAgent.tsx falls back to regex parsing for those.
+    role: Mapped[str | None] = mapped_column(String, nullable=True)
+    goal: Mapped[str | None] = mapped_column(String, nullable=True)
     # "local" (default) or "azure" -- resolved to a real provider/deployment by
     # AgentOrchestrator, not a literal Azure deployment name.
     model: Mapped[str] = mapped_column(String, default="local")
