@@ -356,15 +356,6 @@ export default function AgentStudio() {
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deployAgent, setDeployAgent] = useState<Agent | null>(null);
-  const [publishAgent, setPublishAgent] = useState<Agent | null>(null);
-  const [publishCategory, setPublishCategory] = useState("Productivity");
-  const [publishDescription, setPublishDescription] = useState("");
-  const [publishTags, setPublishTags] = useState("");
-  const [publishPricing, setPublishPricing] = useState<"free" | "paid">("free");
-  const [publishedIds, setPublishedIds] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("af_published_ids") ?? "[]"); }
-    catch { return []; }
-  });
   const [typeFilter, setTypeFilter] = useState<"all" | "agent" | "managerial" | "superflow">("all");
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -655,22 +646,6 @@ export default function AgentStudio() {
                     </svg>
                     Deploy
                   </button>
-                  <button
-                    onClick={() => {
-                      setPublishAgent(agent);
-                      setPublishDescription(agent.description ?? "");
-                      setPublishTags("");
-                      setPublishCategory("Productivity");
-                      setPublishPricing("free");
-                    }}
-                    className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                      publishedIds.includes(agent.id)
-                        ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                        : "border-gray-200 text-gray-600 hover:bg-gray-50"
-                    }`}
-                  >
-                    {publishedIds.includes(agent.id) ? "✓ Published" : "🌐 Publish"}
-                  </button>
                 </div>
                 <div className="flex gap-2">
                   <input
@@ -739,101 +714,6 @@ export default function AgentStudio() {
           ))}
         </div>
         </>
-      )}
-
-      {/* Publish Modal */}
-      {publishAgent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <div>
-                <h2 className="text-base font-semibold text-gray-900">Publish to Marketplace</h2>
-                <p className="text-xs text-gray-400 mt-0.5">{publishAgent.name}</p>
-              </div>
-              <button onClick={() => setPublishAgent(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
-            </div>
-            <div className="px-6 py-4 space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Category</label>
-                <select
-                  value={publishCategory}
-                  onChange={(e) => setPublishCategory(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-teal-500"
-                >
-                  {["Productivity", "Communication", "Engineering", "Sales", "Analytics", "Support", "Finance", "HR"].map((c) => (
-                    <option key={c}>{c}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Description</label>
-                <textarea
-                  rows={3}
-                  value={publishDescription}
-                  onChange={(e) => setPublishDescription(e.target.value)}
-                  placeholder="Describe what this agent does..."
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-teal-500 resize-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Tags (comma-separated)</label>
-                <input
-                  value={publishTags}
-                  onChange={(e) => setPublishTags(e.target.value)}
-                  placeholder="e.g. support, faq, rag"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-teal-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Pricing</label>
-                <div className="flex gap-2">
-                  {(["free", "paid"] as const).map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => setPublishPricing(p)}
-                      className={`flex-1 py-2 rounded-lg text-xs font-medium border transition-colors capitalize ${
-                        publishPricing === p
-                          ? "bg-teal-50 border-teal-400 text-teal-700"
-                          : "border-gray-200 text-gray-500 hover:bg-gray-50"
-                      }`}
-                    >
-                      {p === "free" ? "🆓 Free" : "💰 Paid"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="px-6 pb-5 flex gap-3">
-              <button
-                onClick={() => setPublishAgent(null)}
-                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50"
-              >Cancel</button>
-              <button
-                onClick={() => {
-                  const newIds = [...publishedIds, publishAgent.id];
-                  setPublishedIds(newIds);
-                  localStorage.setItem("af_published_ids", JSON.stringify(newIds));
-                  const existing = JSON.parse(localStorage.getItem("af_marketplace_agents") ?? "[]");
-                  existing.push({
-                    id: publishAgent.id,
-                    name: publishAgent.name,
-                    model: publishAgent.model,
-                    description: publishDescription || publishAgent.description,
-                    category: publishCategory,
-                    tags: publishTags.split(",").map((t: string) => t.trim()).filter(Boolean),
-                    pricing: publishPricing,
-                    publishedAt: Date.now(),
-                  });
-                  localStorage.setItem("af_marketplace_agents", JSON.stringify(existing));
-                  setPublishAgent(null);
-                }}
-                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium transition-colors"
-              >
-                🌐 Publish Agent
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* Deploy Modal */}

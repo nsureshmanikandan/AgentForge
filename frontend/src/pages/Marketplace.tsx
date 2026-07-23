@@ -14,31 +14,11 @@ const MARKETPLACE_ITEMS = [
 
 const CATEGORIES = ["All", "Communication", "Engineering", "Productivity", "Sales", "Documents"];
 
-interface PublishedAgent {
-  id: string;
-  name: string;
-  model: string;
-  description: string;
-  category: string;
-  tags: string[];
-  pricing: "free" | "paid";
-  publishedAt: number;
-}
-
 export default function Marketplace() {
-  const [activeTab, setActiveTab] = useState<"integrations" | "published">("integrations");
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [installedNames, setInstalledNames] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("af_installed_integrations") ?? "[]"); }
-    catch { return []; }
-  });
-  const [publishedAgents] = useState<PublishedAgent[]>(() => {
-    try { return JSON.parse(localStorage.getItem("af_marketplace_agents") ?? "[]"); }
-    catch { return []; }
-  });
-  const [installedAgentIds, setInstalledAgentIds] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("af_installed_agents") ?? "[]"); }
     catch { return []; }
   });
 
@@ -49,17 +29,12 @@ export default function Marketplace() {
     return matchSearch && matchCat;
   });
 
-  const filteredPublished = publishedAgents.filter((a) =>
-    a.name.toLowerCase().includes(search.toLowerCase()) ||
-    a.description.toLowerCase().includes(search.toLowerCase())
-  );
-
   return (
     <div className="p-8 bg-gray-50 min-h-screen">
       <div className="flex items-start justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 mb-1">Marketplace</h1>
-          <p className="text-gray-500 text-sm">Browse tool integrations and published agents</p>
+          <p className="text-gray-500 text-sm">Browse tool integrations</p>
         </div>
         <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm">
           <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -74,29 +49,22 @@ export default function Marketplace() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-1 mb-5">
-        {([
-          { id: "integrations", label: `Tool Integrations (${MARKETPLACE_ITEMS.length})` },
-          { id: "published", label: `Published Agents (${publishedAgents.length})` },
-        ] as const).map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setActiveTab(t.id)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              activeTab === t.id
-                ? "bg-indigo-600 text-white"
-                : "text-gray-500 hover:text-gray-700 hover:bg-white border border-gray-200"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      {/* Not-yet-active notice -- Connect below only toggles a local preview state; it
+          does not grant any agent real access to the tool yet. */}
+      <div className="flex gap-3 bg-amber-50 border border-amber-100 rounded-xl px-5 py-4 mb-5">
+        <svg className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+            d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+        </svg>
+        <div>
+          <p className="text-sm font-medium text-amber-800">Not yet active</p>
+          <p className="text-xs text-amber-700 mt-0.5">
+            Connecting a tool here doesn't grant any agent real access yet — this is a preview of what's planned.
+          </p>
+        </div>
       </div>
 
-      {activeTab === "integrations" && (
-        <>
-          {/* Category filter */}
+      {/* Category filter */}
           <div className="flex flex-wrap gap-2 mb-5">
             {CATEGORIES.map((c) => (
               <button
@@ -146,78 +114,6 @@ export default function Marketplace() {
               </div>
             ))}
           </div>
-        </>
-      )}
-
-      {activeTab === "published" && (
-        <div>
-          {filteredPublished.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mb-4">
-                <svg className="w-8 h-8 text-indigo-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253M3 12a8.954 8.954 0 01.284-2.253" />
-                </svg>
-              </div>
-              <p className="text-sm font-semibold text-gray-600 mb-1">No published agents yet</p>
-              <p className="text-xs text-gray-400 max-w-xs leading-relaxed">Go to Agent Studio and click "Publish" on an agent to share it here.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {filteredPublished.map((agent) => (
-                <div key={agent.id} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow">
-                  <div className="flex items-start gap-3 mb-3">
-                    <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center font-bold text-indigo-700 text-sm">
-                      {agent.name[0].toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-gray-900 truncate">{agent.name}</h3>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <span className="text-xs text-gray-400">{agent.category}</span>
-                        <span className="text-xs text-gray-300">·</span>
-                        <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
-                          agent.pricing === "free"
-                            ? "bg-emerald-50 text-emerald-600"
-                            : "bg-amber-50 text-amber-600"
-                        }`}>
-                          {agent.pricing === "free" ? "Free" : "Paid"}
-                        </span>
-                      </div>
-                    </div>
-                    <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{agent.model}</span>
-                  </div>
-                  <p className="text-sm text-gray-500 mb-3 line-clamp-2">{agent.description}</p>
-                  {agent.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mb-3">
-                      {agent.tags.slice(0, 3).map((tag) => (
-                        <span key={tag} className="text-xs bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-2 py-0.5">{tag}</span>
-                      ))}
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-400">{new Date(agent.publishedAt).toLocaleDateString()}</span>
-                    <button
-                      onClick={() => {
-                        const newIds = installedAgentIds.includes(agent.id)
-                          ? installedAgentIds.filter((id) => id !== agent.id)
-                          : [...installedAgentIds, agent.id];
-                        setInstalledAgentIds(newIds);
-                        localStorage.setItem("af_installed_agents", JSON.stringify(newIds));
-                      }}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                        installedAgentIds.includes(agent.id)
-                          ? "bg-emerald-50 border border-emerald-200 text-emerald-700"
-                          : "bg-indigo-600 hover:bg-indigo-700 text-white"
-                      }`}
-                    >
-                      {installedAgentIds.includes(agent.id) ? "✓ Installed" : "Install"}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

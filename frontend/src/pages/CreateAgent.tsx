@@ -1124,11 +1124,15 @@ export default function CreateAgent() {
           {/* Tools */}
           <div className="border-b border-gray-100">
             <button onClick={() => setToolsOpen(!toolsOpen)} className="w-full flex items-center justify-between p-4 text-sm font-medium text-gray-800 hover:bg-gray-50">
-              <span>Tools</span>
+              <div className="flex items-center gap-2">
+                <span>Tools</span>
+                <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full font-normal">Not yet active</span>
+              </div>
               <span className="text-gray-400 text-lg">{toolsOpen ? "−" : "+"}</span>
             </button>
             {toolsOpen && (
               <div className="px-4 pb-4 space-y-2">
+                <p className="text-xs text-gray-400 mb-1">Saved but not called during agent runs yet.</p>
                 {["calculator", "web_search", "email_sender", "slack_notifier", "github_reader"].map((t) => (
                   <label key={t} className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
                     <input

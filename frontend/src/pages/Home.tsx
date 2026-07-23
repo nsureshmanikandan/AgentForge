@@ -288,12 +288,12 @@ export default function Home() {
                 <p className="text-xs text-gray-400">{showIntegrationModal.desc}</p>
               </div>
             </div>
-            <div className="space-y-2 mb-5">
-              <label className="text-xs font-medium text-gray-600">API Key / Token</label>
-              <input
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-                placeholder={`Paste your ${showIntegrationModal.name} token...`}
-              />
+            <div className="flex gap-2 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5 mb-5">
+              <svg className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+              <p className="text-xs text-amber-700">Not yet active — this integration doesn't grant any agent real access yet.</p>
             </div>
             <div className="flex gap-2">
               <button

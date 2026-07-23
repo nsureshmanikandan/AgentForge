@@ -415,14 +415,14 @@ function Sidebar() {
         {/* TRACEABILITY */}
         {!collapsed && <p className="text-xs font-semibold text-gray-400 px-3 pt-4 pb-2 uppercase tracking-wider">Traceability</p>}
         {collapsed && <div className="pt-3" />}
-        <NavLink to="/usage" className={linkClass} title={collapsed ? "Usage" : undefined}>
-          <IconChart />{!collapsed && "Usage"}
+        <NavLink to="/usage" className={linkClass} title={collapsed ? "Usage & Traceability" : undefined}>
+          <IconChart />{!collapsed && "Usage & Traceability"}
         </NavLink>
-        <NavLink to="/dashboard" className={linkClass} title={collapsed ? "Control Plane" : undefined}>
-          <IconMonitor />{!collapsed && "Control Plane"}
+        <NavLink to="/dashboard" className={linkClass} title={collapsed ? "Dashboard" : undefined}>
+          <IconMonitor />{!collapsed && "Dashboard"}
         </NavLink>
-        <NavLink to="/workflow-runs" className={linkClass} title={collapsed ? "Workflow Runs" : undefined}>
-          <IconChart />{!collapsed && "Workflow Runs"}
+        <NavLink to="/workflow-runs" className={linkClass} title={collapsed ? "Workflow Observability" : undefined}>
+          <IconChart />{!collapsed && "Workflow Observability"}
         </NavLink>
 
         {/* BUILD */}
