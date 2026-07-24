@@ -3695,7 +3695,16 @@ def _ensure_requirements_complete(all_files: dict) -> dict:
         if not (path.endswith(".py") and ("backend" in path or path.startswith("app/"))):
             continue
         all_backend_src += content
-        for match in _re.finditer(r'^\s*(?:import|from)\s+([A-Za-z_][A-Za-z0-9_]*)', content, _re.MULTILINE):
+        # Plain `import a, b, c` is a valid single statement importing
+        # multiple top-level modules -- observed in a real generation
+        # (`import time, requests`), and only capturing the first name
+        # after "import" silently dropped every module after the first
+        # comma, so `requests` never made it into requirements.txt despite
+        # being genuinely used.
+        for match in _re.finditer(r'^[ \t]*import[ \t]+([A-Za-z_][A-Za-z0-9_, \t]*)', content, _re.MULTILINE):
+            for name in match.group(1).split(","):
+                used_modules.add(name.strip().split(" ")[0])
+        for match in _re.finditer(r'^\s*from\s+([A-Za-z_][A-Za-z0-9_]*)', content, _re.MULTILINE):
             used_modules.add(match.group(1))
 
     existing = all_files[req_path]
@@ -4010,17 +4019,33 @@ def _fix_slowapi_import_path(all_files: dict) -> dict:
     return all_files
 
 
+# Known settings.X field -> safe default, for backfilling into config.py's
+# Settings class when referenced anywhere but never declared. Covers both
+# observed variants of this same bug: the DEFAULT AUTHENTICATION (email/
+# password) path referencing JWT_SECRET/JWT_EXPIRE_MINUTES, and the SSO
+# path referencing SSO_ENABLED/AZURE_TENANT_ID/AZURE_CLIENT_ID -- both are
+# explicitly required by this prompt's own SSO/auth instructions, but the
+# LLM doesn't reliably also declare them in config.py.
+_REQUIRED_SETTINGS_DEFAULTS: dict[str, str] = {
+    "JWT_SECRET": 'str = "change-me-to-a-random-secret"',
+    "JWT_EXPIRE_MINUTES": "int = 480",
+    "SSO_ENABLED": "bool = False",
+    "AZURE_TENANT_ID": 'str = ""',
+    "AZURE_CLIENT_ID": 'str = ""',
+}
+
+
 def _ensure_jwt_settings(all_files: dict) -> dict:
     """
-    Observed bug: the DEFAULT AUTHENTICATION (email/password) code path
-    generates app/auth/security.py referencing settings.JWT_SECRET and
-    settings.JWT_EXPIRE_MINUTES, per this prompt's own explicit instruction
-    to add both to config.py -- but config.py sometimes doesn't declare
-    them. Since Settings uses extra="allow", an undeclared field with no
-    matching .env value simply doesn't exist as an attribute, so the first
-    login/register call (or any route behind get_current_user) crashes
-    with AttributeError. Backfill both fields with safe local-dev defaults
-    if referenced anywhere but missing from config.py.
+    Observed bug: generated code references settings.X fields (JWT_SECRET/
+    JWT_EXPIRE_MINUTES for the default email/password auth path,
+    SSO_ENABLED/AZURE_TENANT_ID/AZURE_CLIENT_ID for the SSO path) per this
+    prompt's own explicit instructions to declare them in config.py -- but
+    config.py sometimes doesn't. Since Settings uses extra="allow", an
+    undeclared field with no matching .env value simply doesn't exist as
+    an attribute, so the first request touching it crashes with
+    AttributeError. Backfill any referenced-but-missing field with a safe
+    local-dev default.
     """
     import re as _re
 
@@ -4029,19 +4054,16 @@ def _ensure_jwt_settings(all_files: dict) -> dict:
         return all_files
     config_src = all_files[config_path]
 
-    references_jwt = any(
-        "settings.JWT_SECRET" in content or "settings.JWT_EXPIRE_MINUTES" in content
-        for path, content in all_files.items()
+    all_backend_src = "\n".join(
+        content for path, content in all_files.items()
         if path.endswith(".py") and "backend" in path
     )
-    if not references_jwt:
-        return all_files
 
-    additions = []
-    if "JWT_SECRET" not in config_src:
-        additions.append('    JWT_SECRET: str = "change-me-to-a-random-secret"')
-    if "JWT_EXPIRE_MINUTES" not in config_src:
-        additions.append('    JWT_EXPIRE_MINUTES: int = 480')
+    additions = [
+        f"    {field}: {default}"
+        for field, default in _REQUIRED_SETTINGS_DEFAULTS.items()
+        if f"settings.{field}" in all_backend_src and field not in config_src
+    ]
     if not additions:
         return all_files
 
