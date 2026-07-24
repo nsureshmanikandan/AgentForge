@@ -4688,7 +4688,10 @@ async def get_history(session_id: str, db: AsyncSession = Depends(get_db)):
     ? documentsApiPy
     : documentsApiPy
         .replace(/^from app import rag\n/m, "")
-        .replace(/^([ \t]*)rag\.build_index\([^\n]*\)\n/m, "$1pass  # indexing handled by the agent, not a separate rag module\n");
+        // documentsApiPy has TWO identical rag.build_index() calls (upload
+        // and delete endpoints) -- a non-global replace only fixed the
+        // first, leaving the second dangling and undefined. Must be /gm.
+        .replace(/^([ \t]*)rag\.build_index\([^\n]*\)\n/gm, "$1pass  # indexing handled by the agent, not a separate rag module\n");
   zip.file("backend/app/api/documents.py", finalDocumentsApiPy);
 
   // Always ensure ChatMessage + Document are in models.py
