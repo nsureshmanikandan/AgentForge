@@ -5001,8 +5001,33 @@ Check ONLY for these specific problems -- do not restyle, refactor, or "improve"
    missing from the bot message JSX, add them back using the same Tailwind classes already
    used elsewhere in the file for consistency.
 
-Return ONLY valid JSON: {{"files": {{"path": "corrected full file content"}}}} containing ONLY the
-files you changed. If you find no issues, return {{"files": {{}}}}.
+6. SSO FRONTEND COMPLETENESS -- CHECK THIS EXPLICITLY, IT IS EASY TO MISS:
+   STEP 1: Scan the backend files above for JWKS/JWT verification code (a URL containing
+   "login.microsoftonline.com", or a reference to settings.AZURE_TENANT_ID, AZURE_CLIENT_ID,
+   or SSO_ENABLED). If NONE of the backend files contain this, SKIP this entire check and do
+   nothing further for it.
+   STEP 2: If backend SSO verification code WAS found in step 1, check whether
+   "src/auth/msalConfig.ts" and "src/auth/useAuth.ts" appear in the FILE list above. If either
+   is absent, you MUST add both of these paths to your output JSON's "files" object -- this is
+   not optional, treat a missing frontend auth integration as equally severe as a Python
+   ImportError. Their exact required content:
+   - "src/auth/msalConfig.ts":
+     import { Configuration } from "@azure/msal-browser";
+     const clientId = import.meta.env.VITE_AZURE_CLIENT_ID ?? "";
+     const tenantId = import.meta.env.VITE_AZURE_TENANT_ID ?? "";
+     export const isMsalConfigured = Boolean(clientId && tenantId);
+     export const msalConfig: Configuration = { auth: { clientId, authority: `https://login.microsoftonline.com/${tenantId}`, redirectUri: window.location.origin }, cache: { cacheLocation: "localStorage", storeAuthStateInCookie: false } };
+   - "src/auth/useAuth.ts": a hook using @azure/msal-react's useMsal/useIsAuthenticated, exposing
+     `{ user, isAuthenticated, login, getAccessToken }`, where login/getAccessToken are no-ops
+     returning null when !isMsalConfigured (so the app still runs locally without a real tenant).
+   Also add "src/auth/msalConfig.ts" and "src/auth/useAuth.ts" content to your output even
+   though they are new files not shown in the FILE list -- you are allowed and expected to add
+   entries to "files" for paths that don't already exist above. Additionally, if
+   "package.json" appears above and is missing "@azure/msal-browser"/"@azure/msal-react" from
+   its dependencies, include a corrected "package.json" in your output too.
+
+Return ONLY valid JSON: {{"files": {{"path": "corrected or newly-created full file content"}}}}
+containing ONLY the files you changed or created. If you find no issues, return {{"files": {{}}}}.
 
 FILES TO REVIEW:
 {files_content}"""
@@ -5022,7 +5047,10 @@ async def _review_and_fix_generated_code(
     """
     review_targets = {
         p: c for p, c in all_files.items()
-        if (p.endswith(".py") and "backend" in p) or p.endswith("src/App.tsx")
+        if (p.endswith(".py") and "backend" in p)
+        or p.endswith("src/App.tsx")
+        or p.endswith("src/api/client.ts")
+        or (p.endswith("package.json") and "backend" not in p)
     }
     if not review_targets:
         return all_files
@@ -5057,8 +5085,14 @@ async def _review_and_fix_generated_code(
         )
         data = json.loads(_strip_json_fences(response.choices[0].message.content or "{}"))
         fixed_files = data.get("files", {})
+        # Allow the reviewer to create brand-new files, but only the two
+        # specific ones the SSO-completeness check (item 6) is scoped to
+        # create -- any file already in review_targets can always be
+        # corrected, but a genuinely new path outside that narrow allowlist
+        # is more likely a hallucination than an intentional fix.
+        new_file_allowlist = {"src/auth/msalConfig.ts", "src/auth/useAuth.ts"}
         for path, content in fixed_files.items():
-            if path in all_files:
+            if path in all_files or path in new_file_allowlist:
                 all_files[path] = content
     except Exception:
         pass  # reviewer failure must never break a working generation
