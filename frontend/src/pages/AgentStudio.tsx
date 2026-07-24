@@ -489,6 +489,15 @@ export default function AgentStudio() {
             Visual Builder
           </button>
           <button
+            onClick={() => navigate("/studio/quick-generate")}
+            className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 rounded-lg text-sm font-medium transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+            </svg>
+            Quick Generate
+          </button>
+          <button
             onClick={() => navigate("/studio/create")}
             className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition-colors"
           >
@@ -523,15 +532,26 @@ export default function AgentStudio() {
           <p className="text-gray-500 text-sm mb-6 max-w-xs">
             Create your first AI agent or use the Home prompt to generate one automatically.
           </p>
-          <button
-            onClick={() => navigate("/studio/create")}
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-            Create Agent
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={() => navigate("/studio/create")}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              Create Agent
+            </button>
+            <button
+              onClick={() => navigate("/studio/quick-generate")}
+              className="inline-flex items-center gap-2 px-5 py-2.5 border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 text-sm font-medium rounded-lg transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+              </svg>
+              Quick Generate
+            </button>
+          </div>
         </div>
       ) : (
         <>
