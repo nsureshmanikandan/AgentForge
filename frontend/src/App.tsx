@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "./store/auth";
 import Login from "./pages/Login";
-import Home from "./pages/Home";
+import AgentStudioHome from "./pages/AgentStudioHome";
 import AgentStudio from "./pages/AgentStudio";
 import MyProjects from "./pages/MyProjects";
 import PublishedProjects from "./pages/PublishedProjects";
@@ -559,7 +559,7 @@ export default function App() {
             <Protected>
               <Layout>
                 <Routes>
-                  <Route path="/" element={<Home />} />
+                  <Route path="/" element={<AgentStudioHome />} />
                   <Route path="/studio" element={<AgentStudio />} />
                   <Route path="/studio/create" element={<CreateAgent />} />
                   <Route path="/projects" element={<MyProjects />} />

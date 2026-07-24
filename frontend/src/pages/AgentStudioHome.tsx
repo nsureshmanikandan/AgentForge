@@ -105,7 +105,7 @@ const THEMES = [
   { id: "amber", name: "Amber", primary: "#d97706" },
 ];
 
-export default function Home() {
+export default function AgentStudioHome() {
   const [prompt, setPrompt] = useState(() => {
     const saved = sessionStorage.getItem("homePrompt");
     if (saved) { sessionStorage.removeItem("homePrompt"); return saved; }
