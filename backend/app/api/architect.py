@@ -3404,7 +3404,11 @@ def _enforce_agentic_structure(all_files: dict, app_name: str, summary: str) -> 
     has_agent = any("/agents/" in p or p.endswith("Agent.py") for p in all_files)
     references_rag = any(
         path.endswith(".py")
-        and _re.search(r'^from app import rag\n|^from app\.rag import [^\n]+\n', content, _re.MULTILINE)
+        and _re.search(
+            r'^from app import rag\n|^from app\.rag import [^\n]+\n|\brag\.(?:build_index|search)\(',
+            content,
+            _re.MULTILINE,
+        )
         for path, content in all_files.items()
     )
 
@@ -5431,6 +5435,17 @@ RATE LIMITING REQUIRED:
 
         _ensure_scaffold_files(all_files)
         all_files = await _review_and_fix_generated_code(all_files, client, _llm_model, _tok_kwarg)
+        # Safety net: the reviewer returns full corrected file content for
+        # anything it touches, and was observed to regress an
+        # already-fixed dangling rag.build_index() call in one function
+        # while correctly fixing a different one in the same file --
+        # rewriting a whole file risks losing an earlier deterministic fix
+        # elsewhere in it. Re-running these deterministic passes is
+        # idempotent (a no-op on already-clean content) and cheap, so it's
+        # a safe guard against the reviewer's own output regressing
+        # something a deterministic fix already handled correctly.
+        all_files = _enforce_agentic_structure(all_files, req.app_name, req.summary)
+        all_files = _strip_dead_imports(all_files)
 
         span.set_attribute("total.file_count", len(all_files))
         return {"files": all_files, "file_count": len(all_files)}
