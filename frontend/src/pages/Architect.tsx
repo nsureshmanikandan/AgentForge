@@ -4252,7 +4252,11 @@ def _extract_text(filename: str, raw: bytes) -> str:
         except UnicodeDecodeError:
             return raw.decode("latin-1", errors="replace")
     except Exception as e:
-        return f"[Parse error: {e}]\\n" + raw.decode("utf-8", errors="replace")
+        # Never append raw file bytes here -- a .docx/.xlsx/.pdf's raw bytes
+        # almost always contain null bytes (0x00), and PostgreSQL's UTF8
+        # encoding rejects any string containing one outright, turning an
+        # ordinary parse failure into an unrelated-looking 500 on the INSERT.
+        return f"[Parse error: {e}]"
 
 @router.post("/upload")
 async def upload_document(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
@@ -4631,8 +4635,10 @@ async def get_history(session_id: str, db: AsyncSession = Depends(get_db)):
     passlib: "passlib[bcrypt]==1.7.4",
   };
   const usedModules = new Set<string>();
+  let allBackendPySrc = "";
   for (const [path, content] of Object.entries(aiFiles)) {
     if (!path.endsWith(".py") || !path.startsWith("backend/")) continue;
+    allBackendPySrc += content as string;
     for (const m of (content as string).matchAll(/^\s*(?:import|from)\s+([A-Za-z_][A-Za-z0-9_]*)/gm)) {
       usedModules.add(m[1]);
     }
@@ -4641,10 +4647,26 @@ async def get_history(session_id: str, db: AsyncSession = Depends(get_db)):
   const extraRequirements = Object.entries(IMPORT_TO_REQUIREMENT)
     .filter(([mod, line]) => usedModules.has(mod) && !requirementsLower.includes(line.split("==")[0].split("[")[0].toLowerCase()))
     .map(([, line]) => line);
-  zip.file(
-    "backend/requirements.txt",
-    extraRequirements.length ? requirementsTxt.trimEnd() + "\n" + extraRequirements.join("\n") + "\n" : requirementsTxt
-  );
+  // EmailStr is a symbol import from an already-installed package (pydantic),
+  // not a separate top-level module -- the generic scan above can't catch it.
+  if (allBackendPySrc.includes("EmailStr") && !requirementsLower.includes("email-validator")) {
+    extraRequirements.push("email-validator==2.2.0");
+  }
+  let finalRequirements = extraRequirements.length
+    ? requirementsTxt.trimEnd() + "\n" + extraRequirements.join("\n") + "\n"
+    : requirementsTxt;
+  // sentence-transformers pulls in torch, whose package file paths routinely
+  // exceed Windows' MAX_PATH and abort the entire `pip install -r
+  // requirements.txt` outright -- drop it (and pandas, also seen unused)
+  // from this static baseline when nothing in the generated code actually
+  // imports them, rather than shipping dead weight that can silently
+  // prevent every other package here from installing at all.
+  for (const [heavyPkg, importName] of [["sentence-transformers", "sentence_transformers"], ["pandas", "pandas"]] as const) {
+    if (!usedModules.has(importName)) {
+      finalRequirements = finalRequirements.replace(new RegExp(`^${heavyPkg}==[^\n]*\n?`, "m"), "");
+    }
+  }
+  zip.file("backend/requirements.txt", finalRequirements);
   zip.file("backend/.env.example", envExample);
   zip.file("backend/Dockerfile", backendDockerfile);
   zip.file("backend/app/__init__.py", initPy);
@@ -4653,7 +4675,21 @@ async def get_history(session_id: str, db: AsyncSession = Depends(get_db)):
   zip.file("backend/app/api/__init__.py", apiInitPy);
   zip.file("backend/app/api/health.py", healthPy);
   zip.file("backend/app/api/chat.py", buildAgentChatPy());
-  zip.file("backend/app/api/documents.py", documentsApiPy);
+  // documentsApiPy hardcodes `from app import rag` + `rag.build_index(...)`,
+  // but rag.py is only conditionally included below (never when a real
+  // agent already exists) -- writing this template unconditionally left a
+  // dangling import that crashes the backend at startup with
+  // ModuleNotFoundError, the exact bug this project hit during end-to-end
+  // testing. Determine up front whether rag.py will actually exist in this
+  // zip, and strip the rag reference from this static template when it won't.
+  const hasAgentFilesForDocs = Object.keys(aiFiles).some(p => /backend\/app\/agents\/(?!__init__)/.test(p));
+  const ragWillExist = Boolean(aiFiles["backend/app/rag.py"]) || !hasAgentFilesForDocs;
+  const finalDocumentsApiPy = ragWillExist
+    ? documentsApiPy
+    : documentsApiPy
+        .replace(/^from app import rag\n/m, "")
+        .replace(/^([ \t]*)rag\.build_index\([^\n]*\)\n/m, "$1pass  # indexing handled by the agent, not a separate rag module\n");
+  zip.file("backend/app/api/documents.py", finalDocumentsApiPy);
 
   // Always ensure ChatMessage + Document are in models.py
   const hasBackendFiles = Object.keys(aiFiles).some(p => p.startsWith("backend/"));
