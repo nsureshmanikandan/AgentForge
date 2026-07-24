@@ -3247,6 +3247,7 @@ async function buildSourceZip(html: string, plan: Plan, documents?: { name: stri
       database_schema: plan.database_schema ?? "",
       tech_stack: plan.tech_stack ?? {},
       documents: documents?.length ? documents : undefined,
+      sandbox_html: html || undefined,
     });
     aiFiles = res.data.files ?? {};
   } catch (err) {

@@ -3334,6 +3334,7 @@ class GenerateProjectRequest(BaseModel):
     database_schema: Optional[str] = None
     tech_stack: Optional[dict] = None
     documents: Optional[List[DocContent]] = None  # real uploaded/sample file content
+    sandbox_html: Optional[str] = None  # the already-generated sandbox preview HTML, if any
 
 
 def _fix_python_file(path: str, content: str, app_name: str = "") -> str:
@@ -3402,8 +3403,33 @@ def _enforce_agentic_structure(all_files: dict, app_name: str, summary: str) -> 
     has_rag = any("rag.py" in p for p in all_files)
     has_agent = any("/agents/" in p or p.endswith("Agent.py") for p in all_files)
 
-    if not has_rag or has_agent:
+    if not has_rag:
         return all_files  # already agentic — nothing to do
+
+    if has_agent:
+        # The LLM generated BOTH a generic rag.py AND a real agent, despite being
+        # told never to generate rag.py. Left alone this produces a confirmed,
+        # observed bug: an /upload endpoint that indexes into rag.py's FAISS
+        # store, while the chat endpoint calls the agent with real retrieval
+        # disconnected from it (always empty context). Since we can't safely
+        # rewrite arbitrary LLM-authored agent code to merge the two, the safe
+        # fix is to remove rag.py and neutralize (not crash) any of its callers,
+        # rather than leave a silently-broken retrieval path in the download.
+        rag_path = next(p for p in all_files if "rag.py" in p)
+        new_files = {p: c for p, c in all_files.items() if p != rag_path}
+        for path in list(new_files.keys()):
+            if path.endswith(".py") and "/api/" in path:
+                src = new_files[path]
+                if "rag" not in src:
+                    continue
+                src = _re.sub(r'^from app import rag\n', '', src, flags=_re.MULTILINE)
+                src = _re.sub(r'^from app\.rag import [^\n]+\n', '', src, flags=_re.MULTILINE)
+                # Neutralize now-undefined rag.* calls rather than leaving a
+                # NameError at request time -- these were only ever indexing
+                # calls (the chat path already goes through the real agent).
+                src = _re.sub(r'^([ \t]*)rag\.build_index\([^\n]*\)\n', r'\1pass  # indexing handled by the agent, not a separate rag module\n', src, flags=_re.MULTILINE)
+                new_files[path] = src
+        return new_files
 
     # Derive class name: "Policy Analysis Agent" → "PolicyAnalysisAgent"
     safe_name = _re.sub(r"[^A-Za-z0-9 ]", "", app_name).title().replace(" ", "")
@@ -3446,16 +3472,16 @@ class {safe_name}:
     def _get_client(self) -> AzureOpenAI:
         if self._client is None:
             self._client = AzureOpenAI(
-                azure_endpoint=settings.azure_openai_endpoint,
-                api_key=settings.azure_openai_api_key,
-                api_version=settings.azure_openai_api_version,
+                azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
+                api_key=settings.AZURE_OPENAI_API_KEY,
+                api_version=settings.AZURE_OPENAI_API_VERSION,
             )
         return self._client
 
     def _embed(self, texts: list[str]) -> np.ndarray:
         client = self._get_client()
         response = client.embeddings.create(
-            model=settings.azure_openai_embedding_deployment,
+            model=settings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT,
             input=texts,
         )
         return np.array([d.embedding for d in response.data], dtype="float32")
@@ -3512,7 +3538,7 @@ class {safe_name}:
         }})
         client = self._get_client()
         response = client.chat.completions.create(
-            model=settings.azure_openai_deployment,
+            model=settings.AZURE_OPENAI_DEPLOYMENT_NAME,
             messages=messages,
             temperature=0.3,
             max_completion_tokens=1200,
@@ -3541,7 +3567,7 @@ class {safe_name}:
         """Domain-specific analysis method."""
         client = self._get_client()
         response = client.chat.completions.create(
-            model=settings.azure_openai_deployment,
+            model=settings.AZURE_OPENAI_DEPLOYMENT_NAME,
             messages=[
                 {{"role": "system", "content": SYSTEM_PROMPT}},
                 {{"role": "user", "content": f"Analyze the following and return key insights as JSON:\\n\\n{{text}}"}}
@@ -3593,6 +3619,130 @@ def get_agent() -> {safe_name}:
             new_files[path] = src
 
     return new_files
+
+
+# Import name → PyPI requirement line. Covers every missing-dependency bug
+# actually observed in downloaded Agentic Code projects: the LLM writes code
+# that imports a package (slowapi for rate limiting, python-jose for JWT,
+# opentelemetry for the tracing scaffold, python-docx/openpyxl for document
+# parsing, requests for JWKS fetches) but doesn't reliably also add it to
+# requirements.txt, causing the backend to fail at import time or crash on
+# first use of the missing feature.
+_IMPORT_TO_REQUIREMENT: dict[str, str] = {
+    "slowapi": "slowapi==0.1.9",
+    "jose": "python-jose[cryptography]==3.3.0",
+    "requests": "requests==2.32.3",
+    "opentelemetry": "opentelemetry-api==1.29.0\nopentelemetry-sdk==1.29.0\nopentelemetry-instrumentation-fastapi==0.50b0\nopentelemetry-exporter-otlp-proto-http==1.29.0",
+    "docx": "python-docx==1.1.2",
+    "openpyxl": "openpyxl==3.1.2",
+    "PyPDF2": "PyPDF2==3.0.1",
+    "fitz": "PyMuPDF==1.24.14",
+    "pptx": "python-pptx==0.6.23",
+    "reportlab": "reportlab==4.2.5",
+    "passlib": "passlib[bcrypt]==1.7.4",
+}
+
+
+def _ensure_requirements_complete(all_files: dict) -> dict:
+    """
+    Scan every generated backend .py file for imports of packages this
+    codebase knows aren't part of the Python standard library, and make sure
+    requirements.txt actually lists each one that's used. This is a safety
+    net on top of the prompt's explicit requirements.txt instructions --
+    prompt text alone has repeatedly not been enough (observed: slowapi,
+    python-jose, opentelemetry, python-docx all missing from real downloads
+    despite the code importing them), so this check is deterministic rather
+    than relying on the LLM to remember every package it used.
+    """
+    import re as _re
+
+    req_path = next((p for p in all_files if p.endswith("requirements.txt")), None)
+    if req_path is None:
+        return all_files
+
+    used_modules: set[str] = set()
+    for path, content in all_files.items():
+        if not (path.endswith(".py") and ("backend" in path or path.startswith("app/"))):
+            continue
+        for match in _re.finditer(r'^\s*(?:import|from)\s+([A-Za-z_][A-Za-z0-9_]*)', content, _re.MULTILINE):
+            used_modules.add(match.group(1))
+
+    existing = all_files[req_path]
+    existing_lower = existing.lower()
+    additions = [
+        req_line
+        for module, req_line in _IMPORT_TO_REQUIREMENT.items()
+        if module in used_modules and req_line.split("==")[0].split("[")[0].lower() not in existing_lower
+    ]
+    if additions:
+        all_files[req_path] = existing.rstrip("\n") + "\n" + "\n".join(additions) + "\n"
+    return all_files
+
+
+def _dedupe_model_classes(all_files: dict) -> dict:
+    """
+    If models.py defines the same class name twice (observed: two competing
+    `class Document(Base): __tablename__ = "documents"` definitions from
+    different generation passes getting merged), SQLAlchemy raises
+    `InvalidRequestError: Table 'X' is already defined for this MetaData
+    instance` at import time -- the backend never starts. Keep only the
+    LAST definition of each duplicated class (the one the rest of the
+    generated code was written against, since the LLM writes files in a
+    single pass top-to-bottom and later content reflects its final intent).
+    """
+    import re as _re
+
+    models_path = next((p for p in all_files if p.endswith("models.py")), None)
+    if models_path is None:
+        return all_files
+
+    src = all_files[models_path]
+    # Split into top-level class blocks, keeping the header before the first class intact.
+    class_starts = [m.start() for m in _re.finditer(r'^class \w+\(', src, _re.MULTILINE)]
+    if len(class_starts) < 2:
+        return all_files
+
+    header = src[:class_starts[0]]
+    blocks = []
+    for i, start in enumerate(class_starts):
+        end = class_starts[i + 1] if i + 1 < len(class_starts) else len(src)
+        blocks.append(src[start:end])
+
+    seen: dict[str, int] = {}
+    for i, block in enumerate(blocks):
+        name_match = _re.match(r'class (\w+)\(', block)
+        if name_match:
+            seen[name_match.group(1)] = i  # last occurrence wins
+
+    kept_indices = sorted(seen.values())
+    if len(kept_indices) == len(blocks):
+        return all_files  # no duplicates found
+
+    all_files[models_path] = header + "".join(blocks[i] for i in kept_indices)
+    return all_files
+
+
+def _normalize_vite_proxy_port(all_files: dict, backend_port: int = 8002) -> dict:
+    """
+    The frontend and backend are generated in two separate LLM calls with no
+    shared state between them, so the frontend's vite.config.ts proxy target
+    port has been observed to drift from the port the backend actually runs
+    on (both passes are individually told "8002", but nothing enforces they
+    agree) -- every /api/* fetch call then 404s against the frontend's own
+    dev server instead of reaching the backend. Force the proxy target to
+    the single port this prompt's backend instructions always use.
+    """
+    import re as _re
+
+    vite_path = next((p for p in all_files if p.endswith("vite.config.ts")), None)
+    if vite_path is None:
+        return all_files
+    all_files[vite_path] = _re.sub(
+        r'(target:\s*["\']http://localhost:)\d+(["\'])',
+        rf'\g<1>{backend_port}\g<2>',
+        all_files[vite_path],
+    )
+    return all_files
 
 
 # ── Domain detection + SQL schema selection ─────────────────────────────────
@@ -4671,6 +4821,24 @@ RATE LIMITING REQUIRED:
                 .replace("{api_endpoints}", endpoints_text)
                 .replace("{database_schema}", db_text)
             )
+            if req.sandbox_html:
+                # Ground the Agentic Code frontend in the EXACT sandbox HTML
+                # already shown to the user (same one RAG Template Code and
+                # the live preview render), rather than letting the LLM
+                # re-derive a similar-but-different layout from the prose
+                # spec above alone -- this is what keeps all three output
+                # modes (sandbox preview, RAG Template Code, Agentic Code)
+                # visually identical instead of merely "similar".
+                frontend_prompt += (
+                    "\n\nMANDATORY VISUAL MATCH: the user has already seen this exact "
+                    "sandbox preview HTML. Your generated App.tsx MUST reproduce its "
+                    "layout, colors, spacing, and component structure pixel-for-pixel "
+                    "(same panel widths, same badge styles, same section labels) — do "
+                    "NOT invent a different layout, even if it seems reasonable. Only "
+                    "change what's necessary to fetch real data from the backend "
+                    "instead of using hardcoded/embedded sandbox data.\n\n"
+                    f"SANDBOX HTML TO MATCH:\n{req.sandbox_html[:18000]}"
+                )
             try:
                 fe_response = await asyncio.to_thread(
                     client.chat.completions.create,
@@ -4728,6 +4896,9 @@ RATE LIMITING REQUIRED:
         # ── Post-process ────────────────────────────────────────────────────
         all_files = {path: _fix_python_file(path, content) for path, content in all_files.items()}
         all_files = _enforce_agentic_structure(all_files, req.app_name, req.summary)
+        all_files = _dedupe_model_classes(all_files)
+        all_files = _ensure_requirements_complete(all_files)
+        all_files = _normalize_vite_proxy_port(all_files)
 
         # ── Layer 3: DB Auto-Setup ───────────────────────────────────────────
         domain_key = _detect_domain(req.summary)
