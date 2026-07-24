@@ -3996,6 +3996,52 @@ def _fix_env_asyncpg_driver(all_files: dict) -> dict:
     return all_files
 
 
+def _ensure_msal_dependencies(all_files: dict) -> dict:
+    """
+    Observed bug: the SSO auth path generates src/auth/msalConfig.ts and
+    src/auth/useAuth.ts, which import @azure/msal-browser and
+    @azure/msal-react -- per this prompt's own explicit instruction to add
+    both to package.json -- but package.json sometimes doesn't declare
+    them. `npm install` then succeeds (nothing references the missing
+    packages at install time), but `tsc`/`vite build` fails with "Cannot
+    find module '@azure/msal-browser'", and `npm run dev` fails at runtime
+    the first time useAuth.ts is actually imported.
+    """
+    import re as _re
+
+    pkg_path = next((p for p in all_files if p.endswith("package.json") and "backend" not in p), None)
+    if pkg_path is None:
+        return all_files
+
+    has_msal_files = any(
+        p.endswith("src/auth/msalConfig.ts") or p.endswith("src/auth/useAuth.ts")
+        for p in all_files
+    )
+    if not has_msal_files:
+        return all_files
+
+    pkg_src = all_files[pkg_path]
+    missing = [
+        pkg for pkg, version in (("@azure/msal-browser", "^3.27.0"), ("@azure/msal-react", "^2.2.0"))
+        if pkg not in pkg_src
+    ]
+    if not missing:
+        return all_files
+
+    additions = ",\n".join(
+        f'    "{pkg}": "{version}"'
+        for pkg, version in (("@azure/msal-browser", "^3.27.0"), ("@azure/msal-react", "^2.2.0"))
+        if pkg in missing
+    )
+    all_files[pkg_path] = _re.sub(
+        r'("dependencies"\s*:\s*\{)',
+        lambda m: m.group(1) + "\n" + additions + ",",
+        pkg_src,
+        count=1,
+    )
+    return all_files
+
+
 def _fix_slowapi_import_path(all_files: dict) -> dict:
     """
     Observed bug: main.py imports `_rate_limit_exceeded_handler` from
@@ -5416,6 +5462,8 @@ RATE LIMITING REQUIRED:
                 count=1,
             )
             all_files[_pkg_path] = _pkg
+
+        all_files = _ensure_msal_dependencies(all_files)
 
         # ── README ──────────────────────────────────────────────────────────
         if "README.md" not in all_files:
