@@ -5195,6 +5195,7 @@ export default function Architect() {
     const sampleFile = (location.state as any)?.sampleFile as { name: string; url: string } | undefined;
     const openProjectId = (location.state as any)?.openProjectId as string | undefined;
     const autoDownload = (location.state as any)?.autoDownload as boolean | undefined;
+    const incomingFiles = (location.state as any)?.files as { name: string; text: string }[] | undefined;
 
     if (openProjectId) {
       window.history.replaceState({}, '', location.pathname);
@@ -5244,7 +5245,10 @@ export default function Architect() {
       // render, so send() would otherwise still see the old session).
       const newSid = newSession();
       setInput(queued);
-      if (sampleFile) {
+      if (incomingFiles && incomingFiles.length > 0) {
+        setFiles(incomingFiles);
+        setTimeout(() => send(queued + QUESTIONS_SUFFIX, incomingFiles, newSid), 80);
+      } else if (sampleFile) {
         const csvUrl = sampleFile.url.replace(/\.xlsx$/, ".csv");
         const csvName = sampleFile.name.replace(/\.xlsx$/, ".csv");
         fetch(csvUrl)
