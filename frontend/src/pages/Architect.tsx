@@ -3880,8 +3880,8 @@ AZURE_OPENAI_API_VERSION=2024-02-15-preview
 AZURE_OPENAI_DEPLOYMENT=gpt-4o
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002
 
-# Database (PostgreSQL)
-DATABASE_URL=postgresql://postgres:password@localhost:5432/${appName.replace(/-/g, "_")}
+# Database (PostgreSQL) -- must use the +asyncpg driver to match config.py's async engine
+DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/${appName.replace(/-/g, "_")}
 
 # App
 APP_SECRET_KEY=change-me-to-a-random-secret
@@ -4047,9 +4047,9 @@ def _get_client() -> AzureOpenAI:
     global _client
     if _client is None:
         _client = AzureOpenAI(
-            azure_endpoint=settings.azure_openai_endpoint,
-            api_key=settings.azure_openai_api_key,
-            api_version=settings.azure_openai_api_version,
+            azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
+            api_key=settings.AZURE_OPENAI_API_KEY,
+            api_version=settings.AZURE_OPENAI_API_VERSION,
         )
     return _client
 
@@ -4057,7 +4057,7 @@ def _get_client() -> AzureOpenAI:
 def _embed(texts: list[str]) -> np.ndarray:
     client = _get_client()
     response = client.embeddings.create(
-        model=settings.azure_openai_embedding_deployment,
+        model=settings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT,
         input=texts,
     )
     return np.array([d.embedding for d in response.data], dtype="float32")
@@ -4462,7 +4462,13 @@ Open \`sandbox.html\` directly in any browser for a fully working UI demo — no
   // Assemble ZIP — frontend + backend + infra
   zip.file("package.json", packageJson);
   zip.file("index.html", indexHtml);
-  zip.file("vite.config.ts", viteConfig);
+  // Prefer the AI-generated vite.config.ts (already has the correct backend
+  // port via the backend's own post-processing) -- only fall back to the
+  // static template if the AI didn't generate one at all. The previous
+  // unconditional overwrite here silently discarded every backend-side
+  // proxy-port fix, which is why vite.config.ts kept shipping with the
+  // wrong port regardless of what /generate-project actually returned.
+  zip.file("vite.config.ts", (aiFiles["vite.config.ts"] as string) || (aiFiles["frontend/vite.config.ts"] as string) || viteConfig);
   zip.file("tsconfig.json", tsconfig);
   zip.file("tsconfig.node.json", tsconfigNode);
   zip.file("tailwind.config.js", tailwindConfig);
@@ -4609,7 +4615,36 @@ async def get_history(session_id: str, db: AsyncSession = Depends(get_db)):
   // Infrastructure files: always use reliable templates (AI gets these wrong every time).
   // Business-logic files (agents/, domain models): keep whatever AI generated.
   zip.file("backend/main.py", backendMain);
-  zip.file("backend/requirements.txt", requirementsTxt);
+  // requirementsTxt is a known-good baseline, but backend/app/main.py (the
+  // actual FastAPI entry point run by uvicorn, from aiFiles) commonly
+  // imports packages this static list doesn't cover -- slowapi, python-jose,
+  // opentelemetry, python-docx, openpyxl -- so blindly overwriting it here
+  // silently dropped whatever the AI's real code needed. Merge in any of
+  // those known packages that the actual generated backend .py files use.
+  const IMPORT_TO_REQUIREMENT: Record<string, string> = {
+    slowapi: "slowapi==0.1.9",
+    jose: "python-jose[cryptography]==3.3.0",
+    requests: "requests==2.32.3",
+    opentelemetry: "opentelemetry-api==1.29.0\nopentelemetry-sdk==1.29.0\nopentelemetry-instrumentation-fastapi==0.50b0\nopentelemetry-exporter-otlp-proto-http==1.29.0",
+    docx: "python-docx==1.1.2",
+    openpyxl: "openpyxl==3.1.2",
+    passlib: "passlib[bcrypt]==1.7.4",
+  };
+  const usedModules = new Set<string>();
+  for (const [path, content] of Object.entries(aiFiles)) {
+    if (!path.endsWith(".py") || !path.startsWith("backend/")) continue;
+    for (const m of (content as string).matchAll(/^\s*(?:import|from)\s+([A-Za-z_][A-Za-z0-9_]*)/gm)) {
+      usedModules.add(m[1]);
+    }
+  }
+  const requirementsLower = requirementsTxt.toLowerCase();
+  const extraRequirements = Object.entries(IMPORT_TO_REQUIREMENT)
+    .filter(([mod, line]) => usedModules.has(mod) && !requirementsLower.includes(line.split("==")[0].split("[")[0].toLowerCase()))
+    .map(([, line]) => line);
+  zip.file(
+    "backend/requirements.txt",
+    extraRequirements.length ? requirementsTxt.trimEnd() + "\n" + extraRequirements.join("\n") + "\n" : requirementsTxt
+  );
   zip.file("backend/.env.example", envExample);
   zip.file("backend/Dockerfile", backendDockerfile);
   zip.file("backend/app/__init__.py", initPy);
@@ -4651,7 +4686,15 @@ class ChatMessage(Base):
       ? aiModelsSrc
       : aiModelsSrc + extraModels;
     zip.file("backend/app/models.py", patchedModels);
-    if (!aiFiles["backend/app/rag.py"]) {
+    // Only fall back to the generic rag.py template when there's no
+    // agent-based architecture at all. If a real domain-specific agent
+    // exists (backend/app/agents/*), the backend generator deliberately
+    // removes a redundant rag.py rather than leave chat wired to the agent
+    // while an unused, disconnected rag.py sits alongside it (the exact bug
+    // this project hit during end-to-end testing) -- force-adding rag.py
+    // back here would silently undo that fix on every download.
+    const hasAgentFiles = Object.keys(aiFiles).some(p => /backend\/app\/agents\/(?!__init__)/.test(p));
+    if (!aiFiles["backend/app/rag.py"] && !hasAgentFiles) {
       zip.file("backend/app/rag.py", ragPy);
     }
   }
