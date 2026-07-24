@@ -4896,6 +4896,104 @@ API Endpoints: {api_endpoints}
 Database Schema: {database_schema}"""
 
 
+REVIEWER_PROMPT = """You are reviewing a generated FastAPI + React project for correctness bugs before it ships.
+Check ONLY for these specific problems -- do not restyle, refactor, or "improve" anything else:
+
+1. SCHEMA MISMATCH: for every SQLAlchemy model constructor call (e.g. `Document(name=..., content=...)`)
+   in any backend .py file, confirm every keyword argument used is an actual field declared on
+   that model in models.py. If a file constructs a model with fields that don't exist on it,
+   fix the mismatch by editing models.py's field names to match how the model is actually
+   constructed and used elsewhere (do NOT change the calling code -- the model definition is
+   the one that's usually wrong when multiple files were generated independently). If different
+   call sites disagree on field names for the same model, follow whichever naming the MAJORITY
+   of call sites use.
+
+2. BROKEN IMPORTS: for every `from X import Y` in any backend .py file, confirm Y is actually
+   defined in module X. Fix any import that references a symbol which doesn't exist in its
+   stated module (check the real Python package structure, e.g. slowapi's
+   _rate_limit_exceeded_handler is a top-level export, not under slowapi.errors).
+
+3. MISSING CONFIG FIELDS: for every `settings.SOME_FIELD` reference in any backend .py file,
+   confirm SOME_FIELD is declared in config.py's Settings class. Add any missing field with a
+   safe default value if referenced but undeclared.
+
+4. DANGLING MODULE REFERENCES: for every `from app import X` or `from app.X import ...`, confirm
+   a file for module X actually exists in this file set. If not, remove the dangling import and
+   neutralize its call sites (turn a missing index/search call into a safe no-op or empty result,
+   never leave a NameError).
+
+5. FRONTEND RESPONSE RENDERING: src/App.tsx's chat message rendering MUST show, for every bot
+   response: the step-by-step resolution list (if steps present), a source name + confidence
+   badge (if source present), related-question chips (if related present), and helpful
+   thumbs-up/down buttons -- matching the sandbox preview's own format. If any of these are
+   missing from the bot message JSX, add them back using the same Tailwind classes already
+   used elsewhere in the file for consistency.
+
+Return ONLY valid JSON: {{"files": {{"path": "corrected full file content"}}}} containing ONLY the
+files you changed. If you find no issues, return {{"files": {{}}}}.
+
+FILES TO REVIEW:
+{files_content}"""
+
+
+async def _review_and_fix_generated_code(
+    all_files: dict, client, llm_model: str, tok_kwarg: str
+) -> dict:
+    """
+    Final semantic review pass, run after all deterministic post-processing.
+    Catches the class of bugs regex fixes can't generalize to -- schema
+    mismatches, wrong import paths, missing config fields, dangling module
+    references, incomplete frontend response rendering -- see
+    docs/superpowers/specs/2026-07-24-agentic-code-reviewer-agent-design.md
+    for the concrete bugs this addresses. A failure here is non-fatal: it
+    must never break an otherwise-working generation.
+    """
+    review_targets = {
+        p: c for p, c in all_files.items()
+        if (p.endswith(".py") and "backend" in p) or p.endswith("src/App.tsx")
+    }
+    if not review_targets:
+        return all_files
+
+    # Prioritize files most likely to contain the known bug patterns within
+    # the token budget: models/config/security/documents/chat/agents first,
+    # then App.tsx, then anything else.
+    priority = ("models.py", "config.py", "security.py", "documents.py", "chat.py", "Agent.py", "App.tsx")
+    ordered_paths = sorted(
+        review_targets,
+        key=lambda p: next((i for i, kw in enumerate(priority) if kw in p), len(priority)),
+    )
+
+    files_content = ""
+    budget = 40_000
+    for path in ordered_paths:
+        chunk = f"# FILE: {path}\n{review_targets[path]}\n\n"
+        if len(files_content) + len(chunk) > budget:
+            break
+        files_content += chunk
+
+    prompt = REVIEWER_PROMPT.replace("{files_content}", files_content)
+
+    try:
+        response = await asyncio.to_thread(
+            client.chat.completions.create,
+            model=llm_model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            response_format={"type": "json_object"},
+            **{tok_kwarg: 14000},
+        )
+        data = json.loads(_strip_json_fences(response.choices[0].message.content or "{}"))
+        fixed_files = data.get("files", {})
+        for path, content in fixed_files.items():
+            if path in all_files:
+                all_files[path] = content
+    except Exception:
+        pass  # reviewer failure must never break a working generation
+
+    return all_files
+
+
 # ── Layer 5: Feedback endpoints ───────────────────────────────────────────────
 
 @router.post("/feedback")
@@ -5332,6 +5430,7 @@ RATE LIMITING REQUIRED:
             all_files["README.md"] = all_files["README.md"] + _setup_note
 
         _ensure_scaffold_files(all_files)
+        all_files = await _review_and_fix_generated_code(all_files, client, _llm_model, _tok_kwarg)
 
         span.set_attribute("total.file_count", len(all_files))
         return {"files": all_files, "file_count": len(all_files)}

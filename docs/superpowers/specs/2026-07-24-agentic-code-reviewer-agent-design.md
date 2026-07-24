@@ -43,7 +43,9 @@ Check ONLY for these specific problems -- do not restyle, refactor, or "improve"
    that model in models.py. If a file constructs a model with fields that don't exist on it,
    fix the mismatch by editing models.py's field names to match how the model is actually
    constructed and used elsewhere (do NOT change the calling code -- the model definition is
-   the one that's usually wrong when multiple files were generated independently).
+   the one that's usually wrong when multiple files were generated independently). If different
+   call sites disagree on field names for the same model, follow whichever naming the MAJORITY
+   of call sites use.
 
 2. BROKEN IMPORTS: for every `from X import Y` in any backend .py file, confirm Y is actually
    defined in module X. Fix any import that references a symbol which doesn't exist in its
@@ -121,7 +123,7 @@ async def _review_and_fix_generated_code(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             response_format={"type": "json_object"},
-            **{tok_kwarg: 8000},
+            **{tok_kwarg: 14000},
         )
         data = json.loads(_strip_json_fences(response.choices[0].message.content or "{}"))
         fixed_files = data.get("files", {})
