@@ -3745,6 +3745,153 @@ def _normalize_vite_proxy_port(all_files: dict, backend_port: int = 8002) -> dic
     return all_files
 
 
+def _fix_router_prefixes(all_files: dict) -> dict:
+    """
+    Observed bug: main.py mounts the documents/chat routers with a bare
+    `prefix="/api"` while the router files themselves define only relative
+    paths (`@router.get("")`, `@router.post("/upload")` in documents.py;
+    `@router.post("")` in chat.py) -- and the frontend calls
+    `/api/documents`, `/api/documents/upload`, `/api/chat`. The result is
+    every one of those routes resolving to the wrong path (`/api`,
+    `/api/upload`, `/api`), which the frontend never finds. Force the
+    prefix for these two specific, by-filename-identifiable routers to
+    match what PROJECT_FRONTEND_PROMPT's api client always calls.
+    """
+    import re as _re
+
+    main_path = next((p for p in all_files if p.endswith("main.py") and "backend" in p), None)
+    if main_path is None:
+        return all_files
+    src = all_files[main_path]
+
+    for module_name, correct_prefix in (("documents", "/api/documents"), ("chat", "/api/chat")):
+        # Find the local variable name this main.py imports the router as,
+        # e.g. "from app.api.documents import router as documents_router".
+        import_match = _re.search(
+            rf'from app\.api\.{module_name} import router as (\w+)', src
+        )
+        if not import_match:
+            continue
+        router_var = import_match.group(1)
+        # Only correct a bare "/api" prefix -- if the LLM already wrote the
+        # correct prefix (or a different but still-correct one matching its
+        # own router's internal paths), leave it alone.
+        src = _re.sub(
+            rf'(app\.include_router\(\s*{router_var}\s*,\s*prefix\s*=\s*)"\/api"(\s*\))',
+            rf'\g<1>"{correct_prefix}"\g<2>',
+            src,
+        )
+    all_files[main_path] = src
+    return all_files
+
+
+def _ensure_health_endpoint(all_files: dict) -> dict:
+    """
+    Observed bug: a health.py router file gets generated but never
+    registered in main.py (or no health endpoint is generated at all),
+    so GET /api/health -- which the frontend always calls on mount to
+    read the app title and confirm connectivity -- either 404s or,
+    worse, silently matches an unrelated dynamic-path route (e.g.
+    DELETE /api/{doc_id}) and returns a confusing 405. Guarantee a
+    working health route exists by injecting one directly onto the
+    FastAPI app object, ahead of any other router registration, rather
+    than depending on the LLM having wired up a separate health.py
+    correctly.
+    """
+    import re as _re
+
+    main_path = next((p for p in all_files if p.endswith("main.py") and "backend" in p), None)
+    if main_path is None:
+        return all_files
+    src = all_files[main_path]
+    if _re.search(r'["\']\/api\/health["\']|["\']\/health["\']', src):
+        return all_files  # a health route already exists somewhere -- don't add a second
+
+    app_match = _re.search(r'^app = FastAPI\([^)]*\)\s*$', src, _re.MULTILINE)
+    if not app_match:
+        return all_files
+    injection = (
+        "\n\n@app.get(\"/api/health\")\n"
+        "async def _agentforge_health_check():\n"
+        "    return {\"status\": \"ok\", \"app\": \"AI Assistant\"}\n"
+    )
+    insert_at = app_match.end()
+    all_files[main_path] = src[:insert_at] + injection + src[insert_at:]
+    return all_files
+
+
+def _strip_dead_imports(all_files: dict) -> dict:
+    """
+    Observed bug: main.py imports a name (e.g. `limiter as chat_limiter`
+    from chat.py) that the target module never actually defines, crashing
+    with ImportError before the app can even start. Since main.py's own
+    RATE LIMITING instructions already have it define and use its own
+    top-level `limiter`, any second `limiter` imported from a router file
+    is both wrong and redundant. Detect any `from app.api.X import ... as Y`
+    (or bare `name`) where the imported symbol doesn't actually appear as a
+    definition in X's generated source, and drop just that piece of the
+    import list.
+    """
+    import re as _re
+
+    main_path = next((p for p in all_files if p.endswith("main.py") and "backend" in p), None)
+    if main_path is None:
+        return all_files
+    src = all_files[main_path]
+
+    def _fix_import_line(match: "_re.Match") -> str:
+        module_path, names_str = match.group(1), match.group(2)
+        target_file = next(
+            (p for p in all_files if p.endswith(module_path.replace(".", "/") + ".py")), None
+        )
+        target_src = all_files.get(target_file, "") if target_file else ""
+        kept = []
+        for piece in names_str.split(","):
+            piece = piece.strip()
+            symbol = piece.split(" as ")[0].strip()
+            if symbol == "router" or _re.search(rf'\b{symbol}\s*=|\bdef {symbol}\b|\bclass {symbol}\b', target_src):
+                kept.append(piece)
+        if not kept:
+            return ""  # whole import line is dead -- drop it entirely
+        return f"from app.{module_path} import " + ", ".join(kept)
+
+    src = _re.sub(r'from app\.(api\.\w+) import ([^\n]+)', _fix_import_line, src)
+    all_files[main_path] = src
+    return all_files
+
+
+def _fix_env_asyncpg_driver(all_files: dict) -> dict:
+    """
+    Observed bug: .env.example's DATABASE_URL uses plain `postgresql://`
+    (no driver), which crashes SQLAlchemy's async engine at connect time
+    ("The asyncio extension requires an async driver") -- even when
+    config.py's own default value correctly includes `+asyncpg`. Whichever
+    scheme config.py's default actually uses is the one .env.example's
+    example value must match, since that default is the fallback for any
+    async DB call in the generated code.
+    """
+    import re as _re
+
+    config_path = next((p for p in all_files if p.endswith("config.py") and "backend" in p), None)
+    env_path = next((p for p in all_files if p.endswith(".env.example")), None)
+    if config_path is None or env_path is None:
+        return all_files
+
+    config_src = all_files[config_path]
+    uses_asyncpg = "postgresql+asyncpg" in config_src
+    uses_sqlite = "sqlite+aiosqlite" in config_src and "postgresql" not in config_src
+    if not uses_asyncpg or uses_sqlite:
+        return all_files  # nothing to fix, or backend isn't using async Postgres at all
+
+    env_src = all_files[env_path]
+    all_files[env_path] = _re.sub(
+        r'DATABASE_URL=postgresql://',
+        'DATABASE_URL=postgresql+asyncpg://',
+        env_src,
+    )
+    return all_files
+
+
 # ── Domain detection + SQL schema selection ─────────────────────────────────
 
 _SQL_SCHEMAS: dict[str, str] = {
@@ -4323,6 +4470,13 @@ RULES:
   documents) — MUST branch on the filename's extension and use the format-specific parsing shown
   above (PyPDF2 for .pdf, python-docx for .docx, openpyxl for .xlsx, csv module for .csv) before
   doing anything with the file's content.
+  CRITICAL — the `except Exception` fallback around this parsing logic (for a corrupt file, or a
+  missing optional dependency) MUST return a short plain-text placeholder string like
+  f"[Parse error: {e}]" ONLY — NEVER append the raw file bytes (e.g. `+ raw.decode("utf-8",
+  errors="replace")`) to that placeholder or store them anywhere. A .docx/.xlsx/.pdf file's raw
+  bytes almost always contain null bytes (0x00), and PostgreSQL's UTF8 encoding rejects any string
+  containing one outright — appending raw bytes to a DB-bound `content`/`text` field turns an
+  ordinary parse failure into an unrelated-looking 500 error on the INSERT statement itself.
 
 - EXPORT — MANDATORY if the plan mentions Excel export, PPT export, report export, or export center. You MUST implement ALL of the following in `backend/app/api/export.py` and register the router in main.py:
   ```python
@@ -4899,6 +5053,10 @@ RATE LIMITING REQUIRED:
         all_files = _dedupe_model_classes(all_files)
         all_files = _ensure_requirements_complete(all_files)
         all_files = _normalize_vite_proxy_port(all_files)
+        all_files = _fix_router_prefixes(all_files)
+        all_files = _ensure_health_endpoint(all_files)
+        all_files = _strip_dead_imports(all_files)
+        all_files = _fix_env_asyncpg_driver(all_files)
 
         # ── Layer 3: DB Auto-Setup ───────────────────────────────────────────
         domain_key = _detect_domain(req.summary)
