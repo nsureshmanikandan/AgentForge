@@ -2472,6 +2472,28 @@ about, reference it inline as plain text (e.g. "Based on HR Leave Policy v4.pdf.
 than duplicating the file card UI.
 
 ==================================================
+MANDATORY SINGLE HEADER RULE (applies to ALL app types)
+==================================================
+The app-name + subtitle + status-badge-pills + avatar header described under MAIN CONTENT
+above MUST render EXACTLY ONCE per page load, as a single fixed element sitting above
+renderContent()'s output -- structured like this:
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <header>{/* app name + subtitle + badges + avatar -- renders ONCE, outside renderContent() */}</header>
+      <div className="flex-1 min-h-0 overflow-y-auto">{renderContent()}</div>
+    </div>
+  );
+
+!! ABSOLUTE BAN: Do NOT also render a second app-name/subtitle/badge header (or a
+near-duplicate of it with slightly different wording, e.g. two variants of the same app
+name) inside any individual page component (ChatView, DashboardView, DocumentsView, etc.)
+returned by renderContent() !! Each individual page's own top element must be its own
+page-specific content (e.g. a chat welcome message, a table, a form) -- never another copy
+of the app's own title/badges/avatar row. There must be exactly one app header visible on
+screen at any time, never two stacked on top of each other.
+
+==================================================
 MANDATORY SCROLLING RULE (applies to every page/view rendered by renderContent())
 ==================================================
 Every individual page component (e.g. DashboardView, ChatView, DocumentsView, AdminView,
