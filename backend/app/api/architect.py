@@ -2456,6 +2456,22 @@ ANY sidebar or left-nav menu MUST be interactive. Use this exact pattern:
 !! Each nav section MUST render different content in the main area when clicked !!
 
 ==================================================
+MANDATORY SINGLE FILES-PANEL RULE (applies to ALL app types with a RIGHT PANEL)
+==================================================
+The "Attached Files" / "Decision Library" / equivalent files-list section described under
+RIGHT PANEL above MUST render EXACTLY ONCE per page load, and ONLY inside the top-level
+<aside className="right-panel"> element (the third of the 3 required top-level siblings).
+
+!! ABSOLUTE BAN: Do NOT also render a second files/documents list, card, or "Attached Files"
+header anywhere inside MAIN CONTENT (e.g. inside a ChatView, DocumentsView, or any
+feature page) !! A chat or feature page MAY reference an attached file by name in its own
+text/messages, but it must NEVER re-render its own file-list card, its own document count
+badge, or its own "Attached Files"/"Knowledge Library" heading -- that list lives solely in
+the RIGHT PANEL aside and nowhere else. If a page needs to show which file a message is
+about, reference it inline as plain text (e.g. "Based on HR Leave Policy v4.pdf...") rather
+than duplicating the file card UI.
+
+==================================================
 MANDATORY SCROLLING RULE (applies to every page/view rendered by renderContent())
 ==================================================
 Every individual page component (e.g. DashboardView, ChatView, DocumentsView, AdminView,
