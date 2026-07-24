@@ -563,6 +563,7 @@ export default function App() {
                   <Route path="/" element={<ArchitectHome />} />
                   <Route path="/studio" element={<AgentStudio />} />
                   <Route path="/studio/create" element={<CreateAgent />} />
+                  <Route path="/studio/quick-generate" element={<AgentStudioHome />} />
                   <Route path="/projects" element={<MyProjects />} />
                   <Route path="/published" element={<PublishedProjects />} />
                   <Route path="/shared" element={<SharedProjects />} />
