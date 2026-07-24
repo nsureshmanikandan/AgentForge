@@ -3403,23 +3403,30 @@ def _enforce_agentic_structure(all_files: dict, app_name: str, summary: str) -> 
     has_rag = any("rag.py" in p for p in all_files)
     has_agent = any("/agents/" in p or p.endswith("Agent.py") for p in all_files)
     references_rag = any(
-        path.endswith(".py") and "/api/" in path
+        path.endswith(".py")
         and _re.search(r'^from app import rag\n|^from app\.rag import [^\n]+\n', content, _re.MULTILINE)
         for path, content in all_files.items()
     )
 
     def _strip_rag_references(files: dict) -> dict:
+        # Observed to appear in agent files too (HRFaqAgent.py calling
+        # rag.search(...) per this same prompt's own documents.py
+        # instructions), not just /api/ files -- match any .py file.
         for path in list(files.keys()):
-            if path.endswith(".py") and "/api/" in path:
+            if path.endswith(".py"):
                 src = files[path]
                 if "rag" not in src:
                     continue
                 src = _re.sub(r'^from app import rag\n', '', src, flags=_re.MULTILINE)
                 src = _re.sub(r'^from app\.rag import [^\n]+\n', '', src, flags=_re.MULTILINE)
                 # Neutralize now-undefined rag.* calls rather than leaving a
-                # NameError at request time -- these were only ever indexing
-                # calls (the chat path already goes through the real agent).
+                # NameError/ImportError at request time -- an indexing call
+                # becomes a no-op (the chat path already goes through the
+                # real agent); a search call becomes "no results", which
+                # correctly flows into the agent's own out-of-scope handling
+                # instead of crashing.
                 src = _re.sub(r'^([ \t]*)rag\.build_index\([^\n]*\)\n', r'\1pass  # indexing handled by the agent, not a separate rag module\n', src, flags=_re.MULTILINE)
+                src = _re.sub(r'\brag\.search\([^)]*\)', '[]', src)
                 files[path] = src
         return files
 
@@ -3679,9 +3686,11 @@ def _ensure_requirements_complete(all_files: dict) -> dict:
         return all_files
 
     used_modules: set[str] = set()
+    all_backend_src = ""
     for path, content in all_files.items():
         if not (path.endswith(".py") and ("backend" in path or path.startswith("app/"))):
             continue
+        all_backend_src += content
         for match in _re.finditer(r'^\s*(?:import|from)\s+([A-Za-z_][A-Za-z0-9_]*)', content, _re.MULTILINE):
             used_modules.add(match.group(1))
 
@@ -3692,8 +3701,27 @@ def _ensure_requirements_complete(all_files: dict) -> dict:
         for module, req_line in _IMPORT_TO_REQUIREMENT.items()
         if module in used_modules and req_line.split("==")[0].split("[")[0].lower() not in existing_lower
     ]
+    # EmailStr is a symbol import from an already-installed package
+    # (pydantic), not a separate top-level module -- the generic scan above
+    # can't catch it. It requires the extra email-validator package at
+    # runtime or pydantic raises ImportError on class definition.
+    if "EmailStr" in all_backend_src and "email-validator" not in existing_lower:
+        additions.append("email-validator==2.2.0")
     if additions:
-        all_files[req_path] = existing.rstrip("\n") + "\n" + "\n".join(additions) + "\n"
+        existing = existing.rstrip("\n") + "\n" + "\n".join(additions) + "\n"
+
+    # sentence-transformers pulls in torch, whose package file paths
+    # routinely exceed Windows' MAX_PATH and abort the entire `pip install
+    # -r requirements.txt` with an OSError -- observed to break a real
+    # download outright. It (and pandas, also seen unused) are only ever
+    # needed if the generated code actually imports them; if nothing in
+    # the generated backend does, drop them rather than ship dead weight
+    # that can silently prevent every other package from installing too.
+    for heavy_pkg, import_name in (("sentence-transformers", "sentence_transformers"), ("pandas", "pandas")):
+        if import_name not in used_modules:
+            existing = _re.sub(rf'(?m)^{_re.escape(heavy_pkg)}==[^\n]*\n?', '', existing)
+
+    all_files[req_path] = existing
     return all_files
 
 
@@ -3911,6 +3939,73 @@ def _fix_env_asyncpg_driver(all_files: dict) -> dict:
         r'DATABASE_URL=postgresql://',
         'DATABASE_URL=postgresql+asyncpg://',
         env_src,
+    )
+    return all_files
+
+
+def _fix_slowapi_import_path(all_files: dict) -> dict:
+    """
+    Observed bug: main.py imports `_rate_limit_exceeded_handler` from
+    `slowapi.errors`, but it actually lives at the top-level `slowapi`
+    package -- a plain wrong-module guess (this prompt's own example told
+    the LLM to "import RateLimitExceeded and _rate_limit_exceeded_handler
+    from slowapi/slowapi.errors" without being specific about which name
+    comes from which submodule). This is an ImportError at startup, before
+    the app can even bind a port.
+    """
+    import re as _re
+
+    main_path = next((p for p in all_files if p.endswith("main.py") and "backend" in p), None)
+    if main_path is None:
+        return all_files
+    all_files[main_path] = _re.sub(
+        r'from slowapi\.errors import _rate_limit_exceeded_handler',
+        'from slowapi import _rate_limit_exceeded_handler',
+        all_files[main_path],
+    )
+    return all_files
+
+
+def _ensure_jwt_settings(all_files: dict) -> dict:
+    """
+    Observed bug: the DEFAULT AUTHENTICATION (email/password) code path
+    generates app/auth/security.py referencing settings.JWT_SECRET and
+    settings.JWT_EXPIRE_MINUTES, per this prompt's own explicit instruction
+    to add both to config.py -- but config.py sometimes doesn't declare
+    them. Since Settings uses extra="allow", an undeclared field with no
+    matching .env value simply doesn't exist as an attribute, so the first
+    login/register call (or any route behind get_current_user) crashes
+    with AttributeError. Backfill both fields with safe local-dev defaults
+    if referenced anywhere but missing from config.py.
+    """
+    import re as _re
+
+    config_path = next((p for p in all_files if p.endswith("config.py") and "backend" in p), None)
+    if config_path is None:
+        return all_files
+    config_src = all_files[config_path]
+
+    references_jwt = any(
+        "settings.JWT_SECRET" in content or "settings.JWT_EXPIRE_MINUTES" in content
+        for path, content in all_files.items()
+        if path.endswith(".py") and "backend" in path
+    )
+    if not references_jwt:
+        return all_files
+
+    additions = []
+    if "JWT_SECRET" not in config_src:
+        additions.append('    JWT_SECRET: str = "change-me-to-a-random-secret"')
+    if "JWT_EXPIRE_MINUTES" not in config_src:
+        additions.append('    JWT_EXPIRE_MINUTES: int = 480')
+    if not additions:
+        return all_files
+
+    all_files[config_path] = _re.sub(
+        r'(class Settings\(BaseSettings\):\n(?:[ \t]*model_config[^\n]*\n)?)',
+        lambda m: m.group(1) + "\n".join(additions) + "\n",
+        config_src,
+        count=1,
     )
     return all_files
 
@@ -5080,6 +5175,8 @@ RATE LIMITING REQUIRED:
         all_files = _ensure_health_endpoint(all_files)
         all_files = _strip_dead_imports(all_files)
         all_files = _fix_env_asyncpg_driver(all_files)
+        all_files = _fix_slowapi_import_path(all_files)
+        all_files = _ensure_jwt_settings(all_files)
 
         # ── Layer 3: DB Auto-Setup ───────────────────────────────────────────
         domain_key = _detect_domain(req.summary)
