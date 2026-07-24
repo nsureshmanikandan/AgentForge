@@ -3402,9 +3402,39 @@ def _enforce_agentic_structure(all_files: dict, app_name: str, summary: str) -> 
 
     has_rag = any("rag.py" in p for p in all_files)
     has_agent = any("/agents/" in p or p.endswith("Agent.py") for p in all_files)
+    references_rag = any(
+        path.endswith(".py") and "/api/" in path
+        and _re.search(r'^from app import rag\n|^from app\.rag import [^\n]+\n', content, _re.MULTILINE)
+        for path, content in all_files.items()
+    )
 
-    if not has_rag:
+    def _strip_rag_references(files: dict) -> dict:
+        for path in list(files.keys()):
+            if path.endswith(".py") and "/api/" in path:
+                src = files[path]
+                if "rag" not in src:
+                    continue
+                src = _re.sub(r'^from app import rag\n', '', src, flags=_re.MULTILINE)
+                src = _re.sub(r'^from app\.rag import [^\n]+\n', '', src, flags=_re.MULTILINE)
+                # Neutralize now-undefined rag.* calls rather than leaving a
+                # NameError at request time -- these were only ever indexing
+                # calls (the chat path already goes through the real agent).
+                src = _re.sub(r'^([ \t]*)rag\.build_index\([^\n]*\)\n', r'\1pass  # indexing handled by the agent, not a separate rag module\n', src, flags=_re.MULTILINE)
+                files[path] = src
+        return files
+
+    if not has_rag and not references_rag:
         return all_files  # already agentic — nothing to do
+
+    if not has_rag and references_rag:
+        # Observed bug distinct from the has_rag+has_agent case below: the
+        # LLM never generated rag.py at all in this pass, but documents.py
+        # (or another api file) still imports `from app import rag` and
+        # calls `rag.build_index(...)` -- a plain internal inconsistency
+        # within the LLM's own single generation, not two competing passes
+        # coexisting. Left alone this is a guaranteed ModuleNotFoundError at
+        # import time, crashing the whole backend before it can start.
+        return _strip_rag_references(dict(all_files))
 
     if has_agent:
         # The LLM generated BOTH a generic rag.py AND a real agent, despite being
@@ -3417,19 +3447,7 @@ def _enforce_agentic_structure(all_files: dict, app_name: str, summary: str) -> 
         # rather than leave a silently-broken retrieval path in the download.
         rag_path = next(p for p in all_files if "rag.py" in p)
         new_files = {p: c for p, c in all_files.items() if p != rag_path}
-        for path in list(new_files.keys()):
-            if path.endswith(".py") and "/api/" in path:
-                src = new_files[path]
-                if "rag" not in src:
-                    continue
-                src = _re.sub(r'^from app import rag\n', '', src, flags=_re.MULTILINE)
-                src = _re.sub(r'^from app\.rag import [^\n]+\n', '', src, flags=_re.MULTILINE)
-                # Neutralize now-undefined rag.* calls rather than leaving a
-                # NameError at request time -- these were only ever indexing
-                # calls (the chat path already goes through the real agent).
-                src = _re.sub(r'^([ \t]*)rag\.build_index\([^\n]*\)\n', r'\1pass  # indexing handled by the agent, not a separate rag module\n', src, flags=_re.MULTILINE)
-                new_files[path] = src
-        return new_files
+        return _strip_rag_references(new_files)
 
     # Derive class name: "Policy Analysis Agent" → "PolicyAnalysisAgent"
     safe_name = _re.sub(r"[^A-Za-z0-9 ]", "", app_name).title().replace(" ", "")
@@ -3804,8 +3822,13 @@ def _ensure_health_endpoint(all_files: dict) -> dict:
     if main_path is None:
         return all_files
     src = all_files[main_path]
-    if _re.search(r'["\']\/api\/health["\']|["\']\/health["\']', src):
-        return all_files  # a health route already exists somewhere -- don't add a second
+    # Only a route reachable at exactly /api/health (what the frontend
+    # always calls) counts as "already handled". A bare "/health" defined
+    # directly on `app` (no /api prefix) was observed in a real generation
+    # and is NOT reachable at the path the frontend calls -- treating that
+    # as sufficient would leave the frontend's health check 404ing forever.
+    if _re.search(r'["\']\/api\/health["\']', src):
+        return all_files
 
     app_match = _re.search(r'^app = FastAPI\([^)]*\)\s*$', src, _re.MULTILINE)
     if not app_match:
