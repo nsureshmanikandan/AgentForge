@@ -399,9 +399,6 @@ function Sidebar() {
         <NavLink to="/studio" className={linkClass} title={collapsed ? "Agent Studio" : undefined}>
           <IconRobot />{!collapsed && "Agent Studio"}
         </NavLink>
-        <NavLink to="/architect-home" className={linkClass} title={collapsed ? "Architect Home" : undefined}>
-          <IconArchitect />{!collapsed && "Architect Home"}
-        </NavLink>
         <NavLink to="/architect" className={linkClass} title={collapsed ? "Architect" : undefined}>
           <IconArchitect />{!collapsed && "Architect"}
         </NavLink>
@@ -563,7 +560,7 @@ export default function App() {
             <Protected>
               <Layout>
                 <Routes>
-                  <Route path="/" element={<AgentStudioHome />} />
+                  <Route path="/" element={<ArchitectHome />} />
                   <Route path="/studio" element={<AgentStudio />} />
                   <Route path="/studio/create" element={<CreateAgent />} />
                   <Route path="/projects" element={<MyProjects />} />
@@ -578,7 +575,6 @@ export default function App() {
                   <Route path="/blueprints" element={<Blueprints />} />
                   <Route path="/marketplace" element={<Marketplace />} />
                   <Route path="/what-to-build" element={<WhatShouldIBuild />} />
-                  <Route path="/architect-home" element={<ArchitectHome />} />
                   <Route path="/architect" element={<Architect />} />
                   <Route path="/knowledge-bases" element={<KnowledgeBases />} />
                   <Route path="/api-keys" element={<ApiKeys />} />
