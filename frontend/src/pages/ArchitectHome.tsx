@@ -28,10 +28,16 @@ export default function ArchitectHome() {
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    setAttachedFiles((prev) => [...prev, ...files]);
-    for (const file of files) {
-      const text = await extractFileText(file);
-      setFileContents((prev) => ({ ...prev, [file.name]: text }));
+    const existingNames = new Set(attachedFiles.map((f) => f.name));
+    const newFiles = files.filter((f) => !existingNames.has(f.name));
+    setAttachedFiles((prev) => [...prev, ...newFiles]);
+    for (const file of newFiles) {
+      try {
+        const text = await extractFileText(file);
+        setFileContents((prev) => ({ ...prev, [file.name]: text }));
+      } catch {
+        setFileContents((prev) => ({ ...prev, [file.name]: `[Failed to extract text from ${file.name}]` }));
+      }
     }
   };
 
