@@ -3731,10 +3731,20 @@ def _dedupe_model_classes(all_files: dict) -> dict:
     `class Document(Base): __tablename__ = "documents"` definitions from
     different generation passes getting merged), SQLAlchemy raises
     `InvalidRequestError: Table 'X' is already defined for this MetaData
-    instance` at import time -- the backend never starts. Keep only the
-    LAST definition of each duplicated class (the one the rest of the
-    generated code was written against, since the LLM writes files in a
-    single pass top-to-bottom and later content reflects its final intent).
+    instance` at import time -- the backend never starts.
+
+    Which duplicate to keep is NOT reliably "the last one": a real
+    generation was observed where documents.py called
+    `Document(name=..., content=...)` and chat.py called
+    `ChatMessage(session_id=..., content=...)`, but deduping to the last
+    definition kept an incompatible "enterprise" schema variant
+    (title/file_name/storage_url; message + integer session_id FK) that
+    crashed both endpoints with `TypeError: invalid keyword argument`.
+    Instead, score each candidate definition by how many of its own field
+    names actually appear as constructor keyword arguments in the rest of
+    the generated code, and keep whichever definition the calling code is
+    actually compatible with. Only fall back to "keep the last" when no
+    other file constructs the class at all (nothing to score against).
     """
     import re as _re
 
@@ -3754,13 +3764,43 @@ def _dedupe_model_classes(all_files: dict) -> dict:
         end = class_starts[i + 1] if i + 1 < len(class_starts) else len(src)
         blocks.append(src[start:end])
 
-    seen: dict[str, int] = {}
+    indices_by_name: dict[str, list[int]] = {}
     for i, block in enumerate(blocks):
         name_match = _re.match(r'class (\w+)\(', block)
         if name_match:
-            seen[name_match.group(1)] = i  # last occurrence wins
+            indices_by_name.setdefault(name_match.group(1), []).append(i)
 
-    kept_indices = sorted(seen.values())
+    if all(len(idxs) == 1 for idxs in indices_by_name.values()):
+        return all_files  # no duplicates found
+
+    # Gather constructor kwargs used anywhere outside models.py, per class name.
+    other_src = "\n".join(c for p, c in all_files.items() if p != models_path and p.endswith(".py"))
+    used_kwargs_by_name: dict[str, set[str]] = {}
+    for name in indices_by_name:
+        kwargs: set[str] = set()
+        for call_match in _re.finditer(rf'\b{name}\(([^)]*)\)', other_src):
+            for kwarg_match in _re.finditer(r'(\w+)\s*=', call_match.group(1)):
+                kwargs.add(kwarg_match.group(1))
+        used_kwargs_by_name[name] = kwargs
+
+    kept_indices: list[int] = []
+    for name, idxs in indices_by_name.items():
+        if len(idxs) == 1:
+            kept_indices.append(idxs[0])
+            continue
+        used_kwargs = used_kwargs_by_name.get(name, set())
+        if not used_kwargs:
+            kept_indices.append(idxs[-1])  # nothing to score against -- fall back to last
+            continue
+        best_idx, best_score = idxs[-1], -1
+        for i in idxs:
+            field_names = set(_re.findall(r'^\s+(\w+)\s*:\s*Mapped', blocks[i], _re.MULTILINE))
+            score = len(field_names & used_kwargs)
+            if score > best_score:
+                best_idx, best_score = i, score
+        kept_indices.append(best_idx)
+
+    kept_indices.sort()
     if len(kept_indices) == len(blocks):
         return all_files  # no duplicates found
 
