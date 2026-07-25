@@ -162,6 +162,24 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
     runQuery(q);
   }
 
+  function clearQuery() {
+    setQuestion("");
+    setAskedQuestion("");
+    setAnswer("");
+    setError("");
+  }
+
+  function handleQuestionChange(value: string) {
+    setQuestion(value);
+    // Clearing the input resets the whole Q&A state -- brings the suggested
+    // questions back instead of leaving a stale answer hiding them forever.
+    if (value.trim() === "" && (answer || error)) {
+      setAskedQuestion("");
+      setAnswer("");
+      setError("");
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden">
@@ -187,14 +205,27 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
 
         <div className="px-6 pt-5 flex-shrink-0">
           <div className="flex gap-2">
-            <input
-              type="text"
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && runQuery(question)}
-              placeholder="Ask a question…"
-              className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-            />
+            <div className="relative flex-1">
+              <input
+                type="text"
+                value={question}
+                onChange={(e) => handleQuestionChange(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && runQuery(question)}
+                placeholder="Ask a question…"
+                className="w-full border border-gray-200 rounded-lg pl-3 pr-8 py-2 text-sm text-slate-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+              {question && (
+                <button
+                  onClick={clearQuery}
+                  title="Clear"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
             <button
               onClick={() => runQuery(question)}
               disabled={loading || !question.trim()}
@@ -213,7 +244,7 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
 
           {error && <p className="text-xs text-red-600 mt-3">{error}</p>}
 
-          {!suggestionsLoading && suggestions.length > 0 && (
+          {!suggestionsLoading && suggestions.length > 0 && !answer && !loading && (
             <div className="mt-4">
               <p className="text-xs font-medium text-gray-400 mb-2">Suggested questions</p>
               <div className="flex flex-wrap gap-2">
@@ -233,24 +264,28 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
         </div>
 
         {(loading || answer) && (
-          <div className="mt-4 mx-6 mb-6 bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex-1 min-h-0 overflow-y-auto">
-            {askedQuestion && (
-              <p className="text-xs text-indigo-400 mb-2 italic truncate">"{askedQuestion}"</p>
-            )}
-            <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-2 sticky top-0 bg-indigo-50">Answer</p>
-            {loading ? (
-              <div className="flex items-center gap-2 text-sm text-indigo-400">
-                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                </svg>
-                Thinking…
-              </div>
-            ) : (
-              <div className="prose prose-sm prose-slate max-w-none prose-p:my-2 prose-ol:my-2 prose-ul:my-2">
-                <ReactMarkdown>{answer}</ReactMarkdown>
-              </div>
-            )}
+          <div className="mt-4 mx-6 mb-6 flex-1 min-h-0 flex flex-col bg-indigo-50 border border-indigo-100 rounded-xl overflow-hidden">
+            <div className="px-4 pt-4 pb-2 flex-shrink-0 border-b border-indigo-100/70">
+              {askedQuestion && (
+                <p className="text-xs text-indigo-400 mb-1.5 italic truncate">"{askedQuestion}"</p>
+              )}
+              <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wider">Answer</p>
+            </div>
+            <div className="px-4 py-3 overflow-y-auto">
+              {loading ? (
+                <div className="flex items-center gap-2 text-sm text-indigo-400">
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                  Thinking…
+                </div>
+              ) : (
+                <div className="prose prose-sm prose-slate max-w-none prose-p:my-2 prose-ol:my-2 prose-ul:my-2">
+                  <ReactMarkdown>{answer}</ReactMarkdown>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
