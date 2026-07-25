@@ -22,6 +22,9 @@ bcrypt==4.0.1
 # Azure OpenAI
 openai==1.84.0
 
+# Google Gemini
+google-genai==2.14.0
+
 # LangChain — 0.3.20+ drops the numpy<2 constraint (Python 3.13 compatible)
 langchain==0.3.25
 langchain-openai==0.3.19

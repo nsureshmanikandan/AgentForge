@@ -109,3 +109,91 @@ async def test_builder_llm_provider_unset_falls_back_to_global():
          patch.object(settings, "builder_llm_provider", None):
         client = AzureOpenAIClient()
         assert client.provider == "azure"
+
+
+@pytest.mark.asyncio
+async def test_gemini_provider_resolves_deployment_and_defers_client():
+    """gemini is a third valid provider; unlike azure/lmstudio it doesn't
+    build its SDK client eagerly in __init__ (google-genai's Client() isn't
+    imported until first use, so setups without the package installed still
+    work as long as they never select gemini)."""
+    from app.config import settings
+    with patch.object(settings, "llm_provider", "azure"), \
+         patch.object(settings, "builder_llm_provider", None), \
+         patch.object(settings, "gemini_model", "gemini-3.1-flash-lite"):
+        client = AzureOpenAIClient(provider="gemini")
+        assert client.provider == "gemini"
+        assert client.deployment == "gemini-3.1-flash-lite"
+        assert client._gemini_client is None
+
+
+@pytest.mark.asyncio
+async def test_gemini_client_prefers_api_key_mode():
+    from app.config import settings
+    with patch("google.genai.Client") as MockGenaiClient, \
+         patch.object(settings, "gemini_api_key", "test-key-123"):
+        client = AzureOpenAIClient(provider="gemini")
+        client._get_gemini_client()
+        MockGenaiClient.assert_called_once_with(api_key="test-key-123")
+
+
+@pytest.mark.asyncio
+async def test_gemini_client_falls_back_to_vertex_ai_without_api_key():
+    from app.config import settings
+    with patch("google.genai.Client") as MockGenaiClient, \
+         patch.object(settings, "gemini_api_key", ""), \
+         patch.object(settings, "google_cloud_project", "my-project"), \
+         patch.object(settings, "google_cloud_location", "global"):
+        client = AzureOpenAIClient(provider="gemini")
+        client._get_gemini_client()
+        MockGenaiClient.assert_called_once_with(vertexai=True, project="my-project", location="global")
+
+
+@pytest.mark.asyncio
+async def test_gemini_chat_splits_system_message_and_maps_assistant_to_model_role():
+    """Gemini has no "system" role and calls the assistant's turn "model",
+    not "assistant" -- chat() must translate AgentForge's OpenAI-shaped
+    messages list into that shape before calling generate_content."""
+    from app.config import settings
+    with patch("google.genai.Client") as MockGenaiClient, \
+         patch.object(settings, "gemini_api_key", "test-key"):
+        mock_response = MagicMock()
+        mock_response.text = "Gemini says hi"
+        MockGenaiClient.return_value.models.generate_content.return_value = mock_response
+
+        client = AzureOpenAIClient(provider="gemini")
+        result = await client.chat([
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "Hi"},
+            {"role": "assistant", "content": "Hello!"},
+            {"role": "user", "content": "How are you?"},
+        ])
+
+        assert result == "Gemini says hi"
+        _, kwargs = MockGenaiClient.return_value.models.generate_content.call_args
+        assert kwargs["config"].system_instruction == "You are helpful."
+        roles = [c["role"] for c in kwargs["contents"]]
+        assert roles == ["user", "model", "user"]
+
+
+@pytest.mark.asyncio
+async def test_gemini_chat_falls_back_to_parts_when_text_is_empty():
+    """Thinking models (e.g. gemini-3.5-flash) can return response.text as
+    empty even on success -- confirmed via live testing -- so chat() must
+    fall back to scanning candidates[].content.parts, skipping any part
+    flagged as internal "thought" reasoning."""
+    from app.config import settings
+    with patch("google.genai.Client") as MockGenaiClient, \
+         patch.object(settings, "gemini_api_key", "test-key"):
+        thought_part = MagicMock(thought=True, text="internal reasoning...")
+        answer_part = MagicMock(thought=False, text="the real answer")
+        mock_candidate = MagicMock()
+        mock_candidate.content.parts = [thought_part, answer_part]
+        mock_response = MagicMock()
+        mock_response.text = ""
+        mock_response.candidates = [mock_candidate]
+        MockGenaiClient.return_value.models.generate_content.return_value = mock_response
+
+        client = AzureOpenAIClient(provider="gemini")
+        result = await client.chat([{"role": "user", "content": "Hi"}])
+        assert result == "the real answer"

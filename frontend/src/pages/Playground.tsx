@@ -307,12 +307,13 @@ export default function Playground() {
               <span className="text-xs text-slate-400 shrink-0">Model</span>
               <select
                 className="text-xs text-slate-200 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 font-mono disabled:opacity-50"
-                value={agent.model === "local" ? "local" : "azure"}
+                value={agent.model === "local" || agent.model === "gemini" ? agent.model : "azure"}
                 disabled={changingModel}
                 onChange={(e) => changeModel(e.target.value)}
               >
                 <option value="local">Local Model</option>
                 <option value="azure">Azure GPT-5.4-mini</option>
+                <option value="gemini">Gemini Flash-Lite</option>
               </select>
             </div>
             <div className="flex items-center justify-between">

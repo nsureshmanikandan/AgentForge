@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     azure_openai_deployment_embedding: str = "text-embedding-3-small"
     azure_openai_api_version: str = "2024-12-01-preview"
 
-    llm_provider: str = "azure"  # "azure" | "lmstudio"
+    llm_provider: str = "azure"  # "azure" | "lmstudio" | "gemini"
     # Optional per-feature overrides -- leave unset (None) to fall back to
     # llm_provider above. architect_llm_provider covers only Architect's own
     # endpoints; builder_llm_provider covers everything else that runs agents
@@ -22,6 +22,15 @@ class Settings(BaseSettings):
     builder_llm_provider: str | None = None
     lmstudio_base_url: str = "http://localhost:1234/v1"
     lmstudio_model: str = "qwen/qwen3.5-9b"
+
+    # Gemini -- chat/RAG-answers/voice only (Architect code-gen and RAG
+    # embeddings stay on Azure; see docs/superpowers/specs/2026-07-25-gemini-llm-provider-design.md).
+    # Auth priority: GEMINI_API_KEY (Google AI Studio) if set, else Vertex AI + ADC.
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.1-flash-lite"
+    google_cloud_project: str = ""
+    google_cloud_location: str = "global"
+    google_application_credentials: str = ""
 
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/agentforge"
     jwt_secret: str = "dev-secret-change-in-production"

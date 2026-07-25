@@ -14,12 +14,14 @@ class AgentOrchestrator:
         # Knowledge Base's Chunk rows. None (e.g. simulation.py's runs) simply
         # skips retrieval below.
         self.db = db
-        # agent_config["model"] is a per-agent choice of "local" or "azure" (not a
-        # literal Azure deployment name -- passing e.g. "gpt-4o" straight through
-        # as `deployment` would break real Azure calls, since the actual deployment
-        # is whatever AZURE_OPENAI_DEPLOYMENT_GPT4O resolves to, e.g. "gpt-5.4-mini").
+        # agent_config["model"] is a per-agent choice of "local"/"azure"/"gemini"
+        # (not a literal deployment name -- passing e.g. "gpt-4o" straight
+        # through as `deployment` would break real Azure calls, since the
+        # actual deployment is whatever AZURE_OPENAI_DEPLOYMENT_GPT4O resolves
+        # to, e.g. "gpt-5.4-mini"). Anything else falls back to "azure".
         model_choice = agent_config.get("model") or "local"
-        provider_override = "lmstudio" if model_choice == "local" else "azure"
+        provider_map = {"local": "lmstudio", "gemini": "gemini"}
+        provider_override = provider_map.get(model_choice, "azure")
         self._llm = AzureOpenAIClient(provider=provider_override)
         guardrail_cfg = agent_config.get("guardrails", {})
         self._guardrails = GuardrailsEngine(

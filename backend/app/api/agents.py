@@ -19,10 +19,11 @@ router = APIRouter()
 async def get_active_model(model: str | None = None):
     """Returns the model an agent actually runs on right now, resolved the
     same way AgentOrchestrator resolves it for a real run: the agent's
-    `model` field is a per-agent choice of "local" or "azure" (not a UI
+    `model` field is a per-agent choice of "local"/"azure"/"gemini" (not a UI
     label), so pass it through here to reflect that exact agent's provider
     instead of only the global BUILDER_LLM_PROVIDER default."""
-    provider_override = "lmstudio" if (model or "local") == "local" else "azure"
+    provider_map = {"local": "lmstudio", "gemini": "gemini"}
+    provider_override = provider_map.get(model or "local", "azure")
     client = AzureOpenAIClient(provider=provider_override)
     return {"provider": client.provider, "model": client.deployment}
 

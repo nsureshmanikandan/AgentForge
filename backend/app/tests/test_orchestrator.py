@@ -39,6 +39,22 @@ async def test_single_agent_pii_triggers_guardrail():
     assert "admin@secret.com" not in result["output"]
 
 @pytest.mark.asyncio
+async def test_gemini_model_choice_resolves_to_gemini_provider():
+    """agent_config["model"] == "gemini" must resolve to provider="gemini",
+    not fall through to the azure default the way an unrecognized value
+    would (matching the local/azure/gemini three-way mapping)."""
+    from app.core.orchestrator import AgentOrchestrator
+    config = {
+        "name": "Test Agent",
+        "system_prompt": "You are helpful.",
+        "model": "gemini",
+        "tools": [],
+        "guardrails": {"pii": True, "hallucination": True},
+    }
+    orch = AgentOrchestrator(config)
+    assert orch._llm.provider == "gemini"
+
+@pytest.mark.asyncio
 async def test_multi_agent_orchestrator():
     from app.core.orchestrator import MultiAgentOrchestrator
     manager_cfg = {"name": "Manager", "system_prompt": "You coordinate.", "model": settings.azure_openai_deployment_gpt4o, "tools": [], "guardrails": {"pii": False, "hallucination": False}}
