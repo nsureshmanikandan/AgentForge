@@ -1,6 +1,7 @@
 ﻿import asyncio
 import io
 import json
+import logging
 import zipfile
 import xml.etree.ElementTree as ET
 from fastapi import APIRouter, UploadFile, File
@@ -12,6 +13,7 @@ from opentelemetry.trace import Status as _OtelStatus, StatusCode as _OtelStatus
 from app.core.telemetry import get_tracer
 
 _tracer = get_tracer()
+logger = logging.getLogger(__name__)
 
 
 def _architect_provider() -> str:
@@ -3723,6 +3725,19 @@ def _ensure_requirements_complete(all_files: dict) -> dict:
     if additions:
         existing = existing.rstrip("\n") + "\n" + "\n".join(additions) + "\n"
 
+    # passlib[bcrypt] almost always shows up in the LLM's own requirements.txt
+    # directly (the prompt asks for it), so the generic backfill above never
+    # fires for it -- but passlib[bcrypt]==1.7.4's internal version probe
+    # crashes (`ValueError: password cannot be longer than 72 bytes`) against
+    # any bcrypt >=4.1, which is what a fresh `pip install` resolves to today
+    # with no pin. Confirmed via live execution: register/login crash on the
+    # very first password hash. This project's OWN backend/requirements.txt
+    # pins bcrypt==4.0.1 specifically for this reason -- that fix was never
+    # propagated into generated output. Add the same explicit pin whenever
+    # passlib[bcrypt] is present but bcrypt isn't separately pinned.
+    if "passlib" in existing.lower() and not _re.search(r'(?m)^bcrypt==', existing):
+        existing = existing.rstrip("\n") + "\nbcrypt==4.0.1\n"
+
     # sentence-transformers pulls in torch, whose package file paths
     # routinely exceed Windows' MAX_PATH and abort the entire `pip install
     # -r requirements.txt` with an OSError -- observed to break a real
@@ -3844,6 +3859,40 @@ def _normalize_vite_proxy_port(all_files: dict, backend_port: int = 8002) -> dic
     return all_files
 
 
+def _resolve_primary_main_py(all_files: dict) -> str | None:
+    """
+    Find the one true backend FastAPI entrypoint, and delete any stray
+    duplicate in place.
+
+    Observed bug: two different generation passes can each write a
+    main.py-like file for the same project -- a flat `backend/main.py` and
+    the real `backend/app/main.py` -- and every downstream fixup that used
+    to look for "the" main.py via `p.endswith("main.py") and "backend" in p`
+    matched BOTH. `next()` on a dict comprehension returns whichever one the
+    LLM happened to emit first in its own JSON (dict insertion order is
+    LLM emission order, not meaningful), so a fixup could silently patch the
+    throwaway file while the file Dockerfile's CMD (or pytest's own
+    conftest.py) actually loads stayed completely unpatched -- confirmed via
+    live execution to leave BOTH entrypoints broken in different ways
+    simultaneously (one via a stale ModuleNotFoundError, the other via the
+    exact bugs this file's fixups exist to catch).
+
+    `backend/app/main.py` is always the canonical one: it's what this
+    project's own static scaffold hardcodes (`backend/tests/conftest.py`:
+    `from app.main import app`), and it's the layout PROJECT_BACKEND_PROMPT's
+    own "Required file structure" section specifies. A second, flat
+    `backend/main.py` is always the stray one when both exist -- delete it
+    outright rather than ship dead, possibly-Docker-deployed broken code
+    alongside the real entrypoint.
+    """
+    canonical = next((p for p in all_files if p.endswith("backend/app/main.py")), None)
+    stray = next((p for p in all_files if p.endswith("backend/main.py")), None)
+    if canonical and stray:
+        del all_files[stray]
+        stray = None
+    return canonical or stray
+
+
 def _fix_router_prefixes(all_files: dict) -> dict:
     """
     Observed bug: main.py mounts the documents/chat routers with a bare
@@ -3858,7 +3907,7 @@ def _fix_router_prefixes(all_files: dict) -> dict:
     """
     import re as _re
 
-    main_path = next((p for p in all_files if p.endswith("main.py") and "backend" in p), None)
+    main_path = _resolve_primary_main_py(all_files)
     if main_path is None:
         return all_files
     src = all_files[main_path]
@@ -3899,7 +3948,7 @@ def _ensure_health_endpoint(all_files: dict) -> dict:
     """
     import re as _re
 
-    main_path = next((p for p in all_files if p.endswith("main.py") and "backend" in p), None)
+    main_path = _resolve_primary_main_py(all_files)
     if main_path is None:
         return all_files
     src = all_files[main_path]
@@ -3938,7 +3987,7 @@ def _strip_dead_imports(all_files: dict) -> dict:
     """
     import re as _re
 
-    main_path = next((p for p in all_files if p.endswith("main.py") and "backend" in p), None)
+    main_path = _resolve_primary_main_py(all_files)
     if main_path is None:
         return all_files
     src = all_files[main_path]
@@ -4054,13 +4103,49 @@ def _fix_slowapi_import_path(all_files: dict) -> dict:
     """
     import re as _re
 
-    main_path = next((p for p in all_files if p.endswith("main.py") and "backend" in p), None)
+    main_path = _resolve_primary_main_py(all_files)
     if main_path is None:
         return all_files
     all_files[main_path] = _re.sub(
         r'from slowapi\.errors import _rate_limit_exceeded_handler',
         'from slowapi import _rate_limit_exceeded_handler',
         all_files[main_path],
+    )
+    return all_files
+
+
+def _fix_dockerfile_entrypoint(all_files: dict) -> dict:
+    """
+    Observed bug: Dockerfile's CMD guesses `uvicorn main:app`, but the
+    canonical entrypoint this project always resolves to is
+    `backend/app/main.py` (see `_resolve_primary_main_py`) -- inside the
+    container (WORKDIR /app, `COPY . .` from the backend/ build context),
+    that file is only importable as the `app.main` module, not `main`.
+    PROJECT_BACKEND_PROMPT never gives the LLM a worked CMD example, so it
+    has to guess this on every single generation, and a wrong guess means
+    `docker-compose up` -- the project's own documented one-command deploy
+    path -- crashes with ModuleNotFoundError the instant the container
+    starts, even when every other file in the download is completely
+    correct. Confirmed via live execution against a real downloaded
+    project.
+    """
+    import re as _re
+
+    main_path = _resolve_primary_main_py(all_files)
+    dockerfile_path = next((p for p in all_files if p.endswith("backend/Dockerfile")), None)
+    if main_path is None or dockerfile_path is None:
+        return all_files
+
+    # main_path is "backend/app/main.py" (canonical) or "backend/main.py"
+    # (only possible if no canonical file exists at all) -- derive the
+    # dotted module path uvicorn needs relative to Dockerfile's WORKDIR.
+    rel = main_path.split("backend/", 1)[-1]
+    module = rel[:-len(".py")].replace("/", ".") if rel.endswith(".py") else rel
+
+    all_files[dockerfile_path] = _re.sub(
+        r'CMD\s*\[\s*"uvicorn"\s*,\s*"[\w.]+:app"',
+        f'CMD ["uvicorn", "{module}:app"',
+        all_files[dockerfile_path],
     )
     return all_files
 
@@ -4120,6 +4205,244 @@ def _ensure_jwt_settings(all_files: dict) -> dict:
         count=1,
     )
     return all_files
+
+
+# ── Static code quality validator ───────────────────────────────────────────
+#
+# Everything above this point fixes one specific, previously-observed bug
+# shape with a hand-written regex. That's reliable but reactive: every new
+# bug shape needs a new function. This validator instead builds a real
+# symbol table from the generated backend's own `ast` and checks GROUND
+# TRUTH cross-file consistency that generalizes to any bug of the same
+# underlying kind -- a model class that doesn't exist, a field name that
+# doesn't match, a settings attribute that was never declared, an import
+# that references a name its target module never defines -- regardless of
+# what that class/field/setting happens to be named. It reports issues; it
+# does not silently rewrite code (an LLM reviewer does that part, fed these
+# findings as ground truth -- see `_review_and_fix_generated_code`).
+
+
+def _iter_backend_py_files(all_files: dict) -> list[tuple[str, str]]:
+    return [(p, c) for p, c in all_files.items() if p.endswith(".py") and "backend" in p]
+
+
+def _parse_backend_asts(all_files: dict) -> dict[str, "ast.Module"]:
+    """Parse every backend .py file, skipping (not crashing on) any file
+    that isn't valid Python -- this is a best-effort quality check, not a
+    compiler, and a single malformed file must never break the pipeline."""
+    import ast as _ast
+
+    trees: dict[str, _ast.Module] = {}
+    for path, content in _iter_backend_py_files(all_files):
+        try:
+            trees[path] = _ast.parse(content)
+        except SyntaxError:
+            continue
+    return trees
+
+
+def _top_level_symbols(tree: "ast.Module") -> set[str]:
+    """Names a module makes available to `from module import <name>` --
+    its own top-level classes, functions, assignments, and re-exported
+    imports."""
+    import ast as _ast
+
+    symbols: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, (_ast.ClassDef, _ast.FunctionDef, _ast.AsyncFunctionDef)):
+            symbols.add(node.name)
+        elif isinstance(node, _ast.Assign):
+            symbols.update(t.id for t in node.targets if isinstance(t, _ast.Name))
+        elif isinstance(node, _ast.AnnAssign) and isinstance(node.target, _ast.Name):
+            symbols.add(node.target.id)
+        elif isinstance(node, (_ast.Import, _ast.ImportFrom)):
+            symbols.update(a.asname or a.name.split(".")[0] for a in node.names)
+    return symbols
+
+
+def _model_class_fields(tree: "ast.Module") -> dict[str, set[str]]:
+    """Map {model class name -> declared field names} for every class in
+    this module whose base list includes `Base` (this codebase's universal
+    SQLAlchemy declarative-base convention -- `class Foo(Base):`)."""
+    import ast as _ast
+
+    models: dict[str, set[str]] = {}
+    for node in tree.body:
+        if not isinstance(node, _ast.ClassDef):
+            continue
+        base_names = {b.id for b in node.bases if isinstance(b, _ast.Name)}
+        if "Base" not in base_names:
+            continue
+        fields: set[str] = set()
+        for stmt in node.body:
+            if isinstance(stmt, _ast.AnnAssign) and isinstance(stmt.target, _ast.Name):
+                fields.add(stmt.target.id)
+            elif isinstance(stmt, _ast.Assign):
+                fields.update(t.id for t in stmt.targets if isinstance(t, _ast.Name))
+        models[node.name] = fields
+    return models
+
+
+def _settings_fields(tree: "ast.Module") -> set[str] | None:
+    """Declared field names on this module's `class Settings(BaseSettings):`,
+    or None if this module doesn't define one at all."""
+    import ast as _ast
+
+    for node in tree.body:
+        if not isinstance(node, _ast.ClassDef):
+            continue
+        base_names = {b.id for b in node.bases if isinstance(b, _ast.Name)}
+        if "BaseSettings" not in base_names:
+            continue
+        fields: set[str] = set()
+        for stmt in node.body:
+            if isinstance(stmt, _ast.AnnAssign) and isinstance(stmt.target, _ast.Name):
+                fields.add(stmt.target.id)
+            elif isinstance(stmt, _ast.Assign):
+                fields.update(t.id for t in stmt.targets if isinstance(t, _ast.Name))
+        return fields
+    return None
+
+
+def _resolve_app_module_file(all_files: dict, dotted_module: str) -> str | None:
+    """`"app.models"` -> the file path in all_files ending `app/models.py`
+    under a backend/ tree (mirrors the resolution style already used by
+    `_strip_dead_imports`)."""
+    if not dotted_module.startswith("app."):
+        return None
+    suffix = dotted_module.replace(".", "/") + ".py"
+    return next((p for p in all_files if p.endswith(suffix) and "backend" in p), None)
+
+
+def _static_code_quality_report(all_files: dict) -> list[str]:
+    """
+    Deterministic, ast-based cross-file consistency check across every
+    generated backend .py file. Returns a list of plain-English, concrete
+    issue descriptions (empty list = nothing found) -- each one grounded in
+    an actual AST fact, never a guess, so every item is safe to hand an LLM
+    reviewer as a confirmed bug to fix rather than something to go hunting
+    for. Covers, generally rather than by specific example:
+
+    - BROKEN IMPORTS: `from app.X import Y` where Y isn't actually defined
+      anywhere in X (catches e.g. `from app.models import Document` when
+      models.py has no such class -- not just the one specific "Document"
+      example the reviewer prompt happens to mention).
+    - SCHEMA MISMATCH: `SomeModel(field=..., other=...)` where `SomeModel`
+      is a known `Base`-derived class and a keyword doesn't match any of
+      its declared fields.
+    - UNDECLARED SETTINGS: `settings.SOME_FIELD` where `SOME_FIELD` isn't
+      declared on config.py's `Settings` class (generalizes
+      `_ensure_jwt_settings`'s fixed 5-field list to any field at all).
+    - ENTRYPOINT/DOCKER DRIFT: more than one main.py-like file, or a
+      Dockerfile CMD that doesn't reference the resolved canonical one.
+
+    Never raises -- a bug in this checker must never block a generation
+    that would otherwise have shipped; any internal error is reported as a
+    single issue string rather than propagated.
+    """
+    import ast as _ast
+
+    issues: list[str] = []
+    try:
+        trees = _parse_backend_asts(all_files)
+        if not trees:
+            return issues
+
+        model_fields_by_class: dict[str, set[str]] = {}
+        for tree in trees.values():
+            model_fields_by_class.update(_model_class_fields(tree))
+
+        settings_fields: set[str] | None = None
+        for tree in trees.values():
+            found = _settings_fields(tree)
+            if found is not None:
+                settings_fields = found
+                break
+
+        for path, tree in trees.items():
+            short = path.split("backend/", 1)[-1]
+
+            # -- broken imports --------------------------------------------
+            for node in _ast.walk(tree):
+                if not isinstance(node, _ast.ImportFrom) or not node.module or node.level:
+                    continue
+                if not node.module.startswith("app."):
+                    continue
+                target_path = _resolve_app_module_file(all_files, node.module)
+                if target_path is None:
+                    issues.append(
+                        f"{short}: imports from '{node.module}', but no file matching that "
+                        f"module exists anywhere in the generated project."
+                    )
+                    continue
+                target_symbols = _top_level_symbols(trees.get(target_path)) if target_path in trees else set()
+                for alias in node.names:
+                    if alias.name == "*":
+                        continue
+                    if alias.name not in target_symbols:
+                        target_short = target_path.split("backend/", 1)[-1]
+                        issues.append(
+                            f"{short}: imports '{alias.name}' from '{node.module}', but "
+                            f"{target_short} has no top-level class/function/name called "
+                            f"'{alias.name}'."
+                        )
+
+            # -- model constructor / schema mismatch ------------------------
+            for node in _ast.walk(tree):
+                if not isinstance(node, _ast.Call) or not isinstance(node.func, _ast.Name):
+                    continue
+                fields = model_fields_by_class.get(node.func.id)
+                if fields is None:
+                    continue
+                bad_kwargs = sorted(kw.arg for kw in node.keywords if kw.arg and kw.arg not in fields)
+                if bad_kwargs:
+                    issues.append(
+                        f"{short}: constructs {node.func.id}({', '.join(bad_kwargs)}=...) but "
+                        f"{node.func.id}'s declared fields are {{{', '.join(sorted(fields))}}} -- "
+                        f"{', '.join(bad_kwargs)} {'is' if len(bad_kwargs) == 1 else 'are'} not "
+                        f"declared on that model."
+                    )
+
+            # -- undeclared settings.FIELD -----------------------------------
+            if settings_fields is not None:
+                seen_fields: set[str] = set()
+                for node in _ast.walk(tree):
+                    if (
+                        isinstance(node, _ast.Attribute)
+                        and isinstance(node.value, _ast.Name)
+                        and node.value.id == "settings"
+                        and node.attr not in settings_fields
+                    ):
+                        seen_fields.add(node.attr)
+                for field in sorted(seen_fields):
+                    issues.append(
+                        f"{short}: references settings.{field}, but config.py's Settings "
+                        f"class never declares {field}."
+                    )
+
+        # -- entrypoint / Docker consistency --------------------------------
+        canonical = next((p for p in all_files if p.endswith("backend/app/main.py")), None)
+        stray = next((p for p in all_files if p.endswith("backend/main.py")), None)
+        if canonical and stray:
+            issues.append(
+                f"Two competing FastAPI entrypoints exist ({canonical} and {stray}) -- "
+                f"only one should exist; {canonical} is canonical."
+            )
+        entrypoint = canonical or stray
+        dockerfile_path = next((p for p in all_files if p.endswith("backend/Dockerfile")), None)
+        if entrypoint and dockerfile_path:
+            rel = entrypoint.split("backend/", 1)[-1]
+            expected_module = rel[:-len(".py")].replace("/", ".") if rel.endswith(".py") else rel
+            if f'"{expected_module}:app"' not in all_files[dockerfile_path]:
+                issues.append(
+                    f"Dockerfile's CMD doesn't reference '{expected_module}:app' (the resolved "
+                    f"entrypoint at {entrypoint}) -- the container will crash with "
+                    f"ModuleNotFoundError on start."
+                )
+    except Exception as e:
+        issues.append(f"(static code quality checker itself failed: {e!r} -- results may be incomplete)")
+
+    return issues
 
 
 # ── Domain detection + SQL schema selection ─────────────────────────────────
@@ -4969,7 +5292,7 @@ Database Schema: {database_schema}"""
 
 
 REVIEWER_PROMPT = """You are reviewing a generated FastAPI + React project for correctness bugs before it ships.
-Check ONLY for these specific problems -- do not restyle, refactor, or "improve" anything else:
+{known_issues_section}Check ALSO for these problems -- do not restyle, refactor, or "improve" anything else:
 
 1. SCHEMA MISMATCH: for every SQLAlchemy model constructor call (e.g. `Document(name=..., content=...)`)
    in any backend .py file, confirm every keyword argument used is an actual field declared on
@@ -5034,16 +5357,32 @@ FILES TO REVIEW:
 
 
 async def _review_and_fix_generated_code(
-    all_files: dict, client, llm_model: str, tok_kwarg: str
+    all_files: dict, client, llm_model: str, tok_kwarg: str, known_issues: list[str] | None = None,
 ) -> dict:
     """
-    Final semantic review pass, run after all deterministic post-processing.
-    Catches the class of bugs regex fixes can't generalize to -- schema
-    mismatches, wrong import paths, missing config fields, dangling module
-    references, incomplete frontend response rendering -- see
+    One semantic review-and-fix LLM pass, run after all deterministic
+    post-processing. Catches the class of bugs regex fixes can't generalize
+    to -- schema mismatches, wrong import paths, missing config fields,
+    dangling module references, incomplete frontend response rendering,
+    SSO frontend completeness -- see
     docs/superpowers/specs/2026-07-24-agentic-code-reviewer-agent-design.md
-    for the concrete bugs this addresses. A failure here is non-fatal: it
-    must never break an otherwise-working generation.
+    for the original design, and its v2 follow-up for why this is now a
+    single pass INSIDE a bounded verify-fix-reverify loop
+    (`_run_verified_review_loop`) rather than a one-shot call: a single LLM
+    opinion isn't reliable enough on its own to trust blindly.
+
+    `known_issues`, when provided, are CONFIRMED bugs `_static_code_quality_report`
+    already found by parsing the code's own AST -- ground truth, not a
+    guess -- and are listed first so the model's job becomes "fix this
+    already-diagnosed bug" instead of "please notice a bug on your own",
+    which is a substantially easier and more reliable task for an LLM.
+
+    A failure here is non-fatal: it must never break an otherwise-working
+    generation, but IS now logged (previously silently swallowed), since
+    "reviewer silently didn't run" and "reviewer ran but found nothing" were
+    indistinguishable before -- exactly the kind of gap that made it hard to
+    tell why a bug the reviewer's own prompt explicitly names (e.g. the
+    slowapi.errors import path) could still ship unfixed.
     """
     review_targets = {
         p: c for p, c in all_files.items()
@@ -5072,7 +5411,18 @@ async def _review_and_fix_generated_code(
             break
         files_content += chunk
 
-    prompt = REVIEWER_PROMPT.replace("{files_content}", files_content)
+    known_issues_section = ""
+    if known_issues:
+        known_issues_section = (
+            "CONFIRMED BUGS -- a deterministic static analyzer already found these exact "
+            "issues by parsing the code's own AST (this is NOT a guess -- every item below is "
+            "a verified fact about this codebase). You MUST fix every one of these:\n"
+            + "\n".join(f"- {issue}" for issue in known_issues)
+            + "\n\n"
+        )
+    prompt = REVIEWER_PROMPT.replace("{known_issues_section}", known_issues_section).replace(
+        "{files_content}", files_content
+    )
 
     try:
         response = await asyncio.to_thread(
@@ -5091,12 +5441,122 @@ async def _review_and_fix_generated_code(
         # corrected, but a genuinely new path outside that narrow allowlist
         # is more likely a hallucination than an intentional fix.
         new_file_allowlist = {"src/auth/msalConfig.ts", "src/auth/useAuth.ts"}
+        applied = 0
         for path, content in fixed_files.items():
             if path in all_files or path in new_file_allowlist:
                 all_files[path] = content
-    except Exception:
-        pass  # reviewer failure must never break a working generation
+                applied += 1
+        logger.info(
+            "architect code-quality reviewer pass: %d known issue(s) given, %d file(s) changed",
+            len(known_issues or []), applied,
+        )
+    except Exception as e:
+        # Reviewer failure must never break a working generation -- but it
+        # must also never be silently indistinguishable from "ran and found
+        # nothing", which was the previous behavior.
+        logger.warning("architect code-quality reviewer pass failed (non-fatal): %r", e)
 
+    return all_files
+
+
+def _rerun_deterministic_fixups(all_files: dict, app_name: str, summary: str) -> dict:
+    """
+    Run every idempotent deterministic post-processing pass, in the same
+    order the main generation pipeline uses. Safe to call repeatedly: each
+    one already checks "is this already fixed?" before changing anything,
+    so re-running it against already-clean content is a no-op.
+
+    Used both in the main pipeline and after every reviewer LLM pass inside
+    `_run_verified_review_loop`, since the reviewer rewrites whole files and
+    can silently regress a fix a deterministic pass already applied
+    correctly elsewhere in the same file -- observed in practice, see
+    docs/superpowers/specs/2026-07-24-agentic-code-reviewer-agent-design.md.
+    The original design only re-ran 2 of these 10 after the reviewer; this
+    re-runs all of them.
+    """
+    all_files = _enforce_agentic_structure(all_files, app_name, summary)
+    all_files = _dedupe_model_classes(all_files)
+    all_files = _ensure_requirements_complete(all_files)
+    all_files = _normalize_vite_proxy_port(all_files)
+    all_files = _fix_router_prefixes(all_files)
+    all_files = _ensure_health_endpoint(all_files)
+    all_files = _strip_dead_imports(all_files)
+    all_files = _fix_env_asyncpg_driver(all_files)
+    all_files = _fix_slowapi_import_path(all_files)
+    all_files = _ensure_jwt_settings(all_files)
+    all_files = _fix_dockerfile_entrypoint(all_files)
+    all_files = _ensure_msal_dependencies(all_files)
+    return all_files
+
+
+async def _run_verified_review_loop(
+    all_files: dict,
+    client,
+    llm_model: str,
+    tok_kwarg: str,
+    app_name: str,
+    summary: str,
+    max_iterations: int = 2,
+) -> dict:
+    """
+    Replaces the original single-shot "call the reviewer once and hope"
+    step with a verify -> fix -> reverify loop:
+
+    1. Run the deterministic `_static_code_quality_report` first. If it
+       finds nothing, skip the LLM call entirely -- no cost, no latency,
+       for the (common) case where the generation was already clean.
+    2. Otherwise, call the LLM reviewer with those CONFIRMED issues listed
+       explicitly (ground truth, not "please go find something").
+    3. Re-run every deterministic fixup (idempotent, cheap) in case the
+       reviewer's rewrite of a whole file regressed something.
+    4. Re-run the static validator. If clean, done. If unchanged from
+       before this iteration, stop early -- another identical LLM call
+       won't fix what the last one didn't. Otherwise loop, bounded by
+       `max_iterations`.
+
+    This directly replaces the original design's explicit choice not to
+    loop ("if issues remain after it, they surface on the next real-world
+    test same as before") -- that was fine when the reviewer was new and
+    untested; once it's clear a single pass isn't reliable enough on its
+    own, verifying its own output is the correct next step, not repeating
+    the same one-shot gamble forever.
+
+    Never raises and never blocks a download: any issues still open after
+    the loop are logged (so they're visible instead of silently shipping)
+    and the best-effort `all_files` is returned regardless.
+    """
+    issues = _static_code_quality_report(all_files)
+    if not issues:
+        logger.info("architect static code-quality check: clean, skipping LLM reviewer pass")
+        return all_files
+
+    for iteration in range(1, max_iterations + 1):
+        logger.info(
+            "architect reviewer loop iteration %d/%d: %d known issue(s): %s",
+            iteration, max_iterations, len(issues), issues,
+        )
+        all_files = await _review_and_fix_generated_code(
+            all_files, client, llm_model, tok_kwarg, known_issues=issues
+        )
+        all_files = _rerun_deterministic_fixups(all_files, app_name, summary)
+        new_issues = _static_code_quality_report(all_files)
+
+        if not new_issues:
+            logger.info("architect reviewer loop: clean after iteration %d", iteration)
+            return all_files
+        if new_issues == issues:
+            logger.warning(
+                "architect reviewer loop: no progress after iteration %d -- stopping early. "
+                "%d issue(s) remain unresolved: %s",
+                iteration, len(new_issues), new_issues,
+            )
+            return all_files
+        issues = new_issues
+
+    logger.warning(
+        "architect reviewer loop: exhausted %d iteration(s) -- %d issue(s) still unresolved: %s",
+        max_iterations, len(issues), issues,
+    )
     return all_files
 
 
@@ -5411,16 +5871,7 @@ RATE LIMITING REQUIRED:
 
         # ── Post-process ────────────────────────────────────────────────────
         all_files = {path: _fix_python_file(path, content) for path, content in all_files.items()}
-        all_files = _enforce_agentic_structure(all_files, req.app_name, req.summary)
-        all_files = _dedupe_model_classes(all_files)
-        all_files = _ensure_requirements_complete(all_files)
-        all_files = _normalize_vite_proxy_port(all_files)
-        all_files = _fix_router_prefixes(all_files)
-        all_files = _ensure_health_endpoint(all_files)
-        all_files = _strip_dead_imports(all_files)
-        all_files = _fix_env_asyncpg_driver(all_files)
-        all_files = _fix_slowapi_import_path(all_files)
-        all_files = _ensure_jwt_settings(all_files)
+        all_files = _rerun_deterministic_fixups(all_files, req.app_name, req.summary)
 
         # ── Layer 3: DB Auto-Setup ───────────────────────────────────────────
         domain_key = _detect_domain(req.summary)
@@ -5497,8 +5948,6 @@ RATE LIMITING REQUIRED:
             )
             all_files[_pkg_path] = _pkg
 
-        all_files = _ensure_msal_dependencies(all_files)
-
         # ── README ──────────────────────────────────────────────────────────
         if "README.md" not in all_files:
             all_files["README.md"] = (
@@ -5538,19 +5987,14 @@ RATE LIMITING REQUIRED:
             all_files["README.md"] = all_files["README.md"] + _setup_note
 
         _ensure_scaffold_files(all_files)
-        all_files = await _review_and_fix_generated_code(all_files, client, _llm_model, _tok_kwarg)
-        # Safety net: the reviewer returns full corrected file content for
-        # anything it touches, and was observed to regress an
-        # already-fixed dangling rag.build_index() call in one function
-        # while correctly fixing a different one in the same file --
-        # rewriting a whole file risks losing an earlier deterministic fix
-        # elsewhere in it. Re-running these deterministic passes is
-        # idempotent (a no-op on already-clean content) and cheap, so it's
-        # a safe guard against the reviewer's own output regressing
-        # something a deterministic fix already handled correctly.
-        all_files = _enforce_agentic_structure(all_files, req.app_name, req.summary)
-        all_files = _strip_dead_imports(all_files)
+        all_files = await _run_verified_review_loop(
+            all_files, client, _llm_model, _tok_kwarg, req.app_name, req.summary
+        )
 
+        remaining_issues = _static_code_quality_report(all_files)
+        span.set_attribute("review.remaining_issues", len(remaining_issues))
+        if remaining_issues:
+            span.set_attribute("review.remaining_issues_detail", json.dumps(remaining_issues))
         span.set_attribute("total.file_count", len(all_files))
         return {"files": all_files, "file_count": len(all_files)}
 
