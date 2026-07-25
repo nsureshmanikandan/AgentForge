@@ -18,6 +18,11 @@ class AgentCreate(BaseModel):
     guardrails: dict = Field(default_factory=lambda: {"pii": True, "hallucination": True})
     agent_type: str = "agent"
     worker_agent_ids: list[str] = []
+    # Write-only: which KnowledgeBase this agent should be linked to. Not a
+    # column on Agent itself -- the FK lives on KnowledgeBase.agent_id (one
+    # KB per agent), so this is popped off and applied separately by the
+    # create/update endpoints rather than passed straight into Agent(**data).
+    knowledge_base_id: str | None = None
 
 
 class AgentOut(BaseModel):
@@ -36,6 +41,9 @@ class AgentOut(BaseModel):
     worker_agent_ids: list[str]
     created_at: datetime
     updated_at: datetime
+    # Populated by the API layer (queried from KnowledgeBase.agent_id) since
+    # it isn't a real column on Agent -- see knowledge_base_id on AgentCreate.
+    knowledge_base_id: str | None = None
 
     class Config:
         from_attributes = True

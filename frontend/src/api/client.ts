@@ -62,8 +62,11 @@ export const agentsApi = {
 };
 
 export const ragApi = {
+  list: () => api.get("/rag/knowledge-bases"),
+  get: (kbId: string) => api.get(`/rag/knowledge-bases/${kbId}`),
   createKB: (name: string, description: string) =>
     api.post("/rag/knowledge-bases", { name, description }),
+  delete: (kbId: string) => api.delete(`/rag/knowledge-bases/${kbId}`),
   upload: (kbId: string, file: File) => {
     const form = new FormData();
     form.append("file", file);
@@ -71,6 +74,8 @@ export const ragApi = {
   },
   query: (kbId: string, question: string) =>
     api.post(`/rag/knowledge-bases/${kbId}/query`, { question }),
+  suggestedQuestions: (kbId: string) =>
+    api.get(`/rag/knowledge-bases/${kbId}/suggested-questions`),
 };
 
 export const simulationApi = {

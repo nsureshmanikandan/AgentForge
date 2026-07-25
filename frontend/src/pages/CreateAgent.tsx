@@ -478,6 +478,7 @@ export default function CreateAgent() {
       if (agent.model) setModel(agent.model);
       if (agent.tools) setSelectedTools(agent.tools);
       if (agent.temperature != null) setTemperature(agent.temperature);
+      if (agent.knowledge_base_id) setKbId(agent.knowledge_base_id);
 
       // Prefer the real role/goal columns (saved directly, not derived) --
       // only fall back to regex-parsing system_prompt for agents saved before
@@ -657,7 +658,7 @@ export default function CreateAgent() {
       };
 
       if (editId) {
-        await agentsApi.update(editId, payload);
+        await agentsApi.update(editId, { ...payload, knowledge_base_id: kbId ?? undefined });
         navigate(`/studio?id=${editId}`);
       } else {
         await agentsApi.create({

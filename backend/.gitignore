@@ -3,3 +3,6 @@ __pycache__/
 .env
 *.egg-info/
 .pytest_cache/
+
+# Generated per-KB FAISS vector indexes (rebuildable from the chunks table)
+data/kb_indexes/

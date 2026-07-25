@@ -1,41 +1,20 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import { ragApi } from "../api/client";
 
 interface KB {
   id: string;
   name: string;
   description: string;
+  documentCount: number;
   createdAt: string;
 }
 
-const LS_KBS = "af_kbs";
-
-function kbDocsKey(id: string) {
-  return `af_kb_docs_${id}`;
-}
-
-function loadKBs(): KB[] {
-  try {
-    return JSON.parse(localStorage.getItem(LS_KBS) || "[]");
-  } catch {
-    return [];
-  }
-}
-
-function saveKBs(kbs: KB[]) {
-  localStorage.setItem(LS_KBS, JSON.stringify(kbs));
-}
-
-function loadDocs(id: string): string[] {
-  try {
-    return JSON.parse(localStorage.getItem(kbDocsKey(id)) || "[]");
-  } catch {
-    return [];
-  }
-}
-
-function saveDocs(id: string, docs: string[]) {
-  localStorage.setItem(kbDocsKey(id), JSON.stringify(docs));
+interface KBDocument {
+  id: string;
+  filename: string;
+  chunk_count: number;
+  status: string;
 }
 
 // ── Modal: Create KB ──────────────────────────────────────────────────────────
@@ -64,6 +43,7 @@ function CreateModal({ onClose, onCreate }: CreateModalProps) {
         id: data.id,
         name: data.name,
         description: data.description,
+        documentCount: 0,
         createdAt: new Date().toISOString(),
       };
       onCreate(kb);
@@ -139,17 +119,34 @@ interface QueryModalProps {
 
 function QueryModal({ kb, onClose }: QueryModalProps) {
   const [question, setQuestion] = useState("");
+  const [askedQuestion, setAskedQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(true);
 
-  async function handleQuery() {
-    if (!question.trim()) return;
+  useEffect(() => {
+    let cancelled = false;
+    ragApi.suggestedQuestions(kb.id)
+      .then((res) => {
+        if (cancelled) return;
+        const data = res.data as { questions: string[] };
+        setSuggestions(data.questions || []);
+      })
+      .catch(() => { if (!cancelled) setSuggestions([]); })
+      .finally(() => { if (!cancelled) setSuggestionsLoading(false); });
+    return () => { cancelled = true; };
+  }, [kb.id]);
+
+  async function runQuery(q: string) {
+    if (!q.trim()) return;
     setLoading(true);
     setAnswer("");
     setError("");
+    setAskedQuestion(q.trim());
     try {
-      const res = await ragApi.query(kb.id, question.trim());
+      const res = await ragApi.query(kb.id, q.trim());
       const data = res.data as { answer: string };
       setAnswer(data.answer);
     } catch (e: unknown) {
@@ -160,13 +157,26 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
     }
   }
 
+  function handleSuggestionClick(q: string) {
+    setQuestion(q);
+    runQuery(q);
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 p-6">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">Query Knowledge Base</h2>
-            <p className="text-xs text-gray-400 mt-0.5">{kb.name}</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                  d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 15.803a7.5 7.5 0 0010.607 0z" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">Query Knowledge Base</h2>
+              <p className="text-xs text-gray-400 mt-0.5">{kb.name}</p>
+            </div>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -175,37 +185,72 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
           </button>
         </div>
 
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleQuery()}
-            placeholder="Ask a question…"
-            className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-          />
-          <button
-            onClick={handleQuery}
-            disabled={loading || !question.trim()}
-            className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-          >
-            {loading ? (
-              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-              </svg>
-            ) : (
-              "Ask"
-            )}
-          </button>
+        <div className="px-6 pt-5 flex-shrink-0">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && runQuery(question)}
+              placeholder="Ask a question…"
+              className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
+            <button
+              onClick={() => runQuery(question)}
+              disabled={loading || !question.trim()}
+              className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+            >
+              {loading ? (
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+              ) : (
+                "Ask"
+              )}
+            </button>
+          </div>
+
+          {error && <p className="text-xs text-red-600 mt-3">{error}</p>}
+
+          {!suggestionsLoading && suggestions.length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs font-medium text-gray-400 mb-2">Suggested questions</p>
+              <div className="flex flex-wrap gap-2">
+                {suggestions.map((q, i) => (
+                  <button
+                    key={i}
+                    onClick={() => handleSuggestionClick(q)}
+                    disabled={loading}
+                    className="text-left text-xs text-slate-600 bg-gray-50 border border-gray-200 rounded-full px-3 py-1.5 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
-        {error && <p className="text-xs text-red-600 mt-3">{error}</p>}
-
-        {answer && (
-          <div className="mt-4 bg-indigo-50 border border-indigo-100 rounded-xl p-4">
-            <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-2">Answer</p>
-            <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">{answer}</p>
+        {(loading || answer) && (
+          <div className="mt-4 mx-6 mb-6 bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex-1 min-h-0 overflow-y-auto">
+            {askedQuestion && (
+              <p className="text-xs text-indigo-400 mb-2 italic truncate">"{askedQuestion}"</p>
+            )}
+            <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-2 sticky top-0 bg-indigo-50">Answer</p>
+            {loading ? (
+              <div className="flex items-center gap-2 text-sm text-indigo-400">
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+                Thinking…
+              </div>
+            ) : (
+              <div className="prose prose-sm prose-slate max-w-none prose-p:my-2 prose-ol:my-2 prose-ul:my-2">
+                <ReactMarkdown>{answer}</ReactMarkdown>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -216,13 +261,13 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
 // ── Inline Upload Panel ───────────────────────────────────────────────────────
 interface UploadStatus {
   name: string;
-  status: "uploading" | "done" | "error";
+  status: "uploading" | "done" | "replaced" | "error";
   error?: string;
 }
 
 interface UploadPanelProps {
   kb: KB;
-  onDocAdded: (filename: string) => void;
+  onDocAdded: () => void;
   onClose: () => void;
 }
 
@@ -235,11 +280,13 @@ function UploadPanel({ kb, onDocAdded, onClose }: UploadPanelProps) {
     for (const file of Array.from(files)) {
       setUploads((prev) => [...prev, { name: file.name, status: "uploading" }]);
       try {
-        await ragApi.upload(kb.id, file);
+        const res = await ragApi.upload(kb.id, file);
+        const data = res.data as { replaced_existing?: boolean };
+        const finalStatus = data.replaced_existing ? "replaced" : "done";
         setUploads((prev) =>
-          prev.map((u) => (u.name === file.name ? { ...u, status: "done" } : u))
+          prev.map((u) => (u.name === file.name ? { ...u, status: finalStatus } : u))
         );
-        onDocAdded(file.name);
+        onDocAdded();
       } catch (e: unknown) {
         const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
         setUploads((prev) =>
@@ -295,7 +342,7 @@ function UploadPanel({ kb, onDocAdded, onClose }: UploadPanelProps) {
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                 </svg>
               )}
-              {u.status === "done" && (
+              {(u.status === "done" || u.status === "replaced") && (
                 <svg className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
@@ -308,6 +355,11 @@ function UploadPanel({ kb, onDocAdded, onClose }: UploadPanelProps) {
               <span className="text-xs text-slate-700 truncate flex-1">{u.name}</span>
               {u.status === "uploading" && <span className="text-xs text-gray-400">Uploading…</span>}
               {u.status === "done" && <span className="text-xs text-emerald-600">Done</span>}
+              {u.status === "replaced" && (
+                <span className="text-xs text-emerald-600" title="An existing document with this name was replaced">
+                  Replaced existing
+                </span>
+              )}
               {u.status === "error" && <span className="text-xs text-red-600">{u.error}</span>}
             </div>
           ))}
@@ -326,15 +378,36 @@ interface KBCardProps {
 
 function KBCard({ kb, onDelete, onQuery }: KBCardProps) {
   const [showUpload, setShowUpload] = useState(false);
-  const [docs, setDocs] = useState<string[]>(() => loadDocs(kb.id));
+  const [docs, setDocs] = useState<KBDocument[]>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0);
 
-  function handleDocAdded(filename: string) {
-    setDocs((prev) => {
-      const updated = prev.includes(filename) ? prev : [...prev, filename];
-      saveDocs(kb.id, updated);
-      return updated;
+  useEffect(() => {
+    let cancelled = false;
+    ragApi.get(kb.id).then((res) => {
+      if (cancelled) return;
+      const data = res.data as { documents: KBDocument[] };
+      setDocs(data.documents || []);
+    }).catch(() => {
+      if (!cancelled) setDocs([]);
     });
+    return () => { cancelled = true; };
+  }, [kb.id, refreshTick]);
+
+  function handleDocAdded() {
+    setRefreshTick((t) => t + 1);
+  }
+
+  async function handleConfirmDelete() {
+    setDeleting(true);
+    try {
+      await ragApi.delete(kb.id);
+      onDelete(kb.id);
+    } catch {
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
   }
 
   const dateLabel = new Date(kb.createdAt).toLocaleDateString(undefined, {
@@ -383,13 +456,13 @@ function KBCard({ kb, onDelete, onQuery }: KBCardProps) {
           <div className="bg-gray-50 rounded-lg p-3 mb-4">
             <p className="text-xs font-medium text-gray-500 mb-2">Documents</p>
             <ul className="space-y-1">
-              {docs.slice(0, 4).map((d, i) => (
-                <li key={i} className="flex items-center gap-1.5 text-xs text-slate-600 truncate">
+              {docs.slice(0, 4).map((d) => (
+                <li key={d.id} className="flex items-center gap-1.5 text-xs text-slate-600 truncate">
                   <svg className="w-3 h-3 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                       d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75" />
                   </svg>
-                  {d}
+                  {d.filename}
                 </li>
               ))}
               {docs.length > 4 && (
@@ -434,13 +507,11 @@ function KBCard({ kb, onDelete, onQuery }: KBCardProps) {
         {confirmDelete ? (
           <div className="flex items-center gap-1">
             <button
-              onClick={() => {
-                localStorage.removeItem(kbDocsKey(kb.id));
-                onDelete(kb.id);
-              }}
-              className="px-2.5 py-1.5 text-xs font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors"
+              onClick={handleConfirmDelete}
+              disabled={deleting}
+              className="px-2.5 py-1.5 text-xs font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors disabled:opacity-60"
             >
-              Confirm
+              {deleting ? "…" : "Confirm"}
             </button>
             <button
               onClick={() => setConfirmDelete(false)}
@@ -468,21 +539,34 @@ function KBCard({ kb, onDelete, onQuery }: KBCardProps) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function KnowledgeBases() {
-  const [kbs, setKBs] = useState<KB[]>(() => loadKBs());
+  const [kbs, setKBs] = useState<KB[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [queryTarget, setQueryTarget] = useState<KB | null>(null);
 
+  useEffect(() => {
+    ragApi.list().then((res) => {
+      const data = res.data as {
+        id: string; name: string; description: string; document_count: number; created_at: string;
+      }[];
+      setKBs(data.map((d) => ({
+        id: d.id,
+        name: d.name,
+        description: d.description,
+        documentCount: d.document_count,
+        createdAt: d.created_at,
+      })));
+    }).catch(() => setKBs([]))
+      .finally(() => setLoading(false));
+  }, []);
+
   function handleCreate(kb: KB) {
-    const updated = [...kbs, kb];
-    setKBs(updated);
-    saveKBs(updated);
+    setKBs((prev) => [...prev, kb]);
     setShowCreate(false);
   }
 
   function handleDelete(id: string) {
-    const updated = kbs.filter((kb) => kb.id !== id);
-    setKBs(updated);
-    saveKBs(updated);
+    setKBs((prev) => prev.filter((kb) => kb.id !== id));
   }
 
   return (
@@ -514,7 +598,9 @@ export default function KnowledgeBases() {
       )}
 
       {/* Grid */}
-      {kbs.length === 0 ? (
+      {loading ? (
+        <div className="flex items-center justify-center py-24 text-sm text-gray-400">Loading…</div>
+      ) : kbs.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 text-center">
           <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mb-4">
             <svg className="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

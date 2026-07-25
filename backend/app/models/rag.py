@@ -24,3 +24,15 @@ class Document(Base):
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String, default="processing")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class Chunk(Base):
+    __tablename__ = "chunks"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    kb_id: Mapped[str] = mapped_column(String, ForeignKey("knowledge_bases.id"), nullable=False)
+    document_id: Mapped[str] = mapped_column(String, ForeignKey("documents.id"), nullable=False)
+    faiss_id: Mapped[int] = mapped_column(Integer, nullable=False)  # position in the FAISS index
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)  # order within the document
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    section_heading: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

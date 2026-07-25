@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     azure_openai_api_key: str = ""
     azure_openai_deployment_gpt4o: str = "gpt-4o"
     azure_openai_deployment_gpt45: str = "gpt-4o"
+    azure_openai_deployment_embedding: str = "text-embedding-3-small"
     azure_openai_api_version: str = "2024-12-01-preview"
 
     llm_provider: str = "azure"  # "azure" | "lmstudio"

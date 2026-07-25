@@ -7,8 +7,13 @@ from app.config import settings
 
 
 class AgentOrchestrator:
-    def __init__(self, agent_config: dict):
+    def __init__(self, agent_config: dict, db=None):
         self.config = agent_config
+        # Optional AsyncSession -- only needed when agent_config["kb_id"] is
+        # set, so the orchestrator can retrieve chunk text from the linked
+        # Knowledge Base's Chunk rows. None (e.g. simulation.py's runs) simply
+        # skips retrieval below.
+        self.db = db
         # agent_config["model"] is a per-agent choice of "local" or "azure" (not a
         # literal Azure deployment name -- passing e.g. "gpt-4o" straight through
         # as `deployment` would break real Azure calls, since the actual deployment
@@ -36,12 +41,34 @@ class AgentOrchestrator:
             input_pii_triggered = input_guardrail["pii_triggered"]
             span.set_attribute("agent.input_pii_triggered", input_pii_triggered)
 
-            messages = [{"role": "system", "content": self.config.get("system_prompt", "")}]
-            if chat_history:
-                messages.extend(chat_history)
-            messages.append({"role": "user", "content": safe_input})
+            system_prompt = self.config.get("system_prompt", "")
+            kb_id = self.config.get("kb_id")
+            kb_no_context = False
+            if kb_id and self.db is not None:
+                from app.core.rag_engine import RAGEngine
 
-            raw_output = await self._llm.chat(messages)
+                hallucination_enabled = self.config.get("guardrails", {}).get("hallucination", True)
+                engine = RAGEngine(kb_id=kb_id)
+                kb_sources = await engine.retrieve(safe_input, self.db, enforce_cutoff=hallucination_enabled)
+                span.set_attribute("agent.kb_sources_found", len(kb_sources))
+                if kb_sources:
+                    context = "\n\n".join(kb_sources)
+                    system_prompt = f"{system_prompt}\n\nUse the following retrieved document context to answer:\n{context}"
+                elif hallucination_enabled:
+                    # No chunk cleared the similarity cutoff -- ground the
+                    # response in an honest "don't know" instead of letting
+                    # the LLM answer ungrounded (matches RAGEngine.query()'s
+                    # own no-context behavior).
+                    kb_no_context = True
+
+            if kb_no_context:
+                raw_output = "I don't have enough information in the available documents to answer this."
+            else:
+                messages = [{"role": "system", "content": system_prompt}]
+                if chat_history:
+                    messages.extend(chat_history)
+                messages.append({"role": "user", "content": safe_input})
+                raw_output = await self._llm.chat(messages)
 
             # --- OUTPUT GUARDRAILS: redact PII / flag hallucinations in response ---
             output_guardrail = await self._guardrails.check(raw_output)
@@ -68,9 +95,9 @@ class AgentOrchestrator:
 
 
 class MultiAgentOrchestrator:
-    def __init__(self, manager_config: dict, worker_configs: list[dict]):
-        self.manager = AgentOrchestrator(manager_config)
-        self.workers = {cfg["name"]: AgentOrchestrator(cfg) for cfg in worker_configs}
+    def __init__(self, manager_config: dict, worker_configs: list[dict], db=None):
+        self.manager = AgentOrchestrator(manager_config, db=db)
+        self.workers = {cfg["name"]: AgentOrchestrator(cfg, db=db) for cfg in worker_configs}
 
     async def run(self, user_input: str) -> dict:
         tracer = get_tracer()

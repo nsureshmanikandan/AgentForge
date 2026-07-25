@@ -80,6 +80,16 @@ class AzureOpenAIClient:
                 span.set_status(StatusCode.ERROR)
                 raise
 
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        tracer = get_tracer()
+        with tracer.start_as_current_span("llm.embed") as span:
+            span.set_attribute("llm.embed_count", len(texts))
+            response = await self._client.embeddings.create(
+                model=settings.azure_openai_deployment_embedding,
+                input=texts,
+            )
+            return [d.embedding for d in response.data]
+
     async def stream_chat(self, messages: list[dict]):
         stream = await self._client.chat.completions.create(
             model=self.deployment,

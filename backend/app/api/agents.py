@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from app.database import get_db
 from app.models.agent import Agent, AgentVersion
 from app.models.audit import AuditLog
+from app.models.rag import KnowledgeBase
 from app.schemas.agent import AgentCreate, AgentOut, AgentRunRequest, AgentRunResponse, ManagerRunResponse, GenerateRequest
 from app.core.orchestrator import AgentOrchestrator, MultiAgentOrchestrator
 from app.core.prompt_to_agent import generate_agent_config
@@ -101,6 +102,19 @@ async def suggest_agent_input(agent_id: str, db: AsyncSession = Depends(get_db))
     return {"suggested_input": raw.strip()}
 
 
+async def _link_kb(db: AsyncSession, agent_id: str, kb_id: str | None) -> str | None:
+    """Point KnowledgeBase.agent_id at this agent -- the linkage FK lives on
+    the KB side (one KB per agent), matching the existing single-FK column.
+    Returns the kb_id actually linked, or None if kb_id was missing/invalid."""
+    if not kb_id:
+        return None
+    kb = await db.get(KnowledgeBase, kb_id)
+    if not kb:
+        return None
+    kb.agent_id = agent_id
+    return kb_id
+
+
 @router.post("/", response_model=AgentOut, status_code=201)
 async def create_agent(body: AgentCreate, db: AsyncSession = Depends(get_db)):
     # Ensure unique name by appending a suffix if name already exists
@@ -114,21 +128,29 @@ async def create_agent(body: AgentCreate, db: AsyncSession = Depends(get_db)):
         candidate = f"{base_name}_v{counter}"
         counter += 1
     body_data = body.model_dump()
+    kb_id = body_data.pop("knowledge_base_id", None)
     body_data["name"] = candidate
     agent = Agent(**body_data, created_by="system")
     db.add(agent)
     await db.flush()
     version = AgentVersion(agent_id=agent.id, version=1, snapshot=body_data)
     db.add(version)
+    linked_kb_id = await _link_kb(db, agent.id, kb_id)
     await db.commit()
     await db.refresh(agent)
+    agent.knowledge_base_id = linked_kb_id
     return agent
 
 
 @router.get("/", response_model=list[AgentOut])
 async def list_agents(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Agent))
-    return result.scalars().all()
+    agents = result.scalars().all()
+    kb_result = await db.execute(select(KnowledgeBase.agent_id, KnowledgeBase.id))
+    kb_by_agent = {agent_id: kb_id for agent_id, kb_id in kb_result.all() if agent_id}
+    for agent in agents:
+        agent.knowledge_base_id = kb_by_agent.get(agent.id)
+    return agents
 
 
 @router.get("/{agent_id}", response_model=AgentOut)
@@ -136,6 +158,9 @@ async def get_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
     agent = await db.get(Agent, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
+    kb_result = await db.execute(select(KnowledgeBase).where(KnowledgeBase.agent_id == agent.id))
+    kb = kb_result.scalars().first()
+    agent.knowledge_base_id = kb.id if kb else None
     return agent
 
 
@@ -144,13 +169,17 @@ async def update_agent(agent_id: str, body: AgentCreate, db: AsyncSession = Depe
     agent = await db.get(Agent, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    for field, value in body.model_dump().items():
+    body_data = body.model_dump()
+    kb_id = body_data.pop("knowledge_base_id", None)
+    for field, value in body_data.items():
         setattr(agent, field, value)
+    linked_kb_id = await _link_kb(db, agent.id, kb_id)
     agent.current_version += 1
-    version = AgentVersion(agent_id=agent.id, version=agent.current_version, snapshot=body.model_dump())
+    version = AgentVersion(agent_id=agent.id, version=agent.current_version, snapshot=body_data)
     db.add(version)
     await db.commit()
     await db.refresh(agent)
+    agent.knowledge_base_id = linked_kb_id
     return agent
 
 
@@ -168,13 +197,16 @@ async def delete_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
     await db.commit()
 
 
-def _agent_config(agent: Agent) -> dict:
+async def _agent_config(agent: Agent, db: AsyncSession) -> dict:
+    kb_result = await db.execute(select(KnowledgeBase).where(KnowledgeBase.agent_id == agent.id))
+    kb = kb_result.scalars().first()
     return {
         "name": agent.name,
         "system_prompt": agent.system_prompt,
         "model": agent.model,
         "tools": agent.tools,
         "guardrails": agent.guardrails,
+        "kb_id": kb.id if kb else None,
     }
 
 
@@ -197,10 +229,10 @@ async def _run_managerial(agent: Agent, body: AgentRunRequest, db: AsyncSession)
     if not worker_agents:
         raise HTTPException(status_code=400, detail="No workers configured for this manager agent")
 
-    manager_config = _agent_config(agent)
-    worker_configs = [_agent_config(w) for w in worker_agents]
+    manager_config = await _agent_config(agent, db)
+    worker_configs = [await _agent_config(w, db) for w in worker_agents]
 
-    orch = MultiAgentOrchestrator(manager_config, worker_configs)
+    orch = MultiAgentOrchestrator(manager_config, worker_configs, db=db)
     result = await orch.run(body.input)
 
     step_results = [s["result"] for s in result["steps"]]
@@ -239,8 +271,8 @@ async def run_agent(agent_id: str, body: AgentRunRequest, db: AsyncSession = Dep
     if agent.agent_type == "managerial":
         return await _run_managerial(agent, body, db)
 
-    config = _agent_config(agent)
-    orch = AgentOrchestrator(config)
+    config = await _agent_config(agent, db)
+    orch = AgentOrchestrator(config, db=db)
     result = await orch.run(body.input, body.chat_history or None)
     log = AuditLog(
         action="agent.run",
