@@ -1,7 +1,7 @@
 # AgentForge — Enterprise AI Agent Platform
 
 > Build, orchestrate, test, and govern production-grade AI agents — visually.
-> Powered by **Azure OpenAI GPT-4o & GPT-4.5** · Self-hosted · No vendor lock-in.
+> Powered by **Azure OpenAI GPT-4o & GPT-4.5**, with **Google Gemini** and **local LM Studio** as swappable providers · Self-hosted · No vendor lock-in.
 
 ---
 
@@ -37,6 +37,7 @@ AgentForge is a full-stack enterprise AI agent platform that lets teams:
 - **Trace** every agent call end-to-end with OpenTelemetry — export to Jaeger, Azure Monitor, GCP, AWS, or Datadog
 - **Design apps** with the Planning Architect AI — describe what you want to build, get a full project plan + working UI preview + deployable full-stack ZIP in one session
 - **Govern** access with JWT-based RBAC (Admin / Developer / Viewer)
+- **Switch providers** per feature between Azure OpenAI, Google Gemini, or a local LM Studio model — no code changes, just config
 
 ---
 
@@ -60,11 +61,14 @@ AgentForge is a full-stack enterprise AI agent platform that lets teams:
 - Every worker runs its own independent guardrails pass
 
 ### 4. RAG Knowledge Pipeline
-- Upload **PDF** and **TXT** files via the API
-- **LangChain** `RecursiveCharacterTextSplitter` chunks content into 500-token segments (50-token overlap)
-- Stored in **PostgreSQL + pgvector** for similarity lookup
-- Top-3 most relevant chunks injected into GPT-4o context on every query
-- Responses include source attribution (filename + chunk index)
+- Upload **PDF**, **DOCX**, and **TXT** files per knowledge base via the API or the Knowledge Bases page
+- Structure-aware chunking: DOCX heading and Q&A pairs are detected and chunked accordingly, not just split by fixed character count
+- Each knowledge base gets its own **FAISS `IndexFlatIP`** vector index, persisted to disk, built from **Azure OpenAI `text-embedding-3-small`** embeddings
+- Chunks are also stored relationally in a `chunks` table, linked to their source `documents` row
+- Re-uploading a file with the same name **upserts** it — old chunks are replaced, not duplicated
+- Full CRUD: list all knowledge bases, get one with its documents, delete a knowledge base, upload/query documents
+- **Suggested questions** endpoint returns real, ready-to-ask questions generated from the KB's own indexed content
+- Responses include source attribution, and a knowledge base can be linked directly to an agent for automatic retrieval on every run
 
 ### 5. Enterprise Guardrails Engine
 - **PII Redaction** — Microsoft Presidio `AnalyzerEngine` + `AnonymizerEngine`
@@ -107,9 +111,10 @@ AgentForge is a full-stack enterprise AI agent platform that lets teams:
 | `DEVELOPER` | Create and run agents, upload docs, run simulations |
 | `VIEWER` | Read-only access to agents and audit logs |
 
-### 11. Azure OpenAI Integration
-- Routes `gpt-4-5` model tag to **GPT-4.5 deployment**
-- All other models route to **GPT-4o deployment**
+### 11. Multi-Provider LLM Integration
+- Three swappable LLM providers behind one client class: **Azure OpenAI** (routes `gpt-4-5` to the GPT-4.5 deployment, everything else to GPT-4o), **Google Gemini** (via the `google-genai` SDK, API-key or Vertex AI + ADC auth), and **local LM Studio** (any OpenAI-compatible local model, zero cloud cost)
+- Set the provider globally with `LLM_PROVIDER`, or override per-feature with `ARCHITECT_LLM_PROVIDER` / `BUILDER_LLM_PROVIDER` — Architect code-gen and RAG embeddings stay pinned to Azure regardless of the chat provider
+- Every agent picks its own model independently — Local, Azure, or Gemini — from the same dropdown in Agent Studio
 - Supports both standard `chat()` and streaming `stream_chat()` modes
 
 ### 12. Docker Compose Stack
@@ -342,7 +347,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 |-------|-------------|
 | **Frontend** | React 18, Vite, TypeScript, ReactFlow v12, Zustand, Axios, TailwindCSS, React Router DOM v6 |
 | **Backend** | Python 3.12, FastAPI, SQLAlchemy 2.0 async, asyncpg, Alembic, Pydantic v2 |
-| **AI / LLM** | Azure OpenAI GPT-4o, Azure OpenAI GPT-4.5, LangChain, python-jose |
+| **AI / LLM** | Azure OpenAI GPT-4o, Azure OpenAI GPT-4.5, Google Gemini (`google-genai`), local LM Studio, LangChain, FAISS, python-jose |
 | **Guardrails** | Microsoft Presidio, spaCy `en_core_web_lg` |
 | **Database** | PostgreSQL 16 + pgvector extension |
 | **Auth** | JWT (python-jose), bcrypt==4.0.1 (passlib) |
@@ -506,7 +511,18 @@ docker-compose down -v
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI API key | `sk-...` |
 | `AZURE_OPENAI_DEPLOYMENT_GPT4O` | GPT-4o deployment name | `gpt-4o` |
 | `AZURE_OPENAI_DEPLOYMENT_GPT45` | GPT-4.5 deployment name | `gpt-4-5` |
+| `AZURE_OPENAI_DEPLOYMENT_EMBEDDING` | Embedding deployment name (used by RAG regardless of chat provider) | `text-embedding-3-small` |
 | `AZURE_OPENAI_API_VERSION` | API version | `2024-12-01-preview` |
+| `LLM_PROVIDER` | Default chat provider: `azure` \| `lmstudio` \| `gemini` | `azure` |
+| `ARCHITECT_LLM_PROVIDER` | Override provider for Architect only (falls back to `LLM_PROVIDER`) | `gemini` |
+| `BUILDER_LLM_PROVIDER` | Override provider for Visual Builder, Agent Studio, RAG, and voice (falls back to `LLM_PROVIDER`) | `lmstudio` |
+| `LMSTUDIO_BASE_URL` | Local LM Studio OpenAI-compatible endpoint | `http://localhost:1234/v1` |
+| `LMSTUDIO_MODEL` | Local model name as loaded in LM Studio | `qwen/qwen3.5-9b` |
+| `GEMINI_API_KEY` | Google AI Studio API key (preferred auth path for Gemini) | `AIza...` |
+| `GEMINI_MODEL` | Gemini model name | `gemini-3.1-flash-lite` |
+| `GOOGLE_CLOUD_PROJECT` | GCP project ID (Vertex AI fallback auth, used only if `GEMINI_API_KEY` is unset) | `my-gcp-project` |
+| `GOOGLE_CLOUD_LOCATION` | Vertex AI location | `global` |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to a service-account JSON (Vertex AI fallback auth) | `/path/to/creds.json` |
 | `DATABASE_URL` | Async PostgreSQL connection string | `postgresql+asyncpg://user:pass@host:5432/db` |
 | `JWT_SECRET` | Secret key for signing JWT tokens | Any long random string |
 | `JWT_ALGORITHM` | JWT signing algorithm | `HS256` |
@@ -546,8 +562,12 @@ docker-compose down -v
 ### RAG / Knowledge Base
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| `GET` | `/api/rag/knowledge-bases` | List all knowledge bases |
+| `GET` | `/api/rag/knowledge-bases/{id}` | Get one knowledge base with its documents |
 | `POST` | `/api/rag/knowledge-bases` | Create a knowledge base |
-| `POST` | `/api/rag/knowledge-bases/{id}/ingest` | Upload and chunk a document |
+| `DELETE` | `/api/rag/knowledge-bases/{id}` | Delete a knowledge base and its indexed chunks |
+| `POST` | `/api/rag/knowledge-bases/{id}/upload` | Upload and chunk a document (upserts by filename) |
+| `GET` | `/api/rag/knowledge-bases/{id}/suggested-questions` | Real questions generated from the KB's own content |
 | `POST` | `/api/rag/knowledge-bases/{id}/query` | Query knowledge base |
 
 ### Tools
@@ -656,9 +676,11 @@ Expected output: **32 passed**
 | **Shipped v7.0** | **Human-in-the-loop approval nodes** — real email + `/approvals/{run_id}` review page |
 | **Shipped v7.0** | **`http_request` node** — real outbound API calls with `{{input}}` templating |
 | **Shipped v7.0** | **Faithful Export Code + Export/Import JSON** — round-trippable workflow backup, Python export mirrors the live engine |
+| **Shipped v8.0** | **Google Gemini as a third LLM provider** — swappable with Azure OpenAI and local LM Studio, per-feature overrides via `ARCHITECT_LLM_PROVIDER` / `BUILDER_LLM_PROVIDER` |
+| **Shipped v8.0** | **RAG pipeline rewrite** — real FAISS `IndexFlatIP` vector search per knowledge base, structure-aware DOCX chunking, upsert-by-filename re-upload, list/delete/suggested-questions endpoints, agent↔KB linkage |
 | High | SSRF allowlist for `http_request` node before production/multi-tenant use |
 | High | Real tool/function-calling for Agent Studio's `tools` field (currently metadata-only, see [Known Limitations](#known-limitations)) |
-| High | Azure AI Search — replace in-memory RAG with full vector search |
+| High | Azure AI Search — swap FAISS's single-instance vector index for a managed, scale-out vector store |
 | High | WebSocket streaming — real-time token-by-token agent responses |
 | Medium | JWT refresh-token flow — avoid mid-session "Invalid token" errors |
 | Medium | Alembic wired into startup — replace manual `ALTER TABLE` schema fixes |
