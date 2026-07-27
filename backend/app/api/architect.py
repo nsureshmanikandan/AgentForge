@@ -1726,7 +1726,14 @@ Build a 3-panel enterprise support chatbot.
 DATA STRUCTURES (ALL content derived 100% from user prompt and uploaded documents -- ZERO hardcoding):
 const APP_CONFIG = {
   company: "",        // extracted company name from prompt
-  appName: "",        // e.g. "Loblaw IT Support Centre" -- reflect actual domain
+  appName: "",        // !! MUST be copied EXACTLY, character-for-character, from the "Title:"
+                       // line given below -- do NOT paraphrase, reorder words, or re-derive a
+                       // "nicer-sounding" title. Observed bug: the LLM invented its own title
+                       // phrasing/word-order here (e.g. "HR Internal FAQ Chatbot") that didn't
+                       // match the exact same app's title in the downloaded Agentic Code/RAG
+                       // Template Code projects (e.g. "Internal HR FAQ Chatbot"), which both use
+                       // this exact "Title:" string verbatim -- the two must be identical since
+                       // they describe the same app in the same session.
   model: "{settings.azure_openai_deployment_gpt4o}",  // filled from env at runtime
   primaryColor: "#4f46e5",
   welcomeMessage: "", // 2-3 sentence greeting specific to this company and domain

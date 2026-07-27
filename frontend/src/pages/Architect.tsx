@@ -715,7 +715,19 @@ function extractAppTitle(summary: string): string {
     const wl = w.toLowerCase();
     if (ARTICLES.has(wl) && kept.length === 0) continue; // skip leading articles
     if (STOPWORDS.has(wl)) break;
-    kept.push(w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+    // Observed bug: forcibly title-casing every word (charAt(0).toUpperCase()
+    // + rest.toLowerCase()) destroyed acronyms already correctly cased in the
+    // source text -- "HR" and "FAQ" became "Hr" and "Faq", producing a title
+    // ("Internal Hr Faq Chatbot") that didn't match the sandbox's own title
+    // for the exact same app (sandbox gets its title from an LLM call, which
+    // naturally preserves acronym casing; this regex-based function is what
+    // both downloads' app_name is built from, so they drifted from the
+    // sandbox with zero indication anything was wrong). A short (2-5 letter)
+    // word that's ALREADY fully uppercase in the source is almost certainly
+    // an intentional acronym -- keep it exactly as written instead of
+    // re-casing it.
+    const isAcronym = w.length >= 2 && w.length <= 5 && w === w.toUpperCase() && /[A-Z]/.test(w);
+    kept.push(isAcronym ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
     if (kept.length >= 4) break;
   }
   return kept.join(" ") || summary.slice(0, 30);
