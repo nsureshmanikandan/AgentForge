@@ -768,7 +768,7 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
   <div class="p-4 border-b border-white/10">
     <div class="flex items-center gap-3">
       <div class="w-10 h-10 rounded-xl bg-purple-600 flex items-center justify-center font-bold text-base" id="avatar-letter">${appTitle.charAt(0).toUpperCase()}</div>
-      <div class="min-w-0"><p class="text-sm font-bold leading-tight truncate">${appTitle}</p><p class="text-xs text-slate-400 leading-tight">Document-aware support</p></div>
+      <div class="min-w-0"><p class="text-sm font-bold leading-tight truncate">${appTitle}</p><p class="text-xs text-slate-400 leading-tight">${useSso ? "Microsoft Entra ID SSO · Document-aware support" : "Document-aware support"}</p></div>
     </div>
   </div>
   <nav class="p-3 border-b border-white/10 space-y-0.5" id="nav-links"></nav>
@@ -789,7 +789,7 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
   <!-- CHAT PAGE -->
   <div class="page active" id="page-chat">
     <header class="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-      <span class="text-lg">💬</span><p class="flex-1 text-base font-bold text-slate-900">Support Chat</p>
+      <span class="text-lg">💬</span><p class="flex-1 text-base font-bold text-slate-900">Chat</p>
       <span class="text-xs font-semibold bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full">● AI Active</span>
       <span class="text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full">● KB Connected</span>
       <span class="text-xs font-semibold bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full">FAISS RAG · Azure OpenAI</span>
@@ -818,7 +818,7 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
   <!-- SUGGESTED QUESTIONS PAGE -->
   <div class="page" id="page-questions">
     <header class="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-      <span class="text-lg">💡</span><p class="flex-1 text-base font-bold text-slate-900">Suggested Questions</p>
+      <span class="text-lg">📄</span><p class="flex-1 text-base font-bold text-slate-900">Documents</p>
       <span class="text-xs text-slate-500" id="q-doc-count">0 documents indexed</span>
     </header>
     <div class="flex-1 overflow-y-auto p-5" id="questions-content">
@@ -829,7 +829,7 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
   <!-- ADMIN UPLOADS PAGE -->
   <div class="page" id="page-uploads">
     <header class="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-      <span class="text-lg">📁</span><p class="flex-1 text-base font-bold text-slate-900">Admin Uploads</p>
+      <span class="text-lg">⬆️</span><p class="flex-1 text-base font-bold text-slate-900">Admin Uploads</p>
       <button id="upload-btn-header" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-4 py-2 rounded-lg">📎 Upload Documents</button>
       <input id="file-input" type="file" multiple accept=".pdf,.docx,.txt,.md,.csv" class="hidden"/>
     </header>
@@ -845,7 +845,7 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
   <!-- ANALYTICS PAGE -->
   <div class="page" id="page-analytics">
     <header class="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-      <span class="text-lg">📊</span><p class="flex-1 text-base font-bold text-slate-900">Conversation Analytics</p>
+      <span class="text-lg">📋</span><p class="flex-1 text-base font-bold text-slate-900">Audit Log</p>
     </header>
     <div class="flex-1 overflow-y-auto p-5">
       <div class="grid grid-cols-3 gap-4 mb-6">
@@ -867,7 +867,7 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
   <!-- TICKET HANDOFF PAGE -->
   <div class="page" id="page-handoff">
     <header class="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-      <span class="text-lg">📞</span><p class="flex-1 text-base font-bold text-slate-900">Ticket Handoff</p>
+      <span class="text-lg">⬇️</span><p class="flex-1 text-base font-bold text-slate-900">Reports</p>
     </header>
     <div class="flex-1 overflow-y-auto p-5">
       <div class="max-w-lg mx-auto bg-white border border-slate-200 rounded-xl p-6 shadow-sm" id="ticket-form-wrap">
@@ -940,11 +940,11 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
   function docConfidence(fn){ let h=0; for(const c of (fn||"")) h=((h<<5)-h)+c.charCodeAt(0); return 80+Math.abs(h%18); }
 
   const NAV = [
-    {id:"chat",     icon:"💬", label:"Support Chat"},
-    {id:"questions",icon:"💡", label:"Suggested Questions"},
-    {id:"uploads",  icon:"📁", label:"Admin Uploads"},
-    {id:"analytics",icon:"📊", label:"Conversation Analytics"},
-    {id:"handoff",  icon:"📞", label:"Ticket Handoff"},
+    {id:"chat",     icon:"💬", label:"Chat"},
+    {id:"questions",icon:"📄", label:"Documents"},
+    {id:"uploads",  icon:"⬆️", label:"Admin Uploads"},
+    {id:"analytics",icon:"📋", label:"Audit Log"},
+    {id:"handoff",  icon:"⬇️", label:"Reports"},
   ];
 
   function buildNav(){
@@ -1330,12 +1330,16 @@ export default function App() {
     } finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
   }
 
+  // Labels/icons match the sandbox's CHATBOT nav convention exactly (Chat /
+  // Documents / Admin Uploads / Audit Log / Reports) -- only the naming
+  // changed here, not the underlying pages/functionality (id/Page values are
+  // unchanged, so nothing about routing or feature scope moved).
   const navItems: { id: Page; icon: string; label: string }[] = [
-    { id: "chat", icon: "💬", label: "Support Chat" },
-    { id: "questions", icon: "💡", label: "Suggested Questions" },
-    { id: "uploads", icon: "📁", label: "Admin Uploads" },
-    { id: "analytics", icon: "📊", label: "Conversation Analytics" },
-    { id: "handoff", icon: "📞", label: "Ticket Handoff" },
+    { id: "chat", icon: "💬", label: "Chat" },
+    { id: "questions", icon: "📄", label: "Documents" },
+    { id: "uploads", icon: "⬆️", label: "Admin Uploads" },
+    { id: "analytics", icon: "📋", label: "Audit Log" },
+    { id: "handoff", icon: "⬇️", label: "Reports" },
   ];
 
   return (
@@ -1344,7 +1348,7 @@ export default function App() {
         <div className="p-4 border-b border-white/10">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-purple-600 flex items-center justify-center font-bold text-base">{appTitle.charAt(0).toUpperCase()}</div>
-            <div className="min-w-0"><p className="text-sm font-bold leading-tight truncate">{appTitle}</p><p className="text-xs text-slate-400 leading-tight">Document-aware support</p></div>
+            <div className="min-w-0"><p className="text-sm font-bold leading-tight truncate">{appTitle}</p><p className="text-xs text-slate-400 leading-tight">${useSso ? "Microsoft Entra ID SSO · Document-aware support" : "Document-aware support"}</p></div>
           </div>
         </div>
         <nav className="p-3 border-b border-white/10 space-y-0.5">
@@ -1377,7 +1381,7 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {page === "chat" && (<>
           <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-            <span className="text-lg">💬</span><p className="flex-1 text-base font-bold text-slate-900">Support Chat</p>
+            <span className="text-lg">💬</span><p className="flex-1 text-base font-bold text-slate-900">Chat</p>
             <span className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full">● AI Active</span>
             <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full">● KB Connected</span>
             <span className="text-xs font-semibold bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full">FAISS RAG · Azure OpenAI</span>
@@ -1414,7 +1418,7 @@ export default function App() {
 
         {page === "questions" && (<>
           <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-            <span className="text-lg">💡</span><p className="flex-1 text-base font-bold text-slate-900">Suggested Questions</p>
+            <span className="text-lg">📄</span><p className="flex-1 text-base font-bold text-slate-900">Documents</p>
             <span className="text-xs text-slate-500">{docs.length} document{docs.length !== 1 ? "s" : ""} indexed</span>
           </header>
           <div className="flex-1 overflow-y-auto p-5">
@@ -1445,7 +1449,7 @@ export default function App() {
 
         {page === "uploads" && (<>
           <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-            <span className="text-lg">📁</span><p className="flex-1 text-base font-bold text-slate-900">Admin Uploads</p>
+            <span className="text-lg">⬆️</span><p className="flex-1 text-base font-bold text-slate-900">Admin Uploads</p>
             <button onClick={() => fileRef.current?.click()} disabled={uploading} className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold px-4 py-2 rounded-lg">{uploading ? "⏳ Indexing…" : "📎 Upload Documents"}</button>
             <input ref={fileRef} type="file" multiple accept=".pdf,.docx,.txt,.md,.csv" className="hidden" onChange={handleUpload} />
           </header>
@@ -1467,7 +1471,7 @@ export default function App() {
 
         {page === "analytics" && (<>
           <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-            <span className="text-lg">📊</span><p className="flex-1 text-base font-bold text-slate-900">Conversation Analytics</p>
+            <span className="text-lg">📋</span><p className="flex-1 text-base font-bold text-slate-900">Audit Log</p>
           </header>
           <div className="flex-1 overflow-y-auto p-5">
             <div className="grid grid-cols-3 gap-4 mb-6">
@@ -1492,7 +1496,7 @@ export default function App() {
 
         {page === "handoff" && (<>
           <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-            <span className="text-lg">📞</span><p className="flex-1 text-base font-bold text-slate-900">Ticket Handoff</p>
+            <span className="text-lg">⬇️</span><p className="flex-1 text-base font-bold text-slate-900">Reports</p>
           </header>
           <div className="flex-1 overflow-y-auto p-5">
             {ticketSent
@@ -3248,6 +3252,7 @@ async function buildSourceZip(html: string, plan: Plan, documents?: { name: stri
   const zip = new JSZip();
   const appTitle = extractAppTitle(plan.summary);
   const appName = (plan.summary.split(" ").slice(0, 4).join("-") || "agentforge-app").toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  const useSso = /\b(sso|azure ad|entra id|okta|single sign-on|single sign on)\b/i.test(plan.summary || "");
 
   // ── Step 1: Call GPT-4o to dynamically generate the full project ─────────
   let aiFiles: Record<string, string> = {};
@@ -3503,12 +3508,16 @@ export default function App() {
     } finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
   }
 
+  // Labels/icons match the sandbox's CHATBOT nav convention exactly (Chat /
+  // Documents / Admin Uploads / Audit Log / Reports) -- only the naming
+  // changed here, not the underlying pages/functionality (id/Page values are
+  // unchanged, so nothing about routing or feature scope moved).
   const navItems: { id: Page; icon: string; label: string }[] = [
-    { id: "chat", icon: "💬", label: "Support Chat" },
-    { id: "questions", icon: "💡", label: "Suggested Questions" },
-    { id: "uploads", icon: "📁", label: "Admin Uploads" },
-    { id: "analytics", icon: "📊", label: "Conversation Analytics" },
-    { id: "handoff", icon: "📞", label: "Ticket Handoff" },
+    { id: "chat", icon: "💬", label: "Chat" },
+    { id: "questions", icon: "📄", label: "Documents" },
+    { id: "uploads", icon: "⬆️", label: "Admin Uploads" },
+    { id: "analytics", icon: "📋", label: "Audit Log" },
+    { id: "handoff", icon: "⬇️", label: "Reports" },
   ];
 
   return (
@@ -3517,7 +3526,7 @@ export default function App() {
         <div className="p-4 border-b border-white/10">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-purple-600 flex items-center justify-center font-bold text-base">{appTitle.charAt(0).toUpperCase()}</div>
-            <div className="min-w-0"><p className="text-sm font-bold leading-tight truncate">{appTitle}</p><p className="text-xs text-slate-400 leading-tight">Document-aware support</p></div>
+            <div className="min-w-0"><p className="text-sm font-bold leading-tight truncate">{appTitle}</p><p className="text-xs text-slate-400 leading-tight">${useSso ? "Microsoft Entra ID SSO · Document-aware support" : "Document-aware support"}</p></div>
           </div>
         </div>
         <nav className="p-3 border-b border-white/10 space-y-0.5">
@@ -3550,7 +3559,7 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {page === "chat" && (<>
           <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-            <span className="text-lg">💬</span><p className="flex-1 text-base font-bold text-slate-900">Support Chat</p>
+            <span className="text-lg">💬</span><p className="flex-1 text-base font-bold text-slate-900">Chat</p>
             <span className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full">● AI Active</span>
             <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full">● KB Connected</span>
             <span className="text-xs font-semibold bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full">Custom Code · Azure OpenAI</span>
@@ -3587,7 +3596,7 @@ export default function App() {
 
         {page === "questions" && (<>
           <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-            <span className="text-lg">💡</span><p className="flex-1 text-base font-bold text-slate-900">Suggested Questions</p>
+            <span className="text-lg">📄</span><p className="flex-1 text-base font-bold text-slate-900">Documents</p>
             <span className="text-xs text-slate-500">{docs.length} document{docs.length !== 1 ? "s" : ""} indexed</span>
           </header>
           <div className="flex-1 overflow-y-auto p-5">
@@ -3619,7 +3628,7 @@ export default function App() {
 
         {page === "uploads" && (<>
           <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-            <span className="text-lg">📁</span><p className="flex-1 text-base font-bold text-slate-900">Admin Uploads</p>
+            <span className="text-lg">⬆️</span><p className="flex-1 text-base font-bold text-slate-900">Admin Uploads</p>
             <button onClick={() => fileRef.current?.click()} disabled={uploading} className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold px-4 py-2 rounded-lg">{uploading ? "⏳ Indexing…" : "📎 Upload Documents"}</button>
             <input ref={fileRef} type="file" multiple accept=".pdf,.docx,.txt,.md,.csv" className="hidden" onChange={handleUpload} />
           </header>
@@ -3641,7 +3650,7 @@ export default function App() {
 
         {page === "analytics" && (<>
           <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-            <span className="text-lg">📊</span><p className="flex-1 text-base font-bold text-slate-900">Conversation Analytics</p>
+            <span className="text-lg">📋</span><p className="flex-1 text-base font-bold text-slate-900">Audit Log</p>
           </header>
           <div className="flex-1 overflow-y-auto p-5">
             <div className="grid grid-cols-3 gap-4 mb-6">
@@ -3666,7 +3675,7 @@ export default function App() {
 
         {page === "handoff" && (<>
           <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-            <span className="text-lg">📞</span><p className="flex-1 text-base font-bold text-slate-900">Ticket Handoff</p>
+            <span className="text-lg">⬇️</span><p className="flex-1 text-base font-bold text-slate-900">Reports</p>
           </header>
           <div className="flex-1 overflow-y-auto p-5">
             {ticketSent

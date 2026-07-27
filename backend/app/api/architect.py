@@ -3989,6 +3989,64 @@ def _fix_router_prefixes(all_files: dict) -> dict:
     return all_files
 
 
+def _ensure_documents_router_registered(all_files: dict) -> dict:
+    """
+    Observed bug (live end-to-end test, real download): app/api/documents.py
+    existed, defined a working router (upload/list/delete matching what the
+    frontend's apiUpload/apiDocs calls expect), and was even correctly typed
+    against models.py -- but main.py never imported or registered it at all.
+    Instead the LLM had wired an entirely different, admin-gated ingestion
+    path (`/api/admin/documents/upload`, behind SSO auth) plus a generic
+    `/api/upload` with no DB persistence. The frontend's real upload/list
+    calls (`/api/documents/upload`, `/api/documents`) 404'd outright, even
+    though nothing else about the generation looked broken.
+
+    If documents.py defines a router but main.py's import list has no
+    `from app.api.documents import router as ...`, inject the import and an
+    `app.include_router(..., prefix="/api/documents")` call -- the same
+    prefix `_fix_router_prefixes` already enforces for this exact module
+    when the import DOES exist, so this is the "import never happened at
+    all" counterpart to that fix, not a duplicate of it.
+    """
+    import re as _re
+
+    main_path = _resolve_primary_main_py(all_files)
+    if main_path is None:
+        return all_files
+    documents_path = next(
+        (p for p in all_files if p.endswith("app/api/documents.py") and "router = APIRouter" in all_files[p]),
+        None,
+    )
+    if documents_path is None:
+        return all_files
+
+    src = all_files[main_path]
+    if _re.search(r'from app\.api\.documents import router', src):
+        return all_files  # already imported (possibly under a different prefix _fix_router_prefixes handles)
+
+    # Insert the import right after the last existing `from app.api.` import
+    # so it lands in the same block as its siblings rather than at the top
+    # of the file (cosmetic, but keeps generated code looking hand-written).
+    api_imports = list(_re.finditer(r'^from app\.api\.\w+ import [^\n]+\n', src, _re.MULTILINE))
+    import_line = "from app.api.documents import router as documents_router\n"
+    if api_imports:
+        insert_at = api_imports[-1].end()
+        src = src[:insert_at] + import_line + src[insert_at:]
+    else:
+        src = import_line + src
+
+    include_call = 'app.include_router(documents_router, prefix="/api/documents")\n'
+    include_matches = list(_re.finditer(r'^app\.include_router\([^\n]+\)\n', src, _re.MULTILINE))
+    if include_matches:
+        insert_at = include_matches[-1].end()
+        src = src[:insert_at] + include_call + src[insert_at:]
+    else:
+        src = src.rstrip("\n") + "\n" + include_call
+
+    all_files[main_path] = src
+    return all_files
+
+
 def _ensure_health_endpoint(all_files: dict) -> dict:
     """
     Observed bug: a health.py router file gets generated but never
@@ -5677,6 +5735,7 @@ def _rerun_deterministic_fixups(all_files: dict, app_name: str, summary: str) ->
     all_files = _ensure_requirements_complete(all_files)
     all_files = _normalize_vite_proxy_port(all_files)
     all_files = _fix_router_prefixes(all_files)
+    all_files = _ensure_documents_router_registered(all_files)
     all_files = _ensure_health_endpoint(all_files)
     all_files = _strip_dead_imports(all_files)
     all_files = _fix_env_asyncpg_driver(all_files)
