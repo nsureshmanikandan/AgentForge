@@ -1888,13 +1888,21 @@ function findAnswer(userInput, history = []) {
 
 3-PANEL LAYOUT (height:100vh, display:flex, overflow:hidden, position:"relative"):
 !! ALL three panels must be direct flex children â€" LEFT SIDEBAR + MAIN AREA + RIGHT PANEL side by side !!
-LEFT SIDEBAR (width:280px, minWidth:280px, background:#1e293b, color:#ffffff, display:flex, flexDirection:column, overflow:hidden):
-  Top branding area (padding:20px 16px 16px, borderBottom:"1px solid rgba(255,255,255,0.1)"):
+LEFT SIDEBAR (width: sidebarCollapsed ? 56 : 280, minWidth: sidebarCollapsed ? 56 : 280, background:#1e293b, color:#ffffff, display:flex, flexDirection:column, overflow:hidden, transition:"width 0.15s ease, min-width 0.15s ease"):
+  !! MANDATORY -- this sidebar is collapsible so the chat/answer area on narrower windows isn't
+     crowded out by the question list. Add a [sidebarCollapsed, setSidebarCollapsed] = React.useState(false)
+     state and a collapse toggle button; do not skip this. !!
+  Top branding area (padding:20px 16px 16px, borderBottom:"1px solid rgba(255,255,255,0.1)", display:flex, alignItems:center, justifyContent: sidebarCollapsed ? "center" : "space-between"):
     Row: colored circle (40px, background:#4f46e5, borderRadius:50%, display:flex, alignItems:center, justifyContent:center, color:white, fontWeight:700, fontSize:16) + company initial
-    App name: (fontSize:15, fontWeight:700, color:"#ffffff", marginLeft:10)
-    Subtitle: (fontSize:11, color:"#94a3b8", marginLeft:10, marginTop:2)
+    IF NOT sidebarCollapsed: App name (fontSize:15, fontWeight:700, color:"#ffffff", marginLeft:10) + Subtitle (fontSize:11, color:"#94a3b8", marginLeft:10, marginTop:2)
+    Collapse toggle button (title: sidebarCollapsed ? "Expand questions panel" : "Collapse questions panel",
+      onClick: ()=>setSidebarCollapsed(v=>!v),
+      style:{{background:"rgba(255,255,255,0.08)", border:"none", borderRadius:6, width:24, height:24, color:"#cbd5e1", cursor:"pointer", fontSize:12, flexShrink:0}}):
+      {{sidebarCollapsed ? "›" : "‹"}}
 
-  Scrollable question list (flex:1, overflowY:auto, padding:12px 10px):
+  IF sidebarCollapsed: render NOTHING else in this sidebar below the branding area (just the
+    collapsed rail with the toggle button) -- do not render the question list or its contents.
+  IF NOT sidebarCollapsed, Scrollable question list (flex:1, overflowY:auto, padding:12px 10px):
     -- Active topic banner (shown only when a topic filter is active):
     !! ONLY ONE "Clear" control should exist in the whole app -- it lives in the
        "Filter by Topic" panel below (next to that heading), NOT here. This banner
@@ -2706,6 +2714,23 @@ async def generate_ui(req: GenerateUIRequest):
                                         "multi-agent deliberation", "advisor panel", "chairman", "peer review board",
                                         "council app", "review board", "blind review", "decision intel"]):
         detected_type = "COUNCIL_APP"
+
+    # Priority 1.5: explicit chatbot/FAQ phrasing wins over ANY domain keyword below.
+    # Observed bug: an app literally named "HR Internal FAQ Chatbot" whose summary says
+    # "answers employee questions" matched HR_APP's broad "hr " substring first, so the
+    # LLM built an HR ops dashboard (Employees/Recruitment/Onboarding pages) and then
+    # awkwardly bolted a chat feature onto it to still satisfy the prompt -- producing a
+    # layout that overlaps Dashboard content with the chat panel and crowds out the
+    # Top 10 Questions sidebar. The domain words (hr, sales, legal, ...) only describe
+    # WHAT the chatbot answers about; they must never override the fact that the app IS
+    # a chatbot. This also matches what the real Agentic Code/RAG Template Code downloads
+    # actually build for these prompts (a plain chat app, never an HR ops dashboard) --
+    # keeping the sandbox preview consistent with what ships is the whole point.
+    elif any(k in prompt_lower for k in ["faq chatbot", "faq bot", "faq assistant", "chatbot", "chat bot",
+                                          "virtual agent", "conversational assistant", "qa bot", "q&a bot",
+                                          "assistant that answers", "answers employee questions",
+                                          "answers questions"]):
+        detected_type = "CHATBOT"
 
     # Priority 2: Specific enterprise domains (checked before generic chatbot/dashboard)
     elif any(k in prompt_lower for k in ["recruiter", "resume", "onboarding buddy", "payroll", "performance review",
