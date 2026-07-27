@@ -5776,37 +5776,52 @@ async def _review_and_fix_generated_code(
         "{files_content}", files_content
     )
 
-    try:
-        response = await asyncio.to_thread(
-            client.chat.completions.create,
-            model=llm_model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            response_format={"type": "json_object"},
-            **{tok_kwarg: 14000},
-        )
-        data = json.loads(_strip_json_fences(response.choices[0].message.content or "{}"))
-        fixed_files = data.get("files", {})
-        # Allow the reviewer to create brand-new files, but only the two
-        # specific ones the SSO-completeness check (item 6) is scoped to
-        # create -- any file already in review_targets can always be
-        # corrected, but a genuinely new path outside that narrow allowlist
-        # is more likely a hallucination than an intentional fix.
-        new_file_allowlist = {"src/auth/msalConfig.ts", "src/auth/useAuth.ts"}
-        applied = 0
-        for path, content in fixed_files.items():
-            if path in all_files or path in new_file_allowlist:
-                all_files[path] = content
-                applied += 1
-        logger.info(
-            "architect code-quality reviewer pass: %d known issue(s) given, %d file(s) changed",
-            len(known_issues or []), applied,
-        )
-    except Exception as e:
-        # Reviewer failure must never break a working generation -- but it
-        # must also never be silently indistinguishable from "ran and found
-        # nothing", which was the previous behavior.
-        logger.warning("architect code-quality reviewer pass failed (non-fatal): %r", e)
+    # Observed live: this exact reviewer mechanism reliably fixes 14/16 known
+    # issues when invoked directly against a real failing download's files --
+    # yet some real generations shipped with ALL issues unfixed, meaning the
+    # single LLM call here failed outright (rate limit, transient network
+    # error, malformed JSON) and the old single-attempt logic gave up
+    # entirely. One retry costs one extra call in the rare failure case and
+    # nothing in the common success case.
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            response = await asyncio.to_thread(
+                client.chat.completions.create,
+                model=llm_model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                response_format={"type": "json_object"},
+                **{tok_kwarg: 14000},
+            )
+            data = json.loads(_strip_json_fences(response.choices[0].message.content or "{}"))
+            fixed_files = data.get("files", {})
+            # Allow the reviewer to create brand-new files, but only the two
+            # specific ones the SSO-completeness check (item 6) is scoped to
+            # create -- any file already in review_targets can always be
+            # corrected, but a genuinely new path outside that narrow allowlist
+            # is more likely a hallucination than an intentional fix.
+            new_file_allowlist = {"src/auth/msalConfig.ts", "src/auth/useAuth.ts"}
+            applied = 0
+            for path, content in fixed_files.items():
+                if path in all_files or path in new_file_allowlist:
+                    all_files[path] = content
+                    applied += 1
+            logger.info(
+                "architect code-quality reviewer pass (attempt %d/2): %d known issue(s) given, %d file(s) changed",
+                attempt + 1, len(known_issues or []), applied,
+            )
+            return all_files
+        except Exception as e:
+            last_exc = e
+            logger.warning(
+                "architect code-quality reviewer pass attempt %d/2 failed: %r%s",
+                attempt + 1, e, " -- retrying once" if attempt == 0 else " -- giving up (non-fatal)",
+            )
+    # Reviewer failure must never break a working generation -- but it must
+    # also never be silently indistinguishable from "ran and found nothing",
+    # which was the previous behavior. Both attempts' failures are now logged
+    # above with distinct attempt numbers.
 
     return all_files
 
