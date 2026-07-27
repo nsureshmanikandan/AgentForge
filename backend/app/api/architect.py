@@ -471,6 +471,16 @@ def _ensure_scaffold_files(all_files: dict) -> None:
             pkg for pkg in ("python-jose[cryptography]==3.3.0", "passlib[bcrypt]==1.7.4")
             if pkg.split("[")[0] not in req_txt
         ]
+        # passlib[bcrypt]==1.7.4's internal version probe crashes against any
+        # bcrypt>=4.1 (a fresh `pip install` with no separate pin resolves to
+        # that today) -- same reasoning as _ensure_requirements_complete's own
+        # pairing, duplicated here because this is a second, later place
+        # passlib[bcrypt] can first enter requirements.txt (pure-SSO apps
+        # where the LLM's own requirements.txt never mentions it), after the
+        # earlier deterministic pass already ran.
+        has_bcrypt_pin = any(line.strip().startswith("bcrypt==") for line in req_txt.splitlines())
+        if ("passlib[bcrypt]==1.7.4" in auth_pkgs or "passlib" in req_txt) and not has_bcrypt_pin:
+            auth_pkgs.append("bcrypt==4.0.1")
         if auth_pkgs:
             all_files["backend/requirements.txt"] = req_txt.rstrip("\n") + "\n" + "\n".join(auth_pkgs) + "\n"
 
