@@ -1570,7 +1570,12 @@ ReactDOM.createRoot(document.getElementById("root")!).render(<React.StrictMode><
   }, null, 2));
 
   // ── frontend/vite.config.ts ───────────────────────────────────────────────
-  zip.file("frontend/vite.config.ts", `import { defineConfig } from "vite";\nimport react from "@vitejs/plugin-react";\nexport default defineConfig({ plugins: [react()], server: { proxy: { "/api": { target: "http://localhost:8000", changeOrigin: true } } } });\n`);
+  // Proxy target MUST match the RAG Scaffold backend's documented port (8003,
+  // see the "RAG Scaffold — backend on port 8003" comment below) -- this
+  // previously hardcoded 8000, which is neither this scaffold's own backend
+  // port nor Agentic Code's (8002), so every fresh download's dev server
+  // proxied API calls to the wrong (or no) backend until manually fixed.
+  zip.file("frontend/vite.config.ts", `import { defineConfig } from "vite";\nimport react from "@vitejs/plugin-react";\nexport default defineConfig({ plugins: [react()], server: { proxy: { "/api": { target: "http://localhost:8003", changeOrigin: true } } } });\n`);
 
   // ── frontend/tsconfig.json ────────────────────────────────────────────────
   zip.file("frontend/tsconfig.json", JSON.stringify({ compilerOptions: { target: "ES2020", useDefineForClassFields: true, lib: ["ES2020","DOM","DOM.Iterable"], module: "ESNext", skipLibCheck: true, moduleResolution: "bundler", allowImportingTsExtensions: true, resolveJsonModule: true, isolatedModules: true, noEmit: true, jsx: "react-jsx", strict: true, noUnusedLocals: true, noUnusedParameters: true, noFallthroughCasesInSwitch: true }, include: ["src"], references: [{ path: "./tsconfig.node.json" }] }, null, 2));
