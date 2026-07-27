@@ -4339,6 +4339,37 @@ def _model_class_fields(tree: "ast.Module") -> dict[str, set[str]]:
     return models
 
 
+def _model_int_fields(tree: "ast.Module") -> dict[str, set[str]]:
+    """Map {model class name -> field names annotated as an integer column}
+    (`Mapped[int]` or `Mapped[int | None]`). Used to catch the observed
+    session_id-typed-as-int-but-assigned-a-uuid-string bug: a field typed
+    this way can never legitimately be given a UUID string at any call
+    site, so any such assignment is a real, confirmed bug worth surfacing
+    to the reviewer, not a guess."""
+    import ast as _ast
+
+    models: dict[str, set[str]] = {}
+    for node in tree.body:
+        if not isinstance(node, _ast.ClassDef):
+            continue
+        base_names = {b.id for b in node.bases if isinstance(b, _ast.Name)}
+        if "Base" not in base_names:
+            continue
+        int_fields: set[str] = set()
+        for stmt in node.body:
+            if not (isinstance(stmt, _ast.AnnAssign) and isinstance(stmt.target, _ast.Name)):
+                continue
+            try:
+                ann_src = _ast.unparse(stmt.annotation)
+            except Exception:
+                continue
+            if "Mapped[int" in ann_src or ann_src == "int":
+                int_fields.add(stmt.target.id)
+        if int_fields:
+            models[node.name] = int_fields
+    return models
+
+
 def _settings_fields(tree: "ast.Module") -> set[str] | None:
     """Declared field names on this module's `class Settings(BaseSettings):`,
     or None if this module doesn't define one at all."""
@@ -4397,6 +4428,7 @@ def _static_code_quality_report(all_files: dict) -> list[str]:
     single issue string rather than propagated.
     """
     import ast as _ast
+    import re as _re
 
     issues: list[str] = []
     try:
@@ -4405,8 +4437,12 @@ def _static_code_quality_report(all_files: dict) -> list[str]:
             return issues
 
         model_fields_by_class: dict[str, set[str]] = {}
+        model_int_fields_by_class: dict[str, set[str]] = {}
         for tree in trees.values():
             model_fields_by_class.update(_model_class_fields(tree))
+            model_int_fields_by_class.update(_model_int_fields(tree))
+
+        has_document_chunks = "DocumentChunk" in model_fields_by_class
 
         settings_fields: set[str] | None = None
         for tree in trees.values():
@@ -4458,6 +4494,80 @@ def _static_code_quality_report(all_files: dict) -> list[str]:
                         f"{', '.join(bad_kwargs)} {'is' if len(bad_kwargs) == 1 else 'are'} not "
                         f"declared on that model."
                     )
+
+            # -- int-typed field assigned a UUID string ----------------------
+            # Observed bug: a chat/session endpoint does session_id = str(uuid.uuid4())
+            # (the natural, correct way to make an opaque session identifier) while
+            # the model declares that same field as Mapped[int] -- every insert then
+            # crashes with a DBAPI type error. Scoped per-function so a same-named
+            # variable elsewhere that has nothing to do with the mismatched field
+            # doesn't produce a false positive.
+            for func_node in _ast.walk(tree):
+                if not isinstance(func_node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                    continue
+                uuid_str_vars: set[str] = set()
+                for stmt in _ast.walk(func_node):
+                    if not (isinstance(stmt, _ast.Assign) and len(stmt.targets) == 1
+                            and isinstance(stmt.targets[0], _ast.Name)):
+                        continue
+                    try:
+                        rhs_src = _ast.unparse(stmt.value)
+                    except Exception:
+                        continue
+                    if "uuid4" in rhs_src:
+                        uuid_str_vars.add(stmt.targets[0].id)
+                if not uuid_str_vars:
+                    continue
+                for call_node in _ast.walk(func_node):
+                    if not isinstance(call_node, _ast.Call) or not isinstance(call_node.func, _ast.Name):
+                        continue
+                    int_fields = model_int_fields_by_class.get(call_node.func.id)
+                    if not int_fields:
+                        continue
+                    for kw in call_node.keywords:
+                        if kw.arg in int_fields and isinstance(kw.value, _ast.Name) and kw.value.id in uuid_str_vars:
+                            issues.append(
+                                f"{short}: constructs {call_node.func.id}({kw.arg}={kw.value.id}) where "
+                                f"{kw.value.id} is assigned from uuid4() (a string), but {call_node.func.id}."
+                                f"{kw.arg} is declared Mapped[int] -- change the model field to a string "
+                                f"column (e.g. String(100)), since a session/request UUID is never an integer."
+                            )
+
+            # -- agent answering call with no document context wired --------
+            # Observed bug: a chat endpoint imports and calls an answering agent
+            # (e.g. agent.answer_question(question, history)) but never queries
+            # DocumentChunk/embeddings and never passes anything resembling
+            # context/document content to it -- the agent always answers with
+            # empty/default context, so it can NEVER actually be grounded in
+            # what the user uploaded, even though upload+chat both "work" with
+            # no visible error. Only fires when the project actually has a
+            # DocumentChunk model AND this file imports an agent from app.agents,
+            # so an unrelated method call elsewhere is never flagged.
+            imports_agent = any(
+                isinstance(n, _ast.ImportFrom) and n.module and "app.agents" in n.module
+                for n in _ast.walk(tree)
+            )
+            if has_document_chunks and imports_agent:
+                answering_call_re = _re.compile(r"^(answer_question|analyze|ask|query|answer|respond)$")
+                grounding_hint_re = _re.compile(r"context|chunk|document|retriev|knowledge|source", _re.IGNORECASE)
+                for call_node in _ast.walk(tree):
+                    if not (isinstance(call_node, _ast.Call) and isinstance(call_node.func, _ast.Attribute)):
+                        continue
+                    if not answering_call_re.match(call_node.func.attr):
+                        continue
+                    all_arg_src = " ".join(
+                        _ast.unparse(a) for a in list(call_node.args) + [kw.value for kw in call_node.keywords]
+                    )
+                    all_kw_names = " ".join(kw.arg or "" for kw in call_node.keywords)
+                    if not grounding_hint_re.search(all_arg_src) and not grounding_hint_re.search(all_kw_names):
+                        issues.append(
+                            f"{short}: calls .{call_node.func.attr}(...) on what looks like an answering "
+                            f"agent, but none of its arguments reference context/documents/chunks, and this "
+                            f"project has a DocumentChunk model -- the agent is never given the uploaded "
+                            f"document content, so chat answers can never actually be grounded in what the "
+                            f"user uploaded. Query DocumentChunk (or the project's embedding index) and pass "
+                            f"the retrieved text as a context argument to this call."
+                        )
 
             # -- undeclared settings.FIELD -----------------------------------
             if settings_fields is not None:
