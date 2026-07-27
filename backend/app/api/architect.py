@@ -571,6 +571,33 @@ class ScorerRequest(BaseModel):
 
 router = APIRouter()
 
+
+@router.get("/version")
+def get_architect_version():
+    """
+    Reports the actual git commit this running backend process has loaded --
+    added specifically to settle a recurring back-and-forth this session: a
+    downloaded project would show some recent fixes but not others, and it
+    was never possible to tell from the outside whether that meant "backend
+    needs a restart" or "there's a genuine new gap in the generator". Call
+    this immediately before generating a download to know for certain which
+    commit is actually running, instead of inferring it from symptoms.
+    """
+    import subprocess
+    from pathlib import Path
+    try:
+        repo_root = Path(__file__).resolve().parents[3]
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=repo_root, text=True,
+        ).strip()
+        commit_date = subprocess.check_output(
+            ["git", "log", "-1", "--format=%ci"], cwd=repo_root, text=True,
+        ).strip()
+    except Exception as e:
+        return {"commit": None, "commit_date": None, "error": str(e)}
+    return {"commit": commit, "commit_date": commit_date}
+
+
 _CHATBOT_LOGIC_AND_UI = r"""
 // Build topic keyword map dynamically from FAQ_DATA at startup — no hardcoded domain terms
 const TOPIC_KEYWORD_MAP = (() => {
