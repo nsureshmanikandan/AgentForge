@@ -4439,6 +4439,38 @@ def _static_code_quality_report(all_files: dict) -> list[str]:
                         f"class never declares {field}."
                     )
 
+        # -- SSO frontend completeness --------------------------------------
+        # This is a semantic completeness gap, not a syntax/reference error,
+        # but it MUST be surfaced here too: _run_verified_review_loop only
+        # calls the LLM reviewer at all when this function returns at least
+        # one issue -- an SSO backend with no msalConfig.ts/useAuth.ts is
+        # otherwise perfectly valid Python/AST-wise, so it was silently
+        # skipping the reviewer entirely and shipping with no frontend SSO
+        # integration. Confirmed via live regeneration: an SSO project with
+        # zero other issues produced neither file until this check existed.
+        has_real_sso_backend = any(
+            path.endswith(".py")
+            and (
+                "login.microsoftonline.com" in content
+                or "settings.AZURE_TENANT_ID" in content
+                or "settings.AZURE_CLIENT_ID" in content
+                or "settings.SSO_ENABLED" in content
+            )
+            for path, content in all_files.items()
+        )
+        if has_real_sso_backend:
+            has_msal_files = any(
+                p.endswith("src/auth/msalConfig.ts") or p.endswith("src/auth/useAuth.ts")
+                for p in all_files
+            )
+            if not has_msal_files:
+                issues.append(
+                    "Backend implements real Azure AD/Entra ID SSO verification (JWKS/JWT, "
+                    "settings.AZURE_TENANT_ID/AZURE_CLIENT_ID/SSO_ENABLED), but the frontend has "
+                    "no src/auth/msalConfig.ts or src/auth/useAuth.ts -- add both so the SPA can "
+                    "actually authenticate against it."
+                )
+
         # -- entrypoint / Docker consistency --------------------------------
         canonical = next((p for p in all_files if p.endswith("backend/app/main.py")), None)
         stray = next((p for p in all_files if p.endswith("backend/main.py")), None)
