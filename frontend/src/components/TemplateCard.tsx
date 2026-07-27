@@ -35,6 +35,7 @@ export default function TemplateCard({
 }) {
   const [imgFailed, setImgFailed] = useState(false);
   const badgeClass = CATEGORY_COLORS[template.category] ?? "bg-slate-100 text-slate-700";
+  const showImage = template.hasPreview && !imgFailed;
 
   return (
     <button
@@ -42,7 +43,7 @@ export default function TemplateCard({
       className="text-left bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md hover:border-indigo-300 transition-all overflow-hidden flex flex-col"
     >
       <div className="h-32 bg-gray-50 border-b border-gray-100 flex items-center justify-center overflow-hidden">
-        {!imgFailed ? (
+        {showImage ? (
           <img
             src={template.previewImagePath}
             alt={template.name}

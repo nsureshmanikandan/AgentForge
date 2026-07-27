@@ -97,11 +97,19 @@ export default function Marketplace() {
         <aside className="w-56 flex-shrink-0">
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Categories</p>
-            {selectedCategories.length > 0 && (
-              <button onClick={() => setSelectedCategories([])} className="text-[11px] text-indigo-600 hover:underline">
-                Clear all
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSelectedCategories([...CATEGORIES])}
+                className="text-[11px] text-indigo-600 hover:underline"
+              >
+                Select all
               </button>
-            )}
+              {selectedCategories.length > 0 && (
+                <button onClick={() => setSelectedCategories([])} className="text-[11px] text-indigo-600 hover:underline">
+                  Clear all
+                </button>
+              )}
+            </div>
           </div>
           <div className="space-y-1.5">
             {CATEGORIES.map((cat) => (

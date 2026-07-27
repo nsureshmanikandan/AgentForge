@@ -34,7 +34,10 @@ export default function TemplateDetailModal({
   const [clones, setClones] = useState(() => readCounter("af_marketplace_clones", template.id));
   const [imgFailed, setImgFailed] = useState(false);
 
+  const showPreview = template.hasPreview && !imgFailed;
+
   function handleViewApp() {
+    if (!template.hasPreview) return;
     setViews(bumpCounter("af_marketplace_views", template.id));
     window.open(template.previewImagePath, "_blank", "noopener,noreferrer");
   }
@@ -81,12 +84,14 @@ export default function TemplateDetailModal({
           </div>
 
           <div className="flex gap-2 mb-5">
-            <button
-              onClick={handleViewApp}
-              className="flex-1 bg-gray-900 hover:bg-gray-800 text-white text-sm font-medium rounded-lg px-4 py-2.5"
-            >
-              View App
-            </button>
+            {template.hasPreview && (
+              <button
+                onClick={handleViewApp}
+                className="flex-1 bg-gray-900 hover:bg-gray-800 text-white text-sm font-medium rounded-lg px-4 py-2.5"
+              >
+                View App
+              </button>
+            )}
             <button
               onClick={handleUseTemplate}
               className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg px-4 py-2.5"
@@ -114,7 +119,7 @@ export default function TemplateDetailModal({
         </div>
 
         <div className="bg-gray-50 border-t md:border-t-0 md:border-l border-gray-100 flex items-center justify-center p-6">
-          {!imgFailed ? (
+          {showPreview ? (
             <img
               src={template.previewImagePath}
               alt={template.name}

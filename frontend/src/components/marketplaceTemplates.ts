@@ -14,6 +14,13 @@ export interface MarketplaceTemplate {
   tags: string[];
   prompt: string;
   previewImagePath: string;
+  // Whether previewImagePath actually points at a real, generated
+  // screenshot yet. Most templates don't have one until someone runs
+  // their prompt through Architect once and saves the result (see the
+  // design spec's Content plan) -- rather than showing a broken/blank
+  // image when "View App" is clicked, the UI hides/disables that button
+  // entirely until this is true.
+  hasPreview: boolean;
   createdBy: string;
   publishedDate: string;
 }
@@ -46,6 +53,7 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     prompt:
       "An internal HR FAQ chatbot that authenticates employees via Microsoft Entra ID SSO and answers questions from uploaded HR policy documents, with document upload, admin audit log, and rate limiting.",
     previewImagePath: "/marketplace-previews/hr-policy-faq.png",
+    hasPreview: false,
     createdBy: "AgentForge Team",
     publishedDate: "2026-06-02",
   },
@@ -60,6 +68,7 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     prompt:
       "A sales intelligence app for scoring inbound leads and drafting personalized cold outreach emails, with a leads table (name, company, score, stage) and an AI email composer.",
     previewImagePath: "/marketplace-previews/sales-lead-scorer.png",
+    hasPreview: false,
     createdBy: "AgentForge Team",
     publishedDate: "2026-06-05",
   },
@@ -74,6 +83,7 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     prompt:
       "A customer support ticket triage app that classifies incoming tickets by category and urgency, suggests resolutions from a knowledge base, and escalates unresolved tickets to a human agent.",
     previewImagePath: "/marketplace-previews/support-ticket-triage.png",
+    hasPreview: false,
     createdBy: "AgentForge Team",
     publishedDate: "2026-06-08",
   },
@@ -88,6 +98,7 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     prompt:
       "A business intelligence dashboard app that ingests an uploaded CSV or Excel file and builds KPI charts, trend lines, and summary stats derived from the real uploaded data.",
     previewImagePath: "/marketplace-previews/kpi-dashboard-builder.png",
+    hasPreview: false,
     createdBy: "AgentForge Team",
     publishedDate: "2026-06-10",
   },
@@ -102,6 +113,7 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     prompt:
       "An invoice processing app that extracts vendor, line items, and totals from uploaded invoice PDFs, checks them against a budget threshold, and flags anomalies for manual review.",
     previewImagePath: "/marketplace-previews/invoice-processor.png",
+    hasPreview: false,
     createdBy: "AgentForge Team",
     publishedDate: "2026-06-12",
   },
@@ -116,6 +128,7 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     prompt:
       "A meeting notes app that takes an uploaded meeting transcript and produces a concise summary, decisions made, and action items with owners.",
     previewImagePath: "/marketplace-previews/meeting-notes-summarizer.png",
+    hasPreview: false,
     createdBy: "AgentForge Team",
     publishedDate: "2026-06-14",
   },
@@ -130,6 +143,7 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     prompt:
       "A code review assistant app that reviews an uploaded code diff for bugs, style issues, and missing tests, and generates a structured pull-request review comment.",
     previewImagePath: "/marketplace-previews/code-review-assistant.png",
+    hasPreview: false,
     createdBy: "AgentForge Team",
     publishedDate: "2026-06-16",
   },
@@ -144,6 +158,7 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     prompt:
       "A social content planner app that takes a list of topics and a brand voice description, and generates a week's worth of social media post drafts with suggested posting times.",
     previewImagePath: "/marketplace-previews/social-content-planner.png",
+    hasPreview: false,
     createdBy: "AgentForge Team",
     publishedDate: "2026-06-18",
   },
@@ -158,6 +173,7 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     prompt:
       "A new hire onboarding app that walks employees through a first-week checklist, tracks completion progress, and answers onboarding-related questions.",
     previewImagePath: "/marketplace-previews/onboarding-buddy.png",
+    hasPreview: false,
     createdBy: "AgentForge Team",
     publishedDate: "2026-06-20",
   },
@@ -172,6 +188,7 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     prompt:
       "An expense report app that extracts amount, vendor, and date from uploaded receipt images, auto-categorizes each expense, and compiles a submittable expense report.",
     previewImagePath: "/marketplace-previews/expense-report-assistant.png",
+    hasPreview: false,
     createdBy: "AgentForge Team",
     publishedDate: "2026-06-22",
   },
@@ -186,6 +203,7 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     prompt:
       "A document Q&A workspace app where users upload PDFs, DOCX, and text files, then ask questions and get answers grounded in and cited from the actual uploaded content.",
     previewImagePath: "/marketplace-previews/document-qa-workspace.png",
+    hasPreview: false,
     createdBy: "AgentForge Team",
     publishedDate: "2026-06-24",
   },
@@ -200,6 +218,7 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     prompt:
       "A release notes generator app that takes a list of merged pull request titles and generates polished, categorized release notes (Features, Fixes, Breaking Changes).",
     previewImagePath: "/marketplace-previews/release-notes-generator.png",
+    hasPreview: false,
     createdBy: "AgentForge Team",
     publishedDate: "2026-06-26",
   },
