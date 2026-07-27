@@ -2579,6 +2579,31 @@ to scroll. A page whose content (KPI cards + charts + tables, etc.) is taller th
 viewport MUST still be fully reachable by scrolling within that page's own container.
 
 ==================================================
+MANDATORY PERSISTENT NAV RULE (applies to any app with multiple pages/sections beyond
+a single chat view -- Documents, Admin Uploads, Audit Log, Reports, Dashboard, etc.)
+==================================================
+Observed bug: a left nav sidebar (with clickable Chat/Documents/Audit Log/Reports items)
+was rendered ONLY inside the "chat" page's own conditional block, so clicking "Documents"
+switched the main content to a Documents view but the ENTIRE nav sidebar disappeared along
+with it -- the user was left on a page with no way to navigate back. The nav sidebar is
+part of the persistent APP SHELL, not part of any individual page's content.
+
+!! ABSOLUTE BAN: do NOT write `{page === "chat" && (<><aside>...nav...</aside><main>...
+</main></>)}` with the nav sidebar INSIDE that per-page conditional. The nav/aside element
+MUST be a sibling of the page-content switch, not a child of one specific page's branch,
+so it renders identically regardless of which page is active:
+
+  return (
+    <div className="flex h-screen overflow-hidden">
+      <aside>{/* nav sidebar -- renders on EVERY page, not just "chat" */}</aside>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <header>{/* app header -- see MANDATORY SINGLE HEADER RULE above */}</header>
+        <div className="flex-1 min-h-0 overflow-y-auto">{renderContent()}</div>
+      </div>
+    </div>
+  );
+
+==================================================
 MANDATORY REAL-DATA RULE (applies to any KPI, stat, or metric widget)
 ==================================================
 !! ABSOLUTE BAN: NEVER initialize a KPI/metric with a fabricated starting number like
