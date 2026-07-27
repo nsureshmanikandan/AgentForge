@@ -2027,6 +2027,15 @@ RIGHT PANEL (width:260px, minWidth:260px, background:#ffffff, borderLeft:"1px so
     </button>
   )
 
+CRITICAL -- EXACTLY 3 PANELS ONLY, NO EXCEPTIONS: LEFT SIDEBAR (question list) + MAIN AREA
+(chat) + RIGHT PANEL (Knowledge Base/Filter by Topic) as specified above -- nothing else.
+Do NOT add a 4th panel, column, or card such as "Admin Review Queue", "Needs Review", a
+low-confidence escalation queue, or any other admin/moderation surface -- the downloaded
+Agentic Code and RAG Template Code projects do NOT implement any such feature, so inventing
+one here makes this live preview diverge from what actually ships. The left sidebar's nav
+list (if one is rendered elsewhere in this same app) MAY mention an "Admin Review" nav item
+as a label only, but do NOT render its content inline in the default 3-panel chat view.
+
 STATE:
 const [messages, setMessages] = React.useState([{role:"bot", id:"bot_welcome", answer:APP_CONFIG.welcomeMessage, steps:[], source:"", confidence:null, related:[]}]);
 const [input, setInput] = React.useState("");
