@@ -4047,7 +4047,7 @@ def _ensure_documents_router_registered(all_files: dict) -> dict:
     return all_files
 
 
-def _ensure_health_endpoint(all_files: dict) -> dict:
+def _ensure_health_endpoint(all_files: dict, app_name: str = "AI Assistant") -> dict:
     """
     Observed bug: a health.py router file gets generated but never
     registered in main.py (or no health endpoint is generated at all),
@@ -4059,6 +4059,16 @@ def _ensure_health_endpoint(all_files: dict) -> dict:
     FastAPI app object, ahead of any other router registration, rather
     than depending on the LLM having wired up a separate health.py
     correctly.
+
+    Observed follow-on bug: this injected route used to hardcode a
+    generic "AI Assistant" as the "app" field regardless of the real app
+    name -- since the frontend's apiHealth() prefers this backend value
+    over its own build-time title, every generation whose LLM-written
+    main.py lacked its own /api/health route ended up showing a plain
+    "AI Assistant" title in the running app even though the sandbox and
+    the frontend's own branding said the real, plan-derived name. Use the
+    actual app_name here so title branding stays consistent across the
+    sandbox and both downloads.
     """
     import re as _re
 
@@ -4077,10 +4087,11 @@ def _ensure_health_endpoint(all_files: dict) -> dict:
     app_match = _re.search(r'^app = FastAPI\([^)]*\)\s*$', src, _re.MULTILINE)
     if not app_match:
         return all_files
+    safe_app_name = (app_name or "AI Assistant").replace('"', '\\"')
     injection = (
         "\n\n@app.get(\"/api/health\")\n"
         "async def _agentforge_health_check():\n"
-        "    return {\"status\": \"ok\", \"app\": \"AI Assistant\"}\n"
+        f'    return {{"status": "ok", "app": "{safe_app_name}"}}\n'
     )
     insert_at = app_match.end()
     all_files[main_path] = src[:insert_at] + injection + src[insert_at:]
@@ -5736,7 +5747,7 @@ def _rerun_deterministic_fixups(all_files: dict, app_name: str, summary: str) ->
     all_files = _normalize_vite_proxy_port(all_files)
     all_files = _fix_router_prefixes(all_files)
     all_files = _ensure_documents_router_registered(all_files)
-    all_files = _ensure_health_endpoint(all_files)
+    all_files = _ensure_health_endpoint(all_files, app_name)
     all_files = _strip_dead_imports(all_files)
     all_files = _fix_env_asyncpg_driver(all_files)
     all_files = _fix_slowapi_import_path(all_files)

@@ -845,7 +845,7 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
   <!-- ANALYTICS PAGE -->
   <div class="page" id="page-analytics">
     <header class="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-      <span class="text-lg">📋</span><p class="flex-1 text-base font-bold text-slate-900">Audit Log</p>
+      <span class="text-lg">📊</span><p class="flex-1 text-base font-bold text-slate-900">Conversation Analytics</p>
     </header>
     <div class="flex-1 overflow-y-auto p-5">
       <div class="grid grid-cols-3 gap-4 mb-6">
@@ -867,7 +867,7 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
   <!-- TICKET HANDOFF PAGE -->
   <div class="page" id="page-handoff">
     <header class="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-      <span class="text-lg">⬇️</span><p class="flex-1 text-base font-bold text-slate-900">Reports</p>
+      <span class="text-lg">📞</span><p class="flex-1 text-base font-bold text-slate-900">Ticket Handoff</p>
     </header>
     <div class="flex-1 overflow-y-auto p-5">
       <div class="max-w-lg mx-auto bg-white border border-slate-200 rounded-xl p-6 shadow-sm" id="ticket-form-wrap">
@@ -943,8 +943,8 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
     {id:"chat",     icon:"💬", label:"Chat"},
     {id:"questions",icon:"📄", label:"Documents"},
     {id:"uploads",  icon:"⬆️", label:"Admin Uploads"},
-    {id:"analytics",icon:"📋", label:"Audit Log"},
-    {id:"handoff",  icon:"⬇️", label:"Reports"},
+    {id:"analytics",icon:"📊", label:"Conversation Analytics"},
+    {id:"handoff",  icon:"📞", label:"Ticket Handoff"},
   ];
 
   function buildNav(){
@@ -1330,16 +1330,20 @@ export default function App() {
     } finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
   }
 
-  // Labels/icons match the sandbox's CHATBOT nav convention exactly (Chat /
-  // Documents / Admin Uploads / Audit Log / Reports) -- only the naming
-  // changed here, not the underlying pages/functionality (id/Page values are
-  // unchanged, so nothing about routing or feature scope moved).
+  // "chat"/"questions"/"uploads" match the sandbox's CHATBOT nav convention
+  // (Chat / Documents / Admin Uploads) since those pages' actual content
+  // matches those names. "analytics"/"handoff" were previously renamed to
+  // "Audit Log"/"Reports" to match sandbox labels too, but that was wrong --
+  // their content is conversation analytics charts and a support-ticket
+  // form, not an audit trail or a reports/export page, so relabeling them
+  // created a label/content mismatch. Reverted to their original,
+  // content-accurate names.
   const navItems: { id: Page; icon: string; label: string }[] = [
     { id: "chat", icon: "💬", label: "Chat" },
     { id: "questions", icon: "📄", label: "Documents" },
     { id: "uploads", icon: "⬆️", label: "Admin Uploads" },
-    { id: "analytics", icon: "📋", label: "Audit Log" },
-    { id: "handoff", icon: "⬇️", label: "Reports" },
+    { id: "analytics", icon: "📊", label: "Conversation Analytics" },
+    { id: "handoff", icon: "📞", label: "Ticket Handoff" },
   ];
 
   return (
@@ -1397,7 +1401,7 @@ export default function App() {
                       <div className="space-y-0.5">{renderMarkdown(bm.answer)}</div>
                       {bm.steps && bm.steps.length > 0 && <div className="mt-3 pt-3 border-t border-slate-100"><p className="text-xs font-semibold text-slate-500 mb-2">Step-by-Step Resolution</p><ol className="space-y-1.5">{bm.steps.map((s, i) => <li key={i} className="flex items-start gap-2.5 text-sm text-slate-700"><span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>{s}</li>)}</ol></div>}
                       {bm.source && bm.source !== "N/A" && <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 flex-wrap"><span className="text-xs text-slate-500">📄 {bm.source}</span><ConfBadge value={bm.confidence} /></div>}
-                      {bm.related && bm.related.length > 0 && <div className="mt-2 pt-2 border-t border-slate-100"><p className="text-[10px] font-semibold text-slate-400 mb-1.5">Follow-ups:</p><div className="flex flex-wrap gap-1.5">{bm.related.map((r, i) => <button key={i} onClick={() => send(r)} className="text-[11px] bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-2.5 py-0.5 hover:bg-indigo-100">{r}</button>)}</div></div>}
+                      {bm.related && bm.related.length > 0 && <div className="mt-2 pt-2 border-t border-slate-100"><p className="text-[10px] font-semibold text-slate-400 mb-1.5">💡 Related:</p><div className="flex flex-wrap gap-1.5">{bm.related.map((r, i) => <button key={i} onClick={() => send(r)} className="text-[11px] bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-2.5 py-0.5 hover:bg-indigo-100">{r}</button>)}</div></div>}
                       {msg.id !== "welcome" && <div className="mt-2 pt-2 border-t border-slate-100 flex items-center gap-2"><span className="text-[10px] text-slate-400">Helpful?</span><button className="text-base">👍</button><button className="text-base">👎</button></div>}
                       <p className="text-[10px] text-slate-400 mt-1">{msg.ts}</p>
                     </div>); })()}
@@ -1471,7 +1475,7 @@ export default function App() {
 
         {page === "analytics" && (<>
           <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-            <span className="text-lg">📋</span><p className="flex-1 text-base font-bold text-slate-900">Audit Log</p>
+            <span className="text-lg">📊</span><p className="flex-1 text-base font-bold text-slate-900">Conversation Analytics</p>
           </header>
           <div className="flex-1 overflow-y-auto p-5">
             <div className="grid grid-cols-3 gap-4 mb-6">
@@ -1496,7 +1500,7 @@ export default function App() {
 
         {page === "handoff" && (<>
           <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-            <span className="text-lg">⬇️</span><p className="flex-1 text-base font-bold text-slate-900">Reports</p>
+            <span className="text-lg">📞</span><p className="flex-1 text-base font-bold text-slate-900">Ticket Handoff</p>
           </header>
           <div className="flex-1 overflow-y-auto p-5">
             {ticketSent
@@ -3508,16 +3512,20 @@ export default function App() {
     } finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
   }
 
-  // Labels/icons match the sandbox's CHATBOT nav convention exactly (Chat /
-  // Documents / Admin Uploads / Audit Log / Reports) -- only the naming
-  // changed here, not the underlying pages/functionality (id/Page values are
-  // unchanged, so nothing about routing or feature scope moved).
+  // "chat"/"questions"/"uploads" match the sandbox's CHATBOT nav convention
+  // (Chat / Documents / Admin Uploads) since those pages' actual content
+  // matches those names. "analytics"/"handoff" were previously renamed to
+  // "Audit Log"/"Reports" to match sandbox labels too, but that was wrong --
+  // their content is conversation analytics charts and a support-ticket
+  // form, not an audit trail or a reports/export page, so relabeling them
+  // created a label/content mismatch. Reverted to their original,
+  // content-accurate names.
   const navItems: { id: Page; icon: string; label: string }[] = [
     { id: "chat", icon: "💬", label: "Chat" },
     { id: "questions", icon: "📄", label: "Documents" },
     { id: "uploads", icon: "⬆️", label: "Admin Uploads" },
-    { id: "analytics", icon: "📋", label: "Audit Log" },
-    { id: "handoff", icon: "⬇️", label: "Reports" },
+    { id: "analytics", icon: "📊", label: "Conversation Analytics" },
+    { id: "handoff", icon: "📞", label: "Ticket Handoff" },
   ];
 
   return (
@@ -3575,7 +3583,7 @@ export default function App() {
                       <div className="space-y-0.5">{renderMarkdown(bm.answer)}</div>
                       {bm.steps && bm.steps.length > 0 && <div className="mt-3 pt-3 border-t border-slate-100"><p className="text-xs font-semibold text-slate-500 mb-2">Step-by-Step Resolution</p><ol className="space-y-1.5">{bm.steps.map((s, i) => <li key={i} className="flex items-start gap-2.5 text-sm text-slate-700"><span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>{s}</li>)}</ol></div>}
                       {bm.source && bm.source !== "N/A" && <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 flex-wrap"><span className="text-xs text-slate-500 font-medium">📄 {bm.source}</span><ConfBadge value={bm.confidence} /></div>}
-                      {bm.related && bm.related.length > 0 && <div className="mt-2 pt-2 border-t border-slate-100"><p className="text-[10px] font-semibold text-slate-400 mb-1.5">Follow-ups:</p><div className="flex flex-wrap gap-1.5">{bm.related.map((r, i) => <button key={i} onClick={() => send(r)} className="text-[11px] bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-2.5 py-0.5 hover:bg-indigo-100">{r}</button>)}</div></div>}
+                      {bm.related && bm.related.length > 0 && <div className="mt-2 pt-2 border-t border-slate-100"><p className="text-[10px] font-semibold text-slate-400 mb-1.5">💡 Related:</p><div className="flex flex-wrap gap-1.5">{bm.related.map((r, i) => <button key={i} onClick={() => send(r)} className="text-[11px] bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-2.5 py-0.5 hover:bg-indigo-100">{r}</button>)}</div></div>}
                       {msg.id !== "welcome" && <div className="mt-2 pt-2 border-t border-slate-100 flex items-center gap-2"><span className="text-[10px] text-slate-400">Helpful?</span><button className="text-base">👍</button><button className="text-base">👎</button></div>}
                       <p className="text-[10px] text-slate-400 mt-1">{msg.ts}</p>
                     </div>); })()}
@@ -3650,7 +3658,7 @@ export default function App() {
 
         {page === "analytics" && (<>
           <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-            <span className="text-lg">📋</span><p className="flex-1 text-base font-bold text-slate-900">Audit Log</p>
+            <span className="text-lg">📊</span><p className="flex-1 text-base font-bold text-slate-900">Conversation Analytics</p>
           </header>
           <div className="flex-1 overflow-y-auto p-5">
             <div className="grid grid-cols-3 gap-4 mb-6">
@@ -3675,7 +3683,7 @@ export default function App() {
 
         {page === "handoff" && (<>
           <header className="bg-white border-b border-slate-200 px-5 py-3.5 flex items-center gap-3 shadow-sm flex-shrink-0">
-            <span className="text-lg">⬇️</span><p className="flex-1 text-base font-bold text-slate-900">Reports</p>
+            <span className="text-lg">📞</span><p className="flex-1 text-base font-bold text-slate-900">Ticket Handoff</p>
           </header>
           <div className="flex-1 overflow-y-auto p-5">
             {ticketSent
