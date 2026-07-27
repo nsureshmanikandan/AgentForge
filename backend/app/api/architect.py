@@ -1997,13 +1997,28 @@ MAIN AREA (flex:1, display:flex, flexDirection:column, minWidth:0, minHeight:0, 
 
 RIGHT PANEL (width:260px, minWidth:260px, background:#ffffff, borderLeft:"1px solid #e2e8f0", display:flex, flexDirection:column, overflowY:auto):
   Section padding:16px
-  "Knowledge Base" (fontSize:14, fontWeight:700, color:#0f172a, marginBottom:12) + badge (background:#4f46e5, color:white, borderRadius:999, fontSize:11, padding:"2px 8px") showing count
+  Header row (display:flex, alignItems:center, justifyContent:space-between, marginBottom:12):
+    "Knowledge Base" (fontSize:14, fontWeight:700, color:#0f172a) + badge (background:#4f46e5, color:white, borderRadius:999, fontSize:11, padding:"2px 8px") showing {documents.length}
+    Upload button (title:"Upload documents", onClick:()=>fileInputRef.current?.click(), style:{{background:"#eef2ff", border:"none", borderRadius:6, width:26, height:26, color:"#4f46e5", cursor:"pointer", fontSize:14}}) "+"
+  Hidden file input: <input ref={{fileInputRef}} type="file" multiple accept=".pdf,.docx,.txt,.md,.csv" style={{{{display:"none"}}}} onChange={{handleUpload}} />
+  !! MANDATORY -- "Document upload" is one of this app's requested features (see the
+     features list) and MUST be reachable from this panel, not just described. Do NOT
+     ship a read-only Knowledge Base with no way to add a document -- that is an
+     incomplete implementation of a requested feature, not a simplification. !!
   !! "Knowledge Base" is the ONLY header for this section -- do NOT also wrap it in, or
      precede it with, a separate generic "Attached Files" header/badge/card. There must be
      EXACTLY ONE heading and ONE document list in this right panel, not two headings each
      with their own copy of the same file list. !!
 
   Document list (display:flex, flexDirection:column, gap:8, marginBottom:20):
+    !! CRITICAL: iterate the `documents` STATE array (see STATE section below), NOT
+       APP_CONFIG.documents directly -- the state array starts seeded from
+       APP_CONFIG.documents but grows when the user uploads a file, so rendering the
+       static APP_CONFIG array directly would make uploads never actually appear. !!
+    IF documents.length === 0: empty state (textAlign:center, padding:"24px 12px", color:#94a3b8):
+      icon "📄" (fontSize:28, marginBottom:8), text (fontSize:12) "No documents uploaded",
+      then a second, smaller "Upload Documents" button identical in behavior to the "+"
+      button above (same onClick) so the empty state is not a dead end.
     Each doc card (background:#f8fafc, border:"1px solid #e2e8f0", borderRadius:8, padding:"10px 12px"):
       Row: type badge (PDF=background:#fee2e2,color:#dc2626 / DOCX=background:#dbeafe,color:#2563eb / TXT=background:#f3f4f6,color:#6b7280, fontSize:10, fontWeight:700, padding:"2px 6px", borderRadius:4)
       Filename (fontSize:12, fontWeight:500, color:#334155, marginTop:4, wordBreak:break-all)
@@ -2057,9 +2072,27 @@ const [activeTopic, setActiveTopic] = React.useState(null);
 const [msgCount, setMsgCount] = React.useState(0);
 const [lastQueryTime, setLastQueryTime] = React.useState(null);
 const [feedback, setFeedback] = React.useState({});  // { [msg.id]: 'up' | 'down' }
+const [documents, setDocuments] = React.useState(APP_CONFIG.documents);
 // Keep last 6 messages as memory context for follow-up resolution
 const conversationRef = React.useRef([]);
 const messagesEndRef = React.useRef(null);
+const fileInputRef = React.useRef(null);
+
+// Upload is simulated client-side (this sandbox preview has no real backend) --
+// append the picked file(s) to the documents list as already-indexed, matching
+// what the real Agentic Code/RAG Template Code downloads actually do on upload.
+function handleUpload(e) {
+  const files = Array.from(e.target.files || []);
+  if (files.length === 0) return;
+  const newDocs = files.map((f, i) => ({
+    name: f.name,
+    size: (f.size / 1024).toFixed(0) + " KB",
+    type: (f.name.split(".").pop() || "txt").toUpperCase(),
+    indexed: true,
+  }));
+  setDocuments(prev => [...prev, ...newDocs]);
+  e.target.value = "";
+}
 
 // Derived: which questions to show in the left sidebar
 // If a topic filter is active -> show TOPIC_QUESTIONS[activeTopic] (10 topic-specific Qs)
