@@ -1998,6 +1998,10 @@ MAIN AREA (flex:1, display:flex, flexDirection:column, minWidth:0, minHeight:0, 
 RIGHT PANEL (width:260px, minWidth:260px, background:#ffffff, borderLeft:"1px solid #e2e8f0", display:flex, flexDirection:column, overflowY:auto):
   Section padding:16px
   "Knowledge Base" (fontSize:14, fontWeight:700, color:#0f172a, marginBottom:12) + badge (background:#4f46e5, color:white, borderRadius:999, fontSize:11, padding:"2px 8px") showing count
+  !! "Knowledge Base" is the ONLY header for this section -- do NOT also wrap it in, or
+     precede it with, a separate generic "Attached Files" header/badge/card. There must be
+     EXACTLY ONE heading and ONE document list in this right panel, not two headings each
+     with their own copy of the same file list. !!
 
   Document list (display:flex, flexDirection:column, gap:8, marginBottom:20):
     Each doc card (background:#f8fafc, border:"1px solid #e2e8f0", borderRadius:8, padding:"10px 12px"):
@@ -2499,6 +2503,14 @@ badge, or its own "Attached Files"/"Knowledge Library" heading -- that list live
 the RIGHT PANEL aside and nowhere else. If a page needs to show which file a message is
 about, reference it inline as plain text (e.g. "Based on HR Leave Policy v4.pdf...") rather
 than duplicating the file card UI.
+
+!! ABSOLUTE BAN, EQUALLY IMPORTANT: Do NOT render TWO headers stacked inside the SAME right
+panel aside either -- e.g. a generic "Attached Files" header followed immediately below by
+the type-specific header (such as CHATBOT's "Knowledge Base") with each showing its own
+count badge and its own copy of the same document list. "Attached Files" / "Knowledge Base"
+/ "Decision Library" are ALTERNATE NAMES for the exact same single section depending on app
+type -- use ONLY the one name specified for the detected app type above, exactly once, with
+exactly one document list beneath it.
 
 ==================================================
 MANDATORY SINGLE HEADER RULE (applies to ALL app types)
