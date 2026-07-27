@@ -1869,7 +1869,7 @@ function findAnswer(userInput, history = []) {
   if (words.length === 0) {
     return {
       answer: "Please describe your issue using specific keywords.",
-      steps: ["Step 1: Type specific keywords from your question.","Step 2: Click any of the Top 10 Questions in the left panel.","Step 3: Use the Filter by Topic buttons on the right to browse by category."],
+      steps: ["Step 1: Type specific keywords from your question.","Step 2: Click any of the Top Questions in the left panel.","Step 3: Use the Filter by Topic buttons on the right to browse by category."],
       source: APP_CONFIG.documents[0]?.name, confidence: 0, related: APP_CONFIG.topics.slice(0,2)
     };
   }
@@ -1936,8 +1936,16 @@ LEFT SIDEBAR (width:256px (w-64), minWidth:256px, background:#1e293b, color:#fff
       Active: background:#4f46e5, color:#ffffff
       Inactive: color:#cbd5e1, hover background:rgba(255,255,255,0.1)
   Scrollable question list section (flex:1, overflowY:auto, padding:12px, minHeight:0):
+    !! MANDATORY -- EXACTLY ONE heading for this section, ever. Observed bug: an
+       earlier version of this prompt described a header row containing the label
+       (for the always-visible collapse toggle) AND a separate "section label" div
+       further down ALSO rendering the same text -- the LLM correctly followed both
+       instructions and rendered "TOP 10 QUESTIONS" twice, stacked, wasting space and
+       looking broken. There is only ONE label below; it lives in the header row next
+       to the collapse toggle and is never repeated elsewhere in this section. !!
     Header row (display:flex, alignItems:center, justifyContent:space-between, marginBottom:8px, padding:"0 4px"):
-      "TOP 10 QUESTIONS" label (fontSize:10, fontWeight:700, letterSpacing:"0.12em", color:"#64748b", textTransform:uppercase)
+      Label (fontSize:10, fontWeight:700, letterSpacing:"0.12em", color:"#64748b", textTransform:uppercase):
+        {{activeTopic ? activeTopic + " Questions" : "Top Questions"}}
       Collapse toggle button (title: questionsCollapsed ? "Expand questions panel" : "Collapse questions panel",
         onClick: ()=>setQuestionsCollapsed(v=>!v),
         style:{{background:"rgba(255,255,255,0.1)", border:"none", borderRadius:4, width:20, height:20, color:"#cbd5e1", cursor:"pointer", fontSize:12, flexShrink:0}}):
@@ -1951,10 +1959,6 @@ LEFT SIDEBAR (width:256px (w-64), minWidth:256px, background:#1e293b, color:#fff
       <div style={{background:"rgba(79,70,229,0.2)", borderRadius:8, padding:"6px 10px", marginBottom:8, fontSize:11, color:"#a5b4fc"}}>
         <span>Showing: {activeTopic}</span>
       </div>
-    -- Section label:
-    <div style={{fontSize:10, fontWeight:700, letterSpacing:"0.12em", color:"#64748b", textTransform:"uppercase", padding:"0 6px", marginBottom:8}}>
-      {activeTopic ? activeTopic + " Questions" : "Top 10 Questions"}
-    </div>
 
     !! CRITICAL: Iterate sidebarQuestions (NOT FAQ_DATA) so topic filter works !!
     sidebarQuestions.map((item, idx) => (

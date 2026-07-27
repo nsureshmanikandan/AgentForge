@@ -1381,7 +1381,7 @@ export default function App() {
         </nav>
         <div className="flex-1 overflow-y-auto p-3 min-h-0">
           <div className="flex items-center justify-between mb-2 px-1">
-            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Top 10 Questions</p>
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Top Questions</p>
             <button type="button" title={questionsCollapsed ? "Expand questions panel" : "Collapse questions panel"}
               onClick={() => setQuestionsCollapsed(v => !v)}
               className="bg-white/10 rounded w-5 h-5 text-slate-300 text-xs flex-shrink-0 hover:bg-white/20">
@@ -3589,7 +3589,7 @@ export default function App() {
         </nav>
         <div className="flex-1 overflow-y-auto p-3 min-h-0">
           <div className="flex items-center justify-between mb-2 px-1">
-            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Top 10 Questions</p>
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Top Questions</p>
             <button type="button" title={questionsCollapsed ? "Expand questions panel" : "Collapse questions panel"}
               onClick={() => setQuestionsCollapsed(v => !v)}
               className="bg-white/10 rounded w-5 h-5 text-slate-300 text-xs flex-shrink-0 hover:bg-white/20">
