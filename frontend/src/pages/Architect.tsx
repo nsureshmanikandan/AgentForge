@@ -904,7 +904,7 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
 <aside class="w-64 border-l bg-white flex flex-col flex-shrink-0">
   <div class="px-4 py-3 border-b border-slate-200">
     <div class="flex items-center justify-between">
-      <p class="text-sm font-bold text-slate-800">Attached Files</p>
+      <p class="text-sm font-bold text-slate-800">Knowledge Base</p>
       <span class="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[24px] text-center" id="kb-badge">0</span>
     </div>
     <p class="text-[11px] text-slate-400 mt-0.5" id="kb-subtitle">No documents yet</p>
@@ -1282,6 +1282,7 @@ export default function App() {
   const [uploading, setUploading] = useState(false);
   const [ticketForm, setTicketForm] = useState({ issue: "", name: "", priority: "Medium", details: "" });
   const [ticketSent, setTicketSent] = useState(false);
+  const [questionsCollapsed, setQuestionsCollapsed] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const suggestions = buildSuggestions(docs);
@@ -1354,9 +1355,16 @@ export default function App() {
             </button>
           ))}
         </nav>
-        <div className="flex-1 overflow-y-auto p-3">
-          <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-2 px-1">Top 10 Questions</p>
-          {topQuestions.map((q, i) => (
+        <div className="flex-1 overflow-y-auto p-3 min-h-0">
+          <div className="flex items-center justify-between mb-2 px-1">
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Top 10 Questions</p>
+            <button type="button" title={questionsCollapsed ? "Expand questions panel" : "Collapse questions panel"}
+              onClick={() => setQuestionsCollapsed(v => !v)}
+              className="bg-white/10 rounded w-5 h-5 text-slate-300 text-xs flex-shrink-0 hover:bg-white/20">
+              {questionsCollapsed ? "›" : "‹"}
+            </button>
+          </div>
+          {!questionsCollapsed && topQuestions.map((q, i) => (
             <button key={i} onClick={() => send(q)}
               className="w-full flex items-start gap-2.5 text-left text-xs text-slate-300 hover:text-white hover:bg-white/10 rounded-lg px-2 py-2 transition-colors mb-1">
               <span className="w-5 h-5 rounded-full bg-indigo-600/60 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
@@ -1511,7 +1519,7 @@ export default function App() {
 
       <aside className="w-64 border-l bg-white flex flex-col flex-shrink-0">
         <div className="px-4 py-3.5 border-b border-slate-200 flex items-center justify-between">
-          <p className="text-sm font-bold text-slate-800">Attached Files</p>
+          <p className="text-sm font-bold text-slate-800">Knowledge Base</p>
           <span className="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[24px] text-center">{docs.length}</span>
         </div>
         <div className="flex-1 overflow-y-auto p-3">
@@ -3444,6 +3452,7 @@ export default function App() {
   const [uploading, setUploading] = useState(false);
   const [ticketForm, setTicketForm] = useState({ issue: "", name: "", priority: "Medium", details: "" });
   const [ticketSent, setTicketSent] = useState(false);
+  const [questionsCollapsed, setQuestionsCollapsed] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const suggestions = buildSuggestions(docs);
@@ -3514,9 +3523,16 @@ export default function App() {
             </button>
           ))}
         </nav>
-        <div className="flex-1 overflow-y-auto p-3">
-          <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-2 px-1">Top 10 Questions</p>
-          {topQuestions.map((q, i) => (
+        <div className="flex-1 overflow-y-auto p-3 min-h-0">
+          <div className="flex items-center justify-between mb-2 px-1">
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Top 10 Questions</p>
+            <button type="button" title={questionsCollapsed ? "Expand questions panel" : "Collapse questions panel"}
+              onClick={() => setQuestionsCollapsed(v => !v)}
+              className="bg-white/10 rounded w-5 h-5 text-slate-300 text-xs flex-shrink-0 hover:bg-white/20">
+              {questionsCollapsed ? "›" : "‹"}
+            </button>
+          </div>
+          {!questionsCollapsed && topQuestions.map((q, i) => (
             <button key={i} onClick={() => send(q)}
               className="w-full flex items-start gap-2.5 text-left text-xs text-slate-300 hover:text-white hover:bg-white/10 rounded-lg px-2 py-2 transition-colors mb-1">
               <span className="w-5 h-5 rounded-full bg-indigo-600/60 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
@@ -3672,7 +3688,7 @@ export default function App() {
 
       <aside className="w-64 border-l bg-white flex flex-col flex-shrink-0">
         <div className="px-4 py-3.5 border-b border-slate-200 flex items-center justify-between">
-          <p className="text-sm font-bold text-slate-800">Attached Files</p>
+          <p className="text-sm font-bold text-slate-800">Knowledge Base</p>
           <span className="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[24px] text-center">{docs.length}</span>
         </div>
         <div className="flex-1 overflow-y-auto p-3">
