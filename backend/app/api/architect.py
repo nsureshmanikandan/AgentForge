@@ -1922,21 +1922,27 @@ function findAnswer(userInput, history = []) {
 
 3-PANEL LAYOUT (height:100vh, display:flex, overflow:hidden, position:"relative"):
 !! ALL three panels must be direct flex children â€" LEFT SIDEBAR + MAIN AREA + RIGHT PANEL side by side !!
-LEFT SIDEBAR (width: sidebarCollapsed ? 56 : 280, minWidth: sidebarCollapsed ? 56 : 280, background:#1e293b, color:#ffffff, display:flex, flexDirection:column, overflow:hidden, transition:"width 0.15s ease, min-width 0.15s ease"):
-  !! MANDATORY -- this sidebar is collapsible so the chat/answer area on narrower windows isn't
-     crowded out by the question list. Add a [sidebarCollapsed, setSidebarCollapsed] = React.useState(false)
-     state and a collapse toggle button; do not skip this. !!
-  Top branding area (padding:20px 16px 16px, borderBottom:"1px solid rgba(255,255,255,0.1)", display:flex, alignItems:center, justifyContent: sidebarCollapsed ? "center" : "space-between"):
-    Row: colored circle (40px, background:#4f46e5, borderRadius:50%, display:flex, alignItems:center, justifyContent:center, color:white, fontWeight:700, fontSize:16) + company initial
-    IF NOT sidebarCollapsed: App name (fontSize:15, fontWeight:700, color:"#ffffff", marginLeft:10) + Subtitle (fontSize:11, color:"#94a3b8", marginLeft:10, marginTop:2)
-    Collapse toggle button (title: sidebarCollapsed ? "Expand questions panel" : "Collapse questions panel",
-      onClick: ()=>setSidebarCollapsed(v=>!v),
-      style:{{background:"rgba(255,255,255,0.08)", border:"none", borderRadius:6, width:24, height:24, color:"#cbd5e1", cursor:"pointer", fontSize:12, flexShrink:0}}):
-      {{sidebarCollapsed ? "›" : "‹"}}
-
-  IF sidebarCollapsed: render NOTHING else in this sidebar below the branding area (just the
-    collapsed rail with the toggle button) -- do not render the question list or its contents.
-  IF NOT sidebarCollapsed, Scrollable question list (flex:1, overflowY:auto, padding:12px 10px):
+LEFT SIDEBAR (width:256px (w-64), minWidth:256px, background:#1e293b, color:#ffffff, display:flex, flexDirection:column, overflow:hidden, flexShrink:0):
+  !! MANDATORY -- the sidebar is FIXED width (w-64 / 256px) and does NOT collapse to a narrow
+     56px rail. Only the QUESTION LIST section inside it collapses (hides/shows). The sidebar
+     itself, with branding + nav, always stays at full 256px width. This matches both the
+     RAG Template Code and Agentic Code downloads exactly. !!
+  Top branding area (padding:16px, borderBottom:"1px solid rgba(255,255,255,0.1)", display:flex, alignItems:center, gap:12px):
+    Row: colored circle (40px, background:#7c3aed (purple-600), borderRadius:12px, display:flex, alignItems:center, justifyContent:center, color:white, fontWeight:700, fontSize:16) + company initial
+    App name (fontSize:14, fontWeight:700, color:"#ffffff", lineHeight:1.3, overflow:hidden, textOverflow:ellipsis) + Subtitle (fontSize:12, color:"#94a3b8", lineHeight:1.3)
+  Navigation section (padding:12px, borderBottom:"1px solid rgba(255,255,255,0.1)", display:flex, flexDirection:column, gap:2px):
+    NAV ITEMS: Chat, Documents, Admin Uploads, Conversation Analytics, Ticket Handoff
+    Each: button (width:100%, display:flex, alignItems:center, gap:12px, padding:"10px 12px", borderRadius:8px, fontSize:14, fontWeight:500, textAlign:left, transition:all 0.15s)
+      Active: background:#4f46e5, color:#ffffff
+      Inactive: color:#cbd5e1, hover background:rgba(255,255,255,0.1)
+  Scrollable question list section (flex:1, overflowY:auto, padding:12px, minHeight:0):
+    Header row (display:flex, alignItems:center, justifyContent:space-between, marginBottom:8px, padding:"0 4px"):
+      "TOP 10 QUESTIONS" label (fontSize:10, fontWeight:700, letterSpacing:"0.12em", color:"#64748b", textTransform:uppercase)
+      Collapse toggle button (title: questionsCollapsed ? "Expand questions panel" : "Collapse questions panel",
+        onClick: ()=>setQuestionsCollapsed(v=>!v),
+        style:{{background:"rgba(255,255,255,0.1)", border:"none", borderRadius:4, width:20, height:20, color:"#cbd5e1", cursor:"pointer", fontSize:12, flexShrink:0}}):
+        {{questionsCollapsed ? "›" : "‹"}}
+    IF NOT questionsCollapsed, question list:
     -- Active topic banner (shown only when a topic filter is active):
     !! ONLY ONE "Clear" control should exist in the whole app -- it lives in the
        "Filter by Topic" panel below (next to that heading), NOT here. This banner
@@ -2004,7 +2010,7 @@ MAIN AREA (flex:1, display:flex, flexDirection:column, minWidth:0, minHeight:0, 
               Step text (fontSize:13, color:#334155, lineHeight:1.5)
         Meta bar (borderTop:"1px solid #f1f5f9", paddingTop:10, marginTop:4, display:flex, gap:16, flexWrap:wrap):
           Source text (fontSize:11, color:#94a3b8) "&#128203; {source}"
-          Confidence (fontSize:11, color:#10b981, fontWeight:600) "âœ" {confidence}%"
+          Confidence (fontSize:11, color:#10b981, fontWeight:600) "âœ" {confidence}% accuracy"
         IF related and related.length > 0:
           Related row (display:flex, gap:6, flexWrap:wrap, marginTop:8):
             Label (fontSize:11, color:#64748b) "&#128161; Related:"
@@ -2029,51 +2035,33 @@ MAIN AREA (flex:1, display:flex, flexDirection:column, minWidth:0, minHeight:0, 
       !! textarea must have minWidth:0 so it shrinks and leaves room for the Send button !!
     Caption (fontSize:11, color:#94a3b8, textAlign:center, marginTop:8) "Powered by " + APP_CONFIG.company + " Knowledge Base &middot; AI-Assisted Support"
 
-RIGHT PANEL (width:260px, minWidth:260px, background:#ffffff, borderLeft:"1px solid #e2e8f0", display:flex, flexDirection:column, overflowY:auto):
+RIGHT PANEL (width:256px (w-64), minWidth:256px, background:#ffffff, borderLeft:"1px solid #e2e8f0", display:flex, flexDirection:column, overflowY:auto, flexShrink:0):
   Section padding:16px
-  Header row (display:flex, alignItems:center, justifyContent:space-between, marginBottom:12):
-    "Knowledge Base" (fontSize:14, fontWeight:700, color:#0f172a) + badge (background:#4f46e5, color:white, borderRadius:999, fontSize:11, padding:"2px 8px") showing {documents.length}
-    Upload button (title:"Upload documents", onClick:()=>fileInputRef.current?.click(), style:{{background:"#eef2ff", border:"none", borderRadius:6, width:26, height:26, color:"#4f46e5", cursor:"pointer", fontSize:14}}) "+"
+  Header row (padding:"14px 16px", borderBottom:"1px solid #e2e8f0", display:flex, alignItems:center, justifyContent:space-between):
+    "Knowledge Base" (fontSize:14, fontWeight:700, color:#0f172a) + badge (background:#7c3aed (purple-600), color:white, borderRadius:999, fontSize:11, fontWeight:700, padding:"2px 8px", minWidth:24px, textAlign:center) showing {documents.length}
+    Upload button (title:"Upload documents", onClick:()=>fileInputRef.current?.click(), style:{{background:"#eef2ff", border:"none", borderRadius:6, width:26, height:26, color:"#4f46e5", cursor:"pointer", fontSize:14, display:"flex", alignItems:"center", justifyContent:"center"}}) "+"
   Hidden file input: <input ref={{fileInputRef}} type="file" multiple accept=".pdf,.docx,.txt,.md,.csv" style={{{{display:"none"}}}} onChange={{handleUpload}} />
-  !! MANDATORY -- "Document upload" is one of this app's requested features (see the
-     features list) and MUST be reachable from this panel, not just described. Do NOT
-     ship a read-only Knowledge Base with no way to add a document -- that is an
-     incomplete implementation of a requested feature, not a simplification. !!
-  !! "Knowledge Base" is the ONLY header for this section -- do NOT also wrap it in, or
-     precede it with, a separate generic "Attached Files" header/badge/card. There must be
-     EXACTLY ONE heading and ONE document list in this right panel, not two headings each
-     with their own copy of the same file list. !!
 
-  Document list (display:flex, flexDirection:column, gap:8, marginBottom:20):
-    !! CRITICAL: iterate the `documents` STATE array (see STATE section below), NOT
-       APP_CONFIG.documents directly -- the state array starts seeded from
-       APP_CONFIG.documents but grows when the user uploads a file, so rendering the
-       static APP_CONFIG array directly would make uploads never actually appear. !!
-    IF documents.length === 0: empty state (textAlign:center, padding:"24px 12px", color:#94a3b8):
-      icon "📄" (fontSize:28, marginBottom:8), text (fontSize:12) "No documents uploaded",
-      then a second, smaller "Upload Documents" button identical in behavior to the "+"
-      button above (same onClick) so the empty state is not a dead end.
-    Each doc card (background:#f8fafc, border:"1px solid #e2e8f0", borderRadius:8, padding:"10px 12px"):
-      Row: type badge (PDF=background:#fee2e2,color:#dc2626 / DOCX=background:#dbeafe,color:#2563eb / TXT=background:#f3f4f6,color:#6b7280, fontSize:10, fontWeight:700, padding:"2px 6px", borderRadius:4)
-      Filename (fontSize:12, fontWeight:500, color:#334155, marginTop:4, wordBreak:break-all)
-      Row (display:flex, justifyContent:space-between, marginTop:4):
+  Document list (flex:1, overflowY:auto, padding:12px):
+    Each doc card (border:"1px solid #e2e8f0", borderRadius:12px, padding:12px, marginBottom:8px, cursor:pointer, hover borderColor:#a5b4fc):
+      Row: type badge (DOCX=background:#dbeafe,color:#2563eb / PDF=background:#fee2e2,color:#dc2626 / TXT=background:#f3f4f6,color:#6b7280, fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:4)
+      Filename (fontSize:14, fontWeight:600, color:#1e293b, marginTop:6px, wordBreak:break-all, overflow:hidden)
+      Row (display:flex, justifyContent:space-between, alignItems:center, marginTop:6px):
         Size (fontSize:11, color:#94a3b8)
-        Indexed badge (fontSize:10, color:#16a34a, fontWeight:600) "âœ" Indexed"
+        Indexed badge (fontSize:11, color:#16a34a, fontWeight:600) "✓ Indexed"
 
   Divider (borderTop:"1px solid #f1f5f9", margin:"4px 0 12px")
-  "Session" heading (fontSize:12, fontWeight:700, color:#0f172a, marginBottom:8)
-  Stats rows (fontSize:12, color:#64748b, display:flex, justifyContent:space-between, marginBottom:4):
+  "Session" heading (fontSize:12, fontWeight:700, color:#0f172a, textTransform:uppercase, letterSpacing:"0.05em", marginBottom:12px)
+  Stats rows (fontSize:12, color:#64748b, display:flex, justifyContent:space-between, marginBottom:4px):
     "Messages" : {msgCount}
-    "Last Query" : {lastQueryTime or "--"}
+    "Avg Accuracy" : {avgAccuracy or "--"}
 
   Divider (borderTop:"1px solid #f1f5f9", margin:"12px 0")
-  "Filter by Topic" heading row (display:flex, justifyContent:space-between, alignItems:center, marginBottom:8):
+  "Filter by Topic" heading row (display:flex, justifyContent:space-between, alignItems:center, marginBottom:8px):
     Label (fontSize:12, fontWeight:700, color:#0f172a) "Filter by Topic"
     IF activeTopic: <button onClick={()=>setActiveTopic(null)} style={{fontSize:10, color:#ef4444, background:"none", border:"none", cursor:"pointer", fontWeight:600}}>Clear x</button>
-  APP_CONFIG.topics.map(topic =>
-    // CLICKING a topic FILTERS the left sidebar to show TOPIC_QUESTIONS[topic]
-    // It does NOT send a chat message -- it sets activeTopic state
-    <button onClick={()=>setActiveTopic(activeTopic===topic ? null : topic)} style={{
+  Topic buttons derived from document names (strip extension to get topic name):
+    Each: <button onClick={()=>setActiveTopic(activeTopic===topic ? null : topic)} style={{
       display:"flex", alignItems:"center", justifyContent:"space-between",
       width:"100%", textAlign:"left", padding:"9px 12px", marginBottom:6,
       borderRadius:8, cursor:"pointer", fontWeight:500, fontSize:12, transition:"all 0.15s",
@@ -2083,10 +2071,9 @@ RIGHT PANEL (width:260px, minWidth:260px, background:#ffffff, borderLeft:"1px so
     }}>
       <span>{topic}</span>
       <span style={{fontSize:10, background: activeTopic===topic?"#4f46e5":"#e2e8f0", color: activeTopic===topic?"#fff":"#64748b", borderRadius:999, padding:"1px 7px", fontWeight:700}}>
-        {TOPIC_QUESTIONS[topic]?.length || 0}
+        count
       </span>
     </button>
-  )
 
 CRITICAL -- EXACTLY 3 PANELS ONLY, NO EXCEPTIONS: LEFT SIDEBAR (question list) + MAIN AREA
 (chat) + RIGHT PANEL (Knowledge Base/Filter by Topic) as specified above -- nothing else.
@@ -2104,9 +2091,12 @@ const [isTyping, setIsTyping] = React.useState(false);
 const [activeQuestion, setActiveQuestion] = React.useState(null);
 const [activeTopic, setActiveTopic] = React.useState(null);
 const [msgCount, setMsgCount] = React.useState(0);
-const [lastQueryTime, setLastQueryTime] = React.useState(null);
+const [questionsCollapsed, setQuestionsCollapsed] = React.useState(false);
 const [feedback, setFeedback] = React.useState({});  // { [msg.id]: 'up' | 'down' }
 const [documents, setDocuments] = React.useState(APP_CONFIG.documents);
+const [accuracySum, setAccuracySum] = React.useState(0);
+const [accuracyCount, setAccuracyCount] = React.useState(0);
+const avgAccuracy = accuracyCount > 0 ? Math.round(accuracySum / accuracyCount) + "%" : "--";
 // Keep last 6 messages as memory context for follow-up resolution
 const conversationRef = React.useRef([]);
 const messagesEndRef = React.useRef(null);
@@ -2137,7 +2127,7 @@ const sidebarQuestions = activeTopic && TOPIC_QUESTIONS[activeTopic]
 
 function handleSend(text) {
   const q=(typeof text==="string"?text:input).trim(); if(!q||isTyping) return;
-  setInput(""); setActiveQuestion(q); setLastQueryTime(new Date().toLocaleTimeString());
+  setInput(""); setActiveQuestion(q);
   const userMsg = {role:"user",text:q,ts:new Date().toLocaleTimeString()};
   setMessages(p=>[...p,userMsg]);
   // Maintain rolling 6-message memory window for context-aware follow-ups
@@ -2149,6 +2139,7 @@ function handleSend(text) {
     setMessages(p=>[...p,botMsg]);
     conversationRef.current = [...conversationRef.current, botMsg].slice(-6);
     setIsTyping(false); setMsgCount(c=>c+1);
+    if(r.confidence){ setAccuracySum(s=>s+r.confidence); setAccuracyCount(c=>c+1); }
   }, 1200);
 }
 React.useEffect(()=>{ messagesEndRef.current?.scrollIntoView({behavior:"smooth"}); },[messages,isTyping]);

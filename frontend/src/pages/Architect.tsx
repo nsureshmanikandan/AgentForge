@@ -917,13 +917,16 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
   <div class="px-4 py-3 border-b border-slate-200">
     <div class="flex items-center justify-between">
       <p class="text-sm font-bold text-slate-800">Knowledge Base</p>
-      <span class="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[24px] text-center" id="kb-badge">0</span>
+      <div class="flex items-center gap-2">
+        <button id="kb-upload-btn" title="Upload documents" class="w-6 h-6 bg-indigo-50 text-indigo-600 rounded flex items-center justify-center text-sm hover:bg-indigo-100 cursor-pointer border-none">+</button>
+        <span class="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[24px] text-center" id="kb-badge">0</span>
+      </div>
     </div>
     <p class="text-[11px] text-slate-400 mt-0.5" id="kb-subtitle">No documents yet</p>
   </div>
   <div class="flex-1 overflow-y-auto p-3" id="kb-doc-cards"><p class="text-xs text-slate-400 italic p-2">No documents yet.</p></div>
   <div class="border-t border-slate-200 p-4">
-    <p class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">Session Stats</p>
+    <p class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">Session</p>
     <div class="space-y-2 text-xs text-slate-600">
       <div class="flex justify-between"><span>Messages</span><span class="font-bold text-slate-800" id="sess-msgs">0</span></div>
       <div class="flex justify-between"><span>Avg Accuracy</span><span class="font-bold text-emerald-600" id="sess-accuracy">--</span></div>
@@ -1163,6 +1166,7 @@ async function buildRagScaffoldZip(_html: string, plan: Plan): Promise<Blob> {
   document.getElementById("send-btn").addEventListener("click",()=>{ const t=document.getElementById("msg-input").value.trim(); if(t){ document.getElementById("msg-input").value=""; sendMsg(t); } });
   document.getElementById("msg-input").addEventListener("keydown",e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); document.getElementById("send-btn").click(); } });
   document.getElementById("upload-btn-header").addEventListener("click",()=>document.getElementById("file-input").click());
+  document.getElementById("kb-upload-btn").addEventListener("click",()=>document.getElementById("file-input").click());
   document.getElementById("drop-zone").addEventListener("click",()=>document.getElementById("file-input").click());
   document.getElementById("file-input").addEventListener("change",e=>{ if(e.target.files?.length) doUpload(e.target.files); e.target.value=""; });
   document.body.addEventListener("click",e=>{
@@ -1197,7 +1201,7 @@ function ConfBadge({ value }: { value?: number }) {
   return (
     <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-2 py-0.5">
       <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5.5" stroke="currentColor" strokeWidth="1"/><path d="M3.5 6l2 2 3-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-      {pct}% confidence
+      {pct}% accuracy
     </span>
   );
 }
@@ -1540,7 +1544,10 @@ export default function App() {
       <aside className="w-64 border-l bg-white flex flex-col flex-shrink-0">
         <div className="px-4 py-3.5 border-b border-slate-200 flex items-center justify-between">
           <p className="text-sm font-bold text-slate-800">Knowledge Base</p>
-          <span className="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[24px] text-center">{docs.length}</span>
+          <div className="flex items-center gap-2">
+            <button onClick={() => fileRef.current?.click()} title="Upload documents" className="w-6 h-6 bg-indigo-50 text-indigo-600 rounded flex items-center justify-center text-sm hover:bg-indigo-100">+</button>
+            <span className="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[24px] text-center">{docs.length}</span>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto p-3">
           {docs.length === 0 ? <p className="text-xs text-slate-400 italic p-2">No documents yet.</p>
@@ -1555,10 +1562,20 @@ export default function App() {
           <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">Session</p>
           <div className="space-y-2 text-xs text-slate-600">
             <div className="flex justify-between"><span>Messages</span><span className="font-bold text-slate-800">{msgCount}</span></div>
-            <div className="flex justify-between"><span>Low Confidence</span><span className={\`font-bold \${lowConfCount > 0 ? "text-amber-500" : "text-slate-800"}\`}>{lowConfCount}</span></div>
-            <div className="flex justify-between"><span>Last Query</span><span className="font-bold text-slate-800 truncate ml-2 max-w-[100px]">{lastQuery ? lastQuery.slice(0, 15) + (lastQuery.length > 15 ? "…" : "") : "--"}</span></div>
+            <div className="flex justify-between"><span>Avg Accuracy</span><span className="font-bold text-emerald-600">{botMsgs.length > 0 ? Math.round(botMsgs.filter(m => m.confidence).reduce((sum, m) => sum + (m.confidence! > 1 ? m.confidence! : m.confidence! * 100), 0) / (botMsgs.filter(m => m.confidence).length || 1)) + "%" : "--"}</span></div>
           </div>
         </div>
+        {docs.length > 0 && (<div className="border-t border-slate-200 p-4">
+          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Filter by Topic</p>
+          <div className="space-y-1.5">
+            {buildTopics(docs).map(({ topic }) => (
+              <button key={topic} onClick={() => send(\`What does \${topic} cover?\`)} className="w-full flex items-center justify-between text-left text-xs px-3 py-2 rounded-lg border border-slate-200 text-slate-700 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 transition-colors">
+                <span className="truncate">{topic}</span>
+                <span className="text-[10px] font-bold bg-slate-100 text-slate-500 rounded-full px-1.5 py-0.5">10</span>
+              </button>
+            ))}
+          </div>
+        </div>)}
       </aside>
     </div>
   );
@@ -1575,10 +1592,10 @@ ReactDOM.createRoot(document.getElementById("root")!).render(<React.StrictMode><
 `);
 
   // ── frontend/src/index.css ────────────────────────────────────────────────
-  zip.file("frontend/src/index.css", `@tailwind base;\n@tailwind components;\n@tailwind utilities;\n* { box-sizing: border-box; }\nbody { margin: 0; }\n`);
+  zip.file("frontend/src/index.css", `@tailwind base;\n@tailwind components;\n@tailwind utilities;\n* { box-sizing: border-box; }\nbody { margin: 0; font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; }\n`);
 
   // ── frontend/index.html ───────────────────────────────────────────────────
-  zip.file("frontend/index.html", `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>${appTitle}</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>`);
+  zip.file("frontend/index.html", `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/><title>${appTitle}</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>`);
 
   // ── frontend/package.json ─────────────────────────────────────────────────
   zip.file("frontend/package.json", JSON.stringify({
@@ -3402,12 +3419,9 @@ type Msg = UserMsg | BotMsg;
 function ConfBadge({ value }: { value?: number }) {
   if (!value) return null;
   const pct = Math.round(value > 1 ? value : value * 100);
-  const color = pct >= 90 ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-    : pct >= 75 ? "bg-amber-50 text-amber-700 border-amber-200"
-    : "bg-red-50 text-red-700 border-red-200";
   return (
-    <span className={\`inline-flex items-center gap-1 text-[11px] font-bold border rounded-full px-2 py-0.5 \${color}\`}>
-      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/></svg>
+    <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-2 py-0.5">
+      <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5.5" stroke="currentColor" strokeWidth="1"/><path d="M3.5 6l2 2 3-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
       {pct}% accuracy
     </span>
   );
@@ -3424,6 +3438,20 @@ function renderMarkdown(text: string): React.ReactNode {
   });
 }
 
+let authToken: string | null = null;
+async function ensureAuth(): Promise<void> {
+  ${useSso ? "// SSO plan: get_current_user is a no-op pass-through while SSO_ENABLED=false, no bootstrap token needed locally" : `try {
+    const creds = { username: "demo", password: "demo-pass-12345" };
+    await fetch("/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(creds) });
+    const form = new URLSearchParams({ username: creds.username, password: creds.password });
+    const r = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: form });
+    if (r.ok) { const d = await r.json(); authToken = d.access_token; }
+  } catch { /* backend unreachable -- calls below will surface the error */ }`}
+}
+function authHeaders(extra?: Record<string, string>): Record<string, string> {
+  return authToken ? { ...(extra || {}), Authorization: \`Bearer \${authToken}\` } : (extra || {});
+}
+
 async function apiHealth(): Promise<string> {
   const r = await fetch("/api/health").catch(() => null);
   if (!r || !r.ok) return "AI Assistant";
@@ -3431,12 +3459,12 @@ async function apiHealth(): Promise<string> {
   return d.app || "AI Assistant";
 }
 async function apiDocs(): Promise<ApiDoc[]> {
-  const r = await fetch("/api/documents").catch(() => null);
+  const r = await fetch("/api/documents", { headers: authHeaders() }).catch(() => null);
   return r && r.ok ? r.json() : [];
 }
 async function apiChat(question: string): Promise<Omit<BotMsg, "id" | "role" | "ts">> {
   const r = await fetch("/api/chat", {
-    method: "POST", headers: { "Content-Type": "application/json" },
+    method: "POST", headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ question, workspace_id: 1 }),
   });
   if (!r.ok) throw new Error("Chat API " + r.status);
@@ -3445,7 +3473,7 @@ async function apiChat(question: string): Promise<Omit<BotMsg, "id" | "role" | "
 }
 async function apiUpload(file: File): Promise<any> {
   const fd = new FormData(); fd.append("file", file);
-  const r = await fetch("/api/documents/upload", { method: "POST", body: fd });
+  const r = await fetch("/api/documents/upload", { method: "POST", headers: authHeaders(), body: fd });
   if (!r.ok) throw new Error("Upload " + r.status);
   return r.json().catch(() => ({}));
 }
@@ -3490,8 +3518,10 @@ export default function App() {
   const unanswered = botMsgs.filter(m => m.out_of_scope || (m.confidence !== undefined && (m.confidence > 1 ? m.confidence : m.confidence * 100) < 50));
 
   useEffect(() => {
-    apiHealth().then(t => { setAppTitle(t); setMessages([{ id: "welcome", role: "bot", answer: \`Hello! I'm your AI assistant for \${t}. Upload documents and ask me anything.\`, ts: new Date().toLocaleTimeString() }]); });
-    apiDocs().then(setDocs);
+    ensureAuth().then(() => {
+      apiHealth().then(t => { setAppTitle(t); setMessages([{ id: "welcome", role: "bot", answer: \`Hello! I'm your AI assistant for \${t}. Upload documents and ask me anything.\`, ts: new Date().toLocaleTimeString() }]); });
+      apiDocs().then(setDocs);
+    });
   }, []);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
 
@@ -3723,7 +3753,10 @@ export default function App() {
       <aside className="w-64 border-l bg-white flex flex-col flex-shrink-0">
         <div className="px-4 py-3.5 border-b border-slate-200 flex items-center justify-between">
           <p className="text-sm font-bold text-slate-800">Knowledge Base</p>
-          <span className="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[24px] text-center">{docs.length}</span>
+          <div className="flex items-center gap-2">
+            <button onClick={() => fileRef.current?.click()} title="Upload documents" className="w-6 h-6 bg-indigo-50 text-indigo-600 rounded flex items-center justify-center text-sm hover:bg-indigo-100">+</button>
+            <span className="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[24px] text-center">{docs.length}</span>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto p-3">
           {docs.length === 0 ? <p className="text-xs text-slate-400 italic p-2">No documents yet.</p>
@@ -3738,10 +3771,19 @@ export default function App() {
           <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">Session</p>
           <div className="space-y-2 text-xs text-slate-600">
             <div className="flex justify-between"><span>Messages</span><span className="font-bold text-slate-800">{msgCount}</span></div>
-            <div className="flex justify-between"><span>Low Confidence</span><span className={\`font-bold \${lowConfCount > 0 ? "text-amber-500" : "text-slate-800"}\`}>{lowConfCount}</span></div>
-            <div className="flex justify-between"><span>Last Query</span><span className="font-bold text-slate-800 truncate ml-2 max-w-[100px]">{lastQuery ? lastQuery.slice(0, 15) + (lastQuery.length > 15 ? "…" : "") : "--"}</span></div>
+            <div className="flex justify-between"><span>Avg Accuracy</span><span className="font-bold text-emerald-600">{botMsgs.length > 0 ? Math.round(botMsgs.filter(m => m.confidence).reduce((sum, m) => sum + (m.confidence! > 1 ? m.confidence! : m.confidence! * 100), 0) / (botMsgs.filter(m => m.confidence).length || 1)) + "%" : "--"}</span></div>
           </div>
         </div>
+        {docs.length > 0 && (<div className="border-t border-slate-200 p-4">
+          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Filter by Topic</p>
+          <div className="space-y-1.5">
+            {docs.map(d => { const topic = (d.filename ?? d.name ?? "Doc").replace(/\\.[^.]+$/, ""); return (
+              <button key={d.id} onClick={() => send(\`What does \${topic} cover?\`)} className="w-full flex items-center justify-between text-left text-xs px-3 py-2 rounded-lg border border-slate-200 text-slate-700 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 transition-colors">
+                <span className="truncate">{topic}</span>
+                <span className="text-[10px] font-bold bg-slate-100 text-slate-500 rounded-full px-1.5 py-0.5">10</span>
+              </button>); })}
+          </div>
+        </div>)}
       </aside>
     </div>
   );
@@ -3772,7 +3814,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
 @tailwind utilities;
 
 * { box-sizing: border-box; }
-body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+body { margin: 0; font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; }
 `;
 
   // ── index.html ──────────────────────────────────────────────────────────────
@@ -3781,6 +3823,9 @@ body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Ro
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <title>${plan.summary.slice(0, 60)}</title>
   </head>
   <body>
@@ -3828,7 +3873,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": {
-        target: "http://localhost:8000",
+        target: "http://localhost:8002",
         changeOrigin: true,
       },
     },
