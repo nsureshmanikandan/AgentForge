@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import axios from "axios";
 import JSZip from "jszip";
 import { architectApi, projectsApi } from "../api/client";
 
@@ -5732,7 +5733,27 @@ export default function Architect() {
         setQLocked(false);
         setQAnswers({});
       }
-    } catch {
+    } catch (err) {
+      // This catch spans the entire chat round-trip (request, response parsing,
+      // AND local state-merge logic below it) -- it used to unconditionally blame
+      // "server not running on port 8000" for every failure in that whole block,
+      // which is actively misleading when the backend is up and the real cause is
+      // a non-2xx response (e.g. a 500 from a plan-generation bug) or an exception
+      // in the merge logic itself. Distinguish the three cases so the message
+      // actually matches what happened.
+      let errorMessage = "Something went wrong processing that response. Please try again.";
+      if (axios.isAxiosError(err)) {
+        if (err.response) {
+          const detail = (err.response.data as { detail?: string } | undefined)?.detail;
+          errorMessage = `Backend returned an error (HTTP ${err.response.status})${detail ? `: ${detail}` : "."} The server on port 8000 IS reachable -- this is a different failure, not a connectivity issue.`;
+        } else if (err.request) {
+          errorMessage = "Could not reach the backend. Make sure the server is running on port 8000.";
+        } else {
+          errorMessage = `Request setup failed: ${err.message}`;
+        }
+      } else if (err instanceof Error) {
+        errorMessage = `Unexpected error: ${err.message}`;
+      }
       setSessions((p) =>
         p.map((s) =>
           s.id === sid
@@ -5742,7 +5763,7 @@ export default function Architect() {
                   ...s.messages,
                   {
                     role: "assistant",
-                    content: "Could not reach the backend. Make sure the server is running on port 8000.",
+                    content: errorMessage,
                     response: { type: "message", message: "" },
                   },
                 ],
