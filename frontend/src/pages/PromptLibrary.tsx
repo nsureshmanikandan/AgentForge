@@ -1969,18 +1969,19 @@ AI agents:
 5. Report Writer — Produces the final report: executive summary, per-perspective sections, and a bibliography.
 
 Pages:
-1. Research Intake — Form: Topic (required), Perspectives to include (checkboxes), Depth (Quick/Standard/Deep). Live progress stepper while agents run.
-2. Report View — Full cited report with expandable per-perspective sections and a bibliography sidebar.
-3. Research History — Live list from the database (NOT hardcoded) of past research runs: topic, date, source count, status. Click to reopen.
+1. Research Intake — Form: Topic (required), Perspectives to include (checkboxes), Depth (Quick/Standard/Deep). Live progress stepper while agents run. Also supports uploading a CSV of multiple topics (one per row, optional columns for perspectives/depth overrides) to queue them all as a batch instead of running one at a time.
+2. Batch Queue — Only shown when a CSV batch was uploaded: live list from the database (NOT hardcoded) of queued/running/completed topics from the batch, with per-row status and a link to each finished report.
+3. Report View — Full cited report with expandable per-perspective sections and a bibliography sidebar.
+4. Research History — Live list from the database (NOT hardcoded) of past research runs: topic, date, source count, status, and whether it came from a batch upload. Click to reopen.
 
-UI: Clean two-column layout, collapsible left nav (Intake, Reports, History), citations as clickable superscript numbers.
+UI: Clean two-column layout, collapsible left nav (Intake, Batch Queue, Reports, History), citations as clickable superscript numbers.
 
-Database: Persist every research run with sub-questions, sources, synthesized report, and citation flags. History reads live from the DB.`,
+Database: Persist every research run with sub-questions, sources, synthesized report, citation flags, and (when applicable) the batch it belongs to. History and Batch Queue read live from the DB.`,
     tools: ["Web Search", "RAG", "PDF Parser"],
     complexity: "Advanced",
     sampleData: {
-      name: "research-topic.txt",
-      text: "Research topic: The impact of AI coding assistants on software team productivity.\nFocus areas: developer velocity, code quality/defect rate, onboarding time for new hires, and job-market impact.\nExcluded domains: none.",
+      name: "research-topics-batch.csv",
+      text: "topic,perspectives,depth\nThe impact of AI coding assistants on software team productivity,\"technical,business,academic,contrarian\",Standard\nHow remote-first companies measure engineering output,\"technical,business\",Quick\nWhether small teams benefit more from AI pair-programming than large teams,\"technical,academic,contrarian\",Deep",
     },
   },
   {
