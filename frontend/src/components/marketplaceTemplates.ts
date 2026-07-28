@@ -550,4 +550,172 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     createdBy: "AgentForge Team",
     publishedDate: "2026-07-28",
   },
+  {
+    id: "pitch-deck-panel",
+    name: "Pitch Deck Review Panel",
+    category: "Analytics & Insights",
+    useCases: ["Data Analysis", "Reporting"],
+    integrations: ["Google Drive", "Airtable"],
+    llmModel: "GPT-4",
+    shortDescription: "Multiple reviewer personas debate an uploaded pitch deck and return a verdict.",
+    about:
+      "An investor-readiness app where an uploaded pitch deck is reviewed by several AI reviewer personas (market skeptic, product champion, financial analyst, ops realist), each posting a short take, before a moderator agent renders a final Go / Pass / Follow-up verdict with reasoning.",
+    tags: ["fundraising", "pitch-deck", "multi-agent", "investing"],
+    prompt:
+      "A pitch deck review panel app: user uploads a pitch deck summary, and four reviewer-persona agents (market skeptic, product champion, financial analyst, ops realist) each post a short critique, then a moderator agent renders a final Go / Pass / Follow-up verdict with a one-paragraph rationale citing which reviewers agreed or disagreed.",
+    testDataFileName: "pitch-deck-summary.txt",
+    testData:
+      "Company: FieldSync -- field service scheduling software for HVAC/plumbing SMBs.\nProblem: SMB field service teams lose 2-3 hours/week on manual dispatch and double-booking.\nTraction: 40 paying customers, $9k MRR, 6% monthly churn.\nAsk: $750k seed at $6M post-money, 18-month runway to $50k MRR.\nTeam: 2 co-founders, ex-ServiceTitan engineers, first-time founders.\nCompetition: ServiceTitan (enterprise-focused), Jobber (broader SMB, less scheduling depth).",
+    previewImagePath: "/marketplace-previews/pitch-deck-panel.png",
+    hasPreview: false,
+    createdBy: "AgentForge Team",
+    publishedDate: "2026-07-28",
+  },
+  {
+    id: "csv-insight-narrator",
+    name: "CSV Insight Narrator",
+    category: "Analytics & Insights",
+    useCases: ["Data Analysis", "Reporting"],
+    integrations: ["Google Drive", "Airtable"],
+    llmModel: "GPT-4o",
+    shortDescription: "Upload any CSV and get charts, anomaly flags, and a plain-English narrative.",
+    about:
+      "A general-purpose data analysis app: upload any CSV, and it auto-detects column types, renders relevant charts, flags statistical anomalies (outliers, sudden trend breaks), and writes a short plain-English narrative summarizing what the data shows -- no SQL or setup required.",
+    tags: ["analytics", "csv", "anomaly-detection", "no-code"],
+    prompt:
+      "A CSV insight narrator app where a user uploads any CSV file, the app auto-detects column types, renders appropriate charts (trend lines for time series, bar charts for categories), flags rows that look like statistical anomalies or outliers, and writes a short plain-English narrative summarizing the key patterns and any anomalies found.",
+    testDataFileName: "weekly-metrics.csv",
+    testData:
+      "week,signups,activated_users,revenue,support_tickets\n2026-06-01,320,210,18400,42\n2026-06-08,305,198,17650,39\n2026-06-15,298,190,17200,201\n2026-06-22,340,225,19800,45\n2026-06-29,355,240,20600,50",
+    previewImagePath: "/marketplace-previews/csv-insight-narrator.png",
+    hasPreview: false,
+    createdBy: "AgentForge Team",
+    publishedDate: "2026-07-28",
+  },
+  {
+    id: "decision-bias-auditor",
+    name: "Decision Bias Auditor",
+    category: "Analytics & Insights",
+    useCases: ["Data Analysis", "Reporting"],
+    integrations: ["Notion", "Airtable"],
+    llmModel: "Claude 3 Sonnet",
+    shortDescription: "Reviews a log of past decisions and flags recurring cognitive biases.",
+    about:
+      "A reflection tool for teams and individuals: upload a log of past decisions (what was decided, why, and the outcome), and it identifies recurring cognitive biases (sunk cost, confirmation bias, anchoring, optimism bias), surfaces patterns across the log, and suggests one concrete process change to reduce repeat mistakes.",
+    tags: ["decision-making", "bias", "reflection", "process-improvement"],
+    prompt:
+      "A decision bias auditor app that takes an uploaded log of past decisions (decision, reasoning, outcome), identifies which cognitive biases appear to have influenced each one (sunk cost, confirmation bias, anchoring, optimism bias), highlights recurring patterns across the whole log, and suggests one concrete process change to reduce repeat mistakes.",
+    testDataFileName: "decision-log.csv",
+    testData:
+      "date,decision,reasoning,outcome\n2026-03-10,Kept underperforming vendor for another quarter,\"We've already invested 6 months integrating them\",Missed SLA again, switched in Q3 anyway\n2026-04-02,Launched feature without user testing,\"Team was confident it would land well\",Adoption was 4% vs 25% projected\n2026-05-20,Doubled ad spend on underperforming channel,\"Results will surely improve with more volume\",ROAS stayed flat, budget wasted\n2026-06-15,Delayed a hire because current team said they could manage,\"They've handled worse before\",Team burned out, two resignations",
+    previewImagePath: "/marketplace-previews/decision-bias-auditor.png",
+    hasPreview: false,
+    createdBy: "AgentForge Team",
+    publishedDate: "2026-07-28",
+  },
+  {
+    id: "investment-memo-generator",
+    name: "Investment Due Diligence Memo",
+    category: "Finance & Accounting",
+    useCases: ["Data Analysis", "Reporting"],
+    integrations: ["Google Drive", "Airtable"],
+    llmModel: "GPT-4",
+    shortDescription: "Turns pitch materials and competitor notes into a structured investment memo.",
+    about:
+      "A due-diligence assistant for investors: upload a company's pitch summary plus a few competitor notes, and it generates a structured investment memo (opportunity, team, market, competition, risks) with a 1-5 risk score and a recommendation to proceed, pass, or request more information.",
+    tags: ["investing", "due-diligence", "memo", "risk-scoring"],
+    prompt:
+      "An investment due diligence memo app that takes an uploaded pitch summary and competitor notes, and generates a structured investment memo with sections for opportunity, team, market size, competitive landscape, and key risks, ending with a 1-5 risk score and a proceed/pass/request-more-info recommendation.",
+    testDataFileName: "diligence-notes.txt",
+    testData:
+      "Target company: FieldSync (field service scheduling SaaS)\nCompetitor notes:\n- ServiceTitan: enterprise-focused, $100M+ ARR, weak SMB pricing\n- Jobber: broad SMB tool, less scheduling depth, $50/mo entry price\n- Housecall Pro: similar SMB focus, strong marketing, weaker integrations\nFinancials shared: $9k MRR, 6% monthly churn, 40 customers, $750k ask at $6M post-money.\nTeam notes: 2 first-time founders, strong technical background, no prior exits.",
+    previewImagePath: "/marketplace-previews/investment-memo-generator.png",
+    hasPreview: false,
+    createdBy: "AgentForge Team",
+    publishedDate: "2026-07-28",
+  },
+  {
+    id: "incident-response-coordinator",
+    name: "Incident Response Coordinator",
+    category: "Developer Tools",
+    useCases: ["Workflow Automation", "Reporting"],
+    integrations: ["Slack", "Jira"],
+    llmModel: "GPT-4o",
+    shortDescription: "Turns a raw incident description into a structured response plan.",
+    about:
+      "An SRE/on-call support app: describe an incident (outage, server failure, security alert) as it's happening, and it generates a structured response plan (likely root causes to check first, immediate mitigation steps, who to page, and a draft customer-facing status update), then compiles a postmortem outline once resolved.",
+    tags: ["incident-response", "sre", "on-call", "postmortem"],
+    prompt:
+      "An incident response coordinator app where an on-call engineer describes an incident in plain text, and the app generates a structured response plan (likely root causes to check first, immediate mitigation steps, who on the team to page based on the affected system, and a draft customer-facing status update), plus a postmortem outline template once the incident is marked resolved.",
+    testDataFileName: "incident-report.txt",
+    testData:
+      "Incident: API error rate spiked to 22% starting 14:05 UTC. Affects /api/v2/orders and /api/v2/payments endpoints. Database CPU is at 95%. No recent deploys in the last 6 hours. Traffic volume is normal, not a spike. Started right after a scheduled nightly backup job kicked off at 14:00 UTC.",
+    previewImagePath: "/marketplace-previews/incident-response-coordinator.png",
+    hasPreview: false,
+    createdBy: "AgentForge Team",
+    publishedDate: "2026-07-28",
+  },
+  {
+    id: "pr-review-scorecard",
+    name: "PR Review Scorecard",
+    category: "Developer Tools",
+    useCases: ["Workflow Automation", "Reporting"],
+    integrations: ["GitHub", "Jira"],
+    llmModel: "Claude 3 Sonnet",
+    shortDescription: "Scores an uploaded PR diff on security, performance, and test coverage.",
+    about:
+      "A code review app that goes beyond a single pass/fail: an uploaded pull-request diff is analyzed for security issues, performance concerns, and test coverage gaps, then scored on each dimension with an overall Merge Confidence Score and suggested fix snippets for the top issues found.",
+    tags: ["devtools", "code-review", "ci", "quality"],
+    prompt:
+      "A PR review scorecard app that takes an uploaded pull-request diff, scores it on security, performance, and test coverage (each 0-100), computes an overall Merge Confidence Score, and lists the top 3 issues found with a suggested fix snippet for each.",
+    testDataFileName: "feature-branch.diff",
+    testData:
+      "--- a/src/api/payments.ts\n+++ b/src/api/payments.ts\n@@ -10,8 +10,15 @@\n export async function chargeCard(req, res) {\n-  const amount = req.body.amount;\n-  const card = req.body.card;\n+  const amount = req.body.amount;\n+  const card = req.body.card;\n+  // TODO: validate amount is positive before charging\n   const result = await stripe.charges.create({ amount, source: card });\n+  console.log('charge result', result); // debug log, remove before merge\n   res.json(result);\n }\n+\n+// no new tests added for this endpoint",
+    previewImagePath: "/marketplace-previews/pr-review-scorecard.png",
+    hasPreview: false,
+    createdBy: "AgentForge Team",
+    publishedDate: "2026-07-28",
+  },
+  {
+    id: "pr-doc-sync",
+    name: "PR-to-Docs Sync Assistant",
+    category: "Developer Tools",
+    useCases: ["Content Creation", "Workflow Automation"],
+    integrations: ["GitHub", "Notion"],
+    llmModel: "GPT-4o Mini",
+    shortDescription: "Turns a batch of merged PR diffs into structured, publish-ready documentation updates.",
+    about:
+      "A docs-automation app for engineering teams: upload a batch of merged PR titles and diffs, and it drafts the corresponding documentation updates (API reference changes, changelog entries, migration notes) in a structured format ready to paste into a docs site.",
+    tags: ["documentation", "devtools", "automation", "changelog"],
+    prompt:
+      "A PR-to-docs sync assistant app that takes an uploaded batch of merged PR titles and diffs, and drafts structured documentation updates: an API reference change summary, a changelog entry, and migration notes for anything breaking, ready to paste into a docs site.",
+    testDataFileName: "merged-prs.diff",
+    testData:
+      "PR #501: Add `sortBy` query param to GET /api/v2/orders (defaults to created_at desc)\n--- a/src/routes/orders.ts\n+++ b/src/routes/orders.ts\n@@ -3,6 +3,7 @@\n router.get('/orders', (req, res) => {\n+  const sortBy = req.query.sortBy || 'created_at';\n   ...\n });\n\nPR #504: BREAKING - rename `customer_id` to `account_id` in POST /api/v2/invoices\n--- a/src/routes/invoices.ts\n+++ b/src/routes/invoices.ts\n@@ -12,7 +12,7 @@\n-  const { customer_id, amount } = req.body;\n+  const { account_id, amount } = req.body;",
+    previewImagePath: "/marketplace-previews/pr-doc-sync.png",
+    hasPreview: false,
+    createdBy: "AgentForge Team",
+    publishedDate: "2026-07-28",
+  },
+  {
+    id: "project-health-tracker",
+    name: "GitHub Project Health Tracker",
+    category: "Developer Tools",
+    useCases: ["Task Management", "Reporting"],
+    integrations: ["GitHub", "Slack"],
+    llmModel: "GPT-4o Mini",
+    shortDescription: "Reviews an uploaded issue/PR export and flags stale or at-risk project work.",
+    about:
+      "A lightweight project-health app for engineering managers and academic project leads: upload an export of open issues and PRs, and it flags items that are stale, unassigned, or approaching a deadline, and drafts a short weekly status summary highlighting what needs attention.",
+    tags: ["project-management", "github", "reporting", "status"],
+    prompt:
+      "A GitHub project health tracker app that takes an uploaded export of open issues and pull requests (title, assignee, status, last updated, due date), flags items that are stale, unassigned, or approaching their deadline, and drafts a short weekly status summary highlighting what needs attention.",
+    testDataFileName: "issues-export.csv",
+    testData:
+      "id,title,assignee,status,last_updated,due_date\n#88,Fix pagination bug in search results,unassigned,open,2026-06-10,2026-07-01\n#91,Add dark mode support,priya,in-progress,2026-07-20,2026-08-05\n#93,Upgrade dependency for security patch,unassigned,open,2026-07-25,2026-07-26\n#95,Write onboarding docs,carlos,in-progress,2026-07-22,2026-08-15",
+    previewImagePath: "/marketplace-previews/project-health-tracker.png",
+    hasPreview: false,
+    createdBy: "AgentForge Team",
+    publishedDate: "2026-07-28",
+  },
 ];
