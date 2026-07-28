@@ -2821,9 +2821,19 @@ async def generate_ui(req: GenerateUIRequest):
     # be honored verbatim -- never let generic DASHBOARD keywords (report/chart/metrics/etc.)
     # override that, since the rigid DASHBOARD template can't render a custom intake form.
     _is_explicit_multi_agent_spec = "ai agents:" in original_prompt_lower or "ai agent" in original_prompt_lower
+    # Council/decision-intelligence keywords ("verdict", "chairman", "advisor panel") are
+    # generic enough that an LLM-written plan SUMMARY (a paraphrase) can introduce them for
+    # apps that have nothing to do with a council/advisor-board -- confirmed live: a research
+    # engine's summary described its synthesized conclusion in verdict-like language and got
+    # misrouted into the COUNCIL_APP template (Submit to Council button, Chairman Verdict
+    # pipeline, Filter by Category panel -- none of which the app asked for). The ORIGINAL
+    # prompt text is trustworthy (not a paraphrase), so prefer matching against it when
+    # available; only fall back to the full paraphrase-inclusive text when there's no
+    # original prompt to check against.
+    _type_match_text = original_prompt_lower if original_prompt_lower.strip() else prompt_lower
 
     # Priority 1: Council/decision-intelligence apps (checked first, most specific)
-    if any(k in prompt_lower for k in ["decision intelligence", "decision advisor", "verdict", "the council",
+    if any(k in _type_match_text for k in ["decision intelligence", "decision advisor", "verdict", "the council",
                                         "multi-agent deliberation", "advisor panel", "chairman", "peer review board",
                                         "council app", "review board", "blind review", "decision intel"]):
         detected_type = "COUNCIL_APP"
@@ -3570,6 +3580,21 @@ def _fix_python_file(path: str, content: str, app_name: str = "") -> str:
     # Remove user_id= kwarg from ORM constructor calls (it causes AttributeError)
     content = _re.sub(r'\buser_id\s*=\s*\w+[\w.]*\s*,\s*', '', content)
     content = _re.sub(r',\s*user_id\s*=\s*\w+[\w.]*', '', content)
+
+    # Bug 6: sqlalchemy.func used (e.g. func.now(), func.count()) without being
+    # imported -- a NameError at import time, confirmed live in a generated
+    # models.py that used func.now() as a server_default with no `func` import
+    # anywhere in the file. Only touch files that reference `func.` but never
+    # import it (as a bare "from sqlalchemy import func" or inside a
+    # "from sqlalchemy import a, b, func" list), to avoid double-importing.
+    if _re.search(r'\bfunc\.\w+\(', content) and not _re.search(r'^\s*from sqlalchemy import\b.*\bfunc\b', content, _re.MULTILINE):
+        content = _re.sub(
+            r'^(from sqlalchemy import )(.+)$',
+            lambda m: f"{m.group(1)}{m.group(2)}, func" if "func" not in m.group(2).split(",") else m.group(0),
+            content,
+            count=1,
+            flags=_re.MULTILINE,
+        )
 
     return content
 
@@ -4354,11 +4379,27 @@ def _fix_slowapi_import_path(all_files: dict) -> dict:
     main_path = _resolve_primary_main_py(all_files)
     if main_path is None:
         return all_files
-    all_files[main_path] = _re.sub(
-        r'from slowapi\.errors import _rate_limit_exceeded_handler',
-        'from slowapi import _rate_limit_exceeded_handler',
-        all_files[main_path],
+    src = all_files[main_path]
+    # Combined form: "from slowapi.errors import RateLimitExceeded, _rate_limit_exceeded_handler"
+    # (in either name order) -- keep RateLimitExceeded on slowapi.errors, move the
+    # handler to a separate top-level slowapi import.
+    src = _re.sub(
+        r'from slowapi\.errors import RateLimitExceeded,\s*_rate_limit_exceeded_handler',
+        'from slowapi.errors import RateLimitExceeded\nfrom slowapi import _rate_limit_exceeded_handler',
+        src,
     )
+    src = _re.sub(
+        r'from slowapi\.errors import _rate_limit_exceeded_handler,\s*RateLimitExceeded',
+        'from slowapi.errors import RateLimitExceeded\nfrom slowapi import _rate_limit_exceeded_handler',
+        src,
+    )
+    # Single-name form: "from slowapi.errors import _rate_limit_exceeded_handler"
+    src = _re.sub(
+        r'from slowapi\.errors import _rate_limit_exceeded_handler(?!\s*,)',
+        'from slowapi import _rate_limit_exceeded_handler',
+        src,
+    )
+    all_files[main_path] = src
     return all_files
 
 
@@ -5103,6 +5144,78 @@ def _detect_domain(summary: str) -> str:
     if any(k in s for k in ["chatbot", "rag", "knowledge base", "faq", "conversational"]):
         return "CHATBOT"
     return "CUSTOM"
+
+
+PROJECT_FRONTEND_PROMPT_SANDBOX_GROUNDED = """You are a senior React engineer. Generate a complete React 18 + TypeScript + Vite + TailwindCSS frontend for the application described below.
+
+CRITICAL UI REQUIREMENT — REPRODUCE THE SANDBOX EXACTLY, ADD NOTHING ELSE:
+The user has already seen and approved the sandbox preview HTML included below. Your job is to
+turn that EXACT layout into real, working React + TypeScript components wired to the real
+backend API -- not to redesign it, not to add a different app shell around it.
+- Reproduce its panel structure, colors, spacing, section labels, and component layout
+  pixel-for-pixel (same panel widths, same badge styles, same headings).
+- FORBIDDEN: adding a chat interface, "Knowledge Base" panel, or "Filter by Topic" section
+  UNLESS that exact section already appears in the sandbox HTML below. Most apps built from a
+  Prompt Library / Blueprint spec are NOT chatbots -- do not turn them into one.
+- The sandbox HTML's own page names, form fields, and labels ARE the source of truth for what
+  pages/fields this app has. Do not invent a generic 3-panel chat shell "just in case."
+- Only change what's necessary to fetch/submit real data via the backend API instead of the
+  sandbox's hardcoded/embedded demo data (real useState + axios/react-query calls, real
+  loading/error/empty states) -- the visual result must look like the same app, just wired up.
+
+RULES:
+- Return ONLY valid JSON with this exact structure: {{"files": {{"path": "file content as string"}}}}
+- Use real component code — NO placeholder comments, NO TODO, NO lorem ipsum
+- Use React Query (@tanstack/react-query) v4 ONLY for mutations — useMutation(fn, {{onSuccess, onError}})
+- src/main.tsx MUST wrap App in QueryClientProvider:
+  import {{ QueryClient, QueryClientProvider }} from "@tanstack/react-query";
+  const queryClient = new QueryClient();
+  root.render(<StrictMode><QueryClientProvider client={{queryClient}}><App /></QueryClientProvider></StrictMode>)
+- Use react-hot-toast for upload/save notifications
+- ALWAYS include <Toaster position="top-right" /> in App.tsx return
+- All API calls go to relative /api paths (Vite proxy forwards to backend)
+- Use Tailwind utility classes for ALL styling — no inline styles, no CSS modules
+- Use axios for API: import axios from 'axios'; const api = axios.create({{ baseURL: '/api' }});
+- React Query v4 syntax ONLY: useMutation(mutationFn, {{ onSuccess, onError }}) — NEVER v5 syntax
+- vite.config.ts MUST include proxy: {{ '/api': {{ target: 'http://localhost:8002', changeOrigin: true }} }}
+- tailwind.config.js MUST include content: ['./index.html', './src/**/*.{{ts,tsx}}']
+- package.json dependencies MUST include ALL of these EXACTLY (never omit any):
+  {{"react": "^18.3.1", "react-dom": "^18.3.1", "@tanstack/react-query": "^4.36.1", "axios": "^1.7.2", "react-hot-toast": "^2.4.1", "lucide-react": "^0.400.0"}}
+- package.json devDependencies MUST include: typescript@^5, vite@^5, @vitejs/plugin-react@^4, tailwindcss@^3, autoprefixer, postcss, @types/react@^18, @types/react-dom@^18
+- CRITICAL: @tanstack/react-query MUST be in dependencies — main.tsx imports QueryClientProvider from it and the app will show a blank white screen if it is missing
+- src/App.tsx is a SINGLE PAGE (no React Router) — uses useState to switch between the pages the sandbox shows
+- FORBIDDEN: stub/placeholder feature pages that just show a description card or "This section handles: ..." text. Every page MUST be a REAL functional UI that calls the actual API endpoints, matching what the sandbox's equivalent page shows.
+- Each page MUST implement its full UI based on what the sandbox shows AND what the feature description says:
+  * A "form"/"intake" feature → render a real <form> with the labeled fields the sandbox shows, a submit button, and call the relevant POST endpoint on submit (show loading state + success/error feedback)
+  * An "upload" feature → render a real file input or drag-and-drop zone, call the upload endpoint with FormData, show filename + parsed preview on success
+  * A "view/history/list" feature → fetch data from the relevant GET endpoint on mount (useEffect), render it as a table or card list with real field values, show empty state if no data
+  * An "export" feature → render a button per format the plan mentions, each calling its matching backend endpoint and triggering a file download via URL.createObjectURL — never show a toast/alert instead of an actual download
+- FORBIDDEN: feature pages that show the plan feature description as their heading content — the heading should be a short label like "Decision Intake" not the full feature spec text
+- FORBIDDEN: feature pages that only show an "API: POST /api/..." monospace line as their content
+- Every page must have proper loading, error, and empty states
+- FORBIDDEN: hardcoding any filenames/records in initial state — real lists MUST start empty ([]) and be populated via useEffect + the real GET endpoint
+
+Required file structure (use these exact paths — no "frontend/" prefix):
+- src/main.tsx  (with QueryClientProvider wrapping App)
+- src/App.tsx   (single-page UI matching the sandbox's pages — no Router, import Toaster here)
+- src/index.css (tailwind directives only)
+- src/api/client.ts  (axios instance + one function per API call the sandbox needs)
+- package.json
+- vite.config.ts  (with /api proxy)
+- tsconfig.json
+- tailwind.config.js
+- postcss.config.js
+- index.html
+
+APPLICATION:
+{description}
+
+Agents: {agents}
+API Endpoints: {api_endpoints}
+Database: {database_schema}
+
+SANDBOX HTML TO REPRODUCE AS REAL REACT/TYPESCRIPT (this is the source of truth for pages/fields/layout):
+{sandbox_html}"""
 
 
 PROJECT_FRONTEND_PROMPT = """You are a senior React engineer. Generate a complete React 18 + TypeScript + Vite + TailwindCSS frontend for the application described below.
@@ -6150,7 +6263,17 @@ BACKEND:
   login. Register this router in main.py.
 - Apply Depends(get_current_user) to every business API route that reads or
   writes app data -- NOT /docs, /health, /api/auth/register, /api/auth/login.
-- Add python-jose[cryptography] and passlib[bcrypt] to requirements.txt.
+- Add python-jose[cryptography], passlib[bcrypt], and bcrypt==4.0.1 (an EXACT
+  pin, not a range) to requirements.txt -- passlib's bcrypt backend detection
+  is broken by bcrypt>=4.1's changed internal API and crashes every hash
+  with a misleading "password cannot be longer than 72 bytes" error;
+  bcrypt==4.0.1 is the last version compatible with passlib.
+- config.py's Settings class MUST declare JWT_SECRET: str and
+  JWT_EXPIRE_MINUTES: int = 480 as typed fields with defaults (not left to
+  rely on extra="allow" env passthrough) -- security.py's
+  settings.JWT_SECRET / settings.JWT_EXPIRE_MINUTES access will raise
+  AttributeError at runtime on every login/register call if either field
+  is missing from the Settings class.
 
 FRONTEND:
 - Add a simple login/register page (email + password fields, toggle between
@@ -6174,11 +6297,15 @@ call the backend."""
 
 RATE LIMITING REQUIRED:
 - Add slowapi to requirements.txt.
-- In main.py: from slowapi import Limiter; from slowapi.util import get_remote_address
+- In main.py, these THREE imports are EXACT — do not combine or swap them:
+  from slowapi import Limiter, _rate_limit_exceeded_handler
+  from slowapi.util import get_remote_address
+  from slowapi.errors import RateLimitExceeded
+  (note: _rate_limit_exceeded_handler lives in the top-level slowapi package,
+  NOT in slowapi.errors, even though RateLimitExceeded itself does)
   limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
   app.state.limiter = limiter
   app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-  (import RateLimitExceeded and _rate_limit_exceeded_handler from slowapi/slowapi.errors)
 - Apply a stricter limit (e.g. @limiter.limit("10/minute")) specifically to
   any endpoint that calls the AI agent (chat/ask/analyze-style routes), since
   those are the most expensive to abuse -- the route function's first
@@ -6196,30 +6323,37 @@ RATE LIMITING REQUIRED:
         with _tracer.start_as_current_span("architect.generate_frontend") as fe_span:
             fe_span.set_attribute("llm.model", _llm_model)
             fe_span.set_attribute("llm.max_tokens", 14000)
-            frontend_prompt = (
-                PROJECT_FRONTEND_PROMPT
-                .replace("{description}", description)
-                .replace("{agents}", agents_text)
-                .replace("{api_endpoints}", endpoints_text)
-                .replace("{database_schema}", db_text)
-            )
             if req.sandbox_html:
                 # Ground the Agentic Code frontend in the EXACT sandbox HTML
                 # already shown to the user (same one RAG Template Code and
-                # the live preview render), rather than letting the LLM
-                # re-derive a similar-but-different layout from the prose
-                # spec above alone -- this is what keeps all three output
-                # modes (sandbox preview, RAG Template Code, Agentic Code)
-                # visually identical instead of merely "similar".
-                frontend_prompt += (
-                    "\n\nMANDATORY VISUAL MATCH: the user has already seen this exact "
-                    "sandbox preview HTML. Your generated App.tsx MUST reproduce its "
-                    "layout, colors, spacing, and component structure pixel-for-pixel "
-                    "(same panel widths, same badge styles, same section labels) — do "
-                    "NOT invent a different layout, even if it seems reasonable. Only "
-                    "change what's necessary to fetch real data from the backend "
-                    "instead of using hardcoded/embedded sandbox data.\n\n"
-                    f"SANDBOX HTML TO MATCH:\n{req.sandbox_html[:18000]}"
+                # the live preview render), using a prompt that treats that
+                # sandbox as the sole source of truth for pages/layout --
+                # rather than appending "match the sandbox" onto a prompt
+                # that ALSO mandates a fixed 3-panel chat interface for every
+                # app. That combination made the LLM hybridize both: keeping
+                # the forced chat/Knowledge-Base/Filter-by-Topic shell (with
+                # generic example topic names bleeding through for non-chat
+                # apps) while bolting the sandbox's real pages on alongside
+                # it, instead of building only what the sandbox actually
+                # shows (confirmed live: a multi-agent research engine's
+                # download rendered a leftover FAQ-chatbot chat panel with
+                # "Obligations/Rights/Benefits/Compliance" topic chips that
+                # have nothing to do with research).
+                frontend_prompt = (
+                    PROJECT_FRONTEND_PROMPT_SANDBOX_GROUNDED
+                    .replace("{description}", description)
+                    .replace("{agents}", agents_text)
+                    .replace("{api_endpoints}", endpoints_text)
+                    .replace("{database_schema}", db_text)
+                    .replace("{sandbox_html}", req.sandbox_html[:18000])
+                )
+            else:
+                frontend_prompt = (
+                    PROJECT_FRONTEND_PROMPT
+                    .replace("{description}", description)
+                    .replace("{agents}", agents_text)
+                    .replace("{api_endpoints}", endpoints_text)
+                    .replace("{database_schema}", db_text)
                 )
             try:
                 fe_response = await asyncio.to_thread(
