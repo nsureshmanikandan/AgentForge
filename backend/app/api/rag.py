@@ -4,11 +4,13 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from app.database import get_db
-from app.models.rag import KnowledgeBase, Document, Chunk
+from app.models.rag import KnowledgeBase, Document, Chunk, GraphEntity, GraphRelationship
 from app.core.rag_engine import RAGEngine, index_path
+from app.core.graph_engine import GraphEngine
 
 router = APIRouter()
 _engines: dict[str, RAGEngine] = {}
+_graph_engines: dict[str, GraphEngine] = {}
 
 MAX_SUGGESTED_QUESTIONS = 5
 
@@ -17,6 +19,12 @@ def _get_engine(kb_id: str) -> RAGEngine:
     if kb_id not in _engines:
         _engines[kb_id] = RAGEngine(kb_id=kb_id)
     return _engines[kb_id]
+
+
+def _get_graph_engine(kb_id: str) -> GraphEngine:
+    if kb_id not in _graph_engines:
+        _graph_engines[kb_id] = GraphEngine(kb_id=kb_id)
+    return _graph_engines[kb_id]
 
 
 def _leading_question(chunk_text: str) -> str | None:
@@ -34,6 +42,7 @@ def _leading_question(chunk_text: str) -> str | None:
 class KBCreate(BaseModel):
     name: str
     description: str = ""
+    kb_type: str = "basic"
 
 
 class QueryRequest(BaseModel):
@@ -52,6 +61,7 @@ async def list_kbs(db: AsyncSession = Depends(get_db)):
             "id": kb.id,
             "name": kb.name,
             "description": kb.description,
+            "kb_type": kb.kb_type,
             "agent_id": kb.agent_id,
             "document_count": doc_count,
             "created_at": kb.created_at.isoformat(),
@@ -70,6 +80,7 @@ async def get_kb(kb_id: str, db: AsyncSession = Depends(get_db)):
         "id": kb.id,
         "name": kb.name,
         "description": kb.description,
+        "kb_type": kb.kb_type,
         "agent_id": kb.agent_id,
         "created_at": kb.created_at.isoformat(),
         "documents": [
@@ -87,11 +98,12 @@ async def get_kb(kb_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/knowledge-bases", status_code=201)
 async def create_kb(body: KBCreate, db: AsyncSession = Depends(get_db)):
-    kb = KnowledgeBase(name=body.name, description=body.description)
+    kb_type = body.kb_type if body.kb_type in ("basic", "graph") else "basic"
+    kb = KnowledgeBase(name=body.name, description=body.description, kb_type=kb_type)
     db.add(kb)
     await db.commit()
     await db.refresh(kb)
-    return {"id": kb.id, "name": kb.name, "description": kb.description}
+    return {"id": kb.id, "name": kb.name, "description": kb.description, "kb_type": kb.kb_type}
 
 
 @router.delete("/knowledge-bases/{kb_id}", status_code=204)
@@ -99,6 +111,13 @@ async def delete_kb(kb_id: str, db: AsyncSession = Depends(get_db)):
     kb = await db.get(KnowledgeBase, kb_id)
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
+
+    # Delete graph data if applicable
+    if kb.kb_type == "graph":
+        await db.execute(delete(GraphRelationship).where(GraphRelationship.kb_id == kb_id))
+        await db.execute(delete(GraphEntity).where(GraphEntity.kb_id == kb_id))
+        _graph_engines.pop(kb_id, None)
+
     await db.execute(delete(Chunk).where(Chunk.kb_id == kb_id))
     await db.execute(delete(Document).where(Document.kb_id == kb_id))
     await db.delete(kb)
@@ -117,7 +136,6 @@ async def upload_document(
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
     contents = await file.read()
-    engine = _get_engine(kb_id)
 
     # Upsert by filename: re-uploading the same file name into this KB
     # replaces its old chunks/vectors instead of accumulating duplicates.
@@ -131,11 +149,21 @@ async def upload_document(
         await db.execute(delete(Chunk).where(Chunk.document_id.in_(existing_ids)))
         await db.execute(delete(Document).where(Document.id.in_(existing_ids)))
         await db.flush()
-        await engine.rebuild_index(db)
+        # Also clear graph data so it gets rebuilt cleanly on re-upload
+        if kb.kb_type == "graph":
+            await db.execute(delete(GraphRelationship).where(GraphRelationship.kb_id == kb_id))
+            await db.execute(delete(GraphEntity).where(GraphEntity.kb_id == kb_id))
+        engine_base = _get_engine(kb_id)
+        await engine_base.rebuild_index(db)
 
     doc = Document(kb_id=kb_id, filename=file.filename, status="processing")
     db.add(doc)
     await db.flush()
+
+    if kb.kb_type == "graph":
+        engine = _get_graph_engine(kb_id)
+    else:
+        engine = _get_engine(kb_id)
 
     chunk_count, full_text = await engine.ingest(contents, file.filename, doc.id, db)
     doc.content = full_text
@@ -177,5 +205,16 @@ async def query_kb(kb_id: str, body: QueryRequest, db: AsyncSession = Depends(ge
     kb = await db.get(KnowledgeBase, kb_id)
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
-    engine = _get_engine(kb_id)
-    return await engine.query(body.question, db)
+    if kb.kb_type == "graph":
+        return await _get_graph_engine(kb_id).query(body.question, db)
+    return await _get_engine(kb_id).query(body.question, db)
+
+
+@router.get("/knowledge-bases/{kb_id}/graph")
+async def get_graph(kb_id: str, db: AsyncSession = Depends(get_db)):
+    kb = await db.get(KnowledgeBase, kb_id)
+    if not kb:
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+    if kb.kb_type != "graph":
+        raise HTTPException(status_code=400, detail="This knowledge base is not a graph type")
+    return await _get_graph_engine(kb_id).get_graph_data(db)

@@ -1,11 +1,88 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import dagre from "@dagrejs/dagre";
+import {
+  ReactFlow,
+  Background,
+  Controls,
+  MiniMap,
+  Handle,
+  Position,
+  MarkerType,
+  type Node as FlowNode,
+  type Edge as FlowEdge,
+  type NodeProps,
+} from "@xyflow/react";
 import { ragApi } from "../api/client";
 
+// ── Entity colour palette ─────────────────────────────────────────────────────
+const ENTITY_PALETTE: Record<string, { bg: string; border: string; text: string; dot: string }> = {
+  CONCEPT:    { bg: "#eef2ff", border: "#818cf8", text: "#4338ca", dot: "#6366f1" },
+  TECHNOLOGY: { bg: "#ecfeff", border: "#67e8f9", text: "#0e7490", dot: "#06b6d4" },
+  PERSON:     { bg: "#f0fdf4", border: "#86efac", text: "#15803d", dot: "#22c55e" },
+  ORG:        { bg: "#fffbeb", border: "#fcd34d", text: "#b45309", dot: "#f59e0b" },
+  PROCESS:    { bg: "#fff1f2", border: "#fda4af", text: "#be123c", dot: "#f43f5e" },
+  TOOL:       { bg: "#faf5ff", border: "#c4b5fd", text: "#7c3aed", dot: "#8b5cf6" },
+};
+
+// ── Custom React Flow node ────────────────────────────────────────────────────
+type EntityNodeData = { name: string; entityType: string; description: string };
+
+function EntityNode({ data, selected }: NodeProps) {
+  const d = data as EntityNodeData;
+  const p = ENTITY_PALETTE[d.entityType] || ENTITY_PALETTE.CONCEPT;
+  return (
+    <div style={{
+      background: p.bg,
+      border: `1.5px solid ${selected ? p.dot : p.border}`,
+      borderRadius: 10,
+      padding: "8px 14px",
+      minWidth: 130,
+      maxWidth: 200,
+      boxShadow: selected ? `0 0 0 2.5px ${p.dot}50` : "0 1px 4px rgba(0,0,0,0.06)",
+      cursor: "pointer",
+      userSelect: "none",
+    }}>
+      <Handle type="target" position={Position.Left}
+        style={{ background: p.border, width: 8, height: 8, border: "none" }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+        <div style={{ width: 8, height: 8, borderRadius: "50%", background: p.dot, flexShrink: 0 }} />
+        <div style={{ fontSize: 12, fontWeight: 600, color: "#1e293b", overflow: "hidden",
+          textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 148 }}>
+          {d.name}
+        </div>
+      </div>
+      <div style={{ fontSize: 10, fontWeight: 500, color: p.text, marginTop: 2, marginLeft: 15 }}>
+        {d.entityType}
+      </div>
+      <Handle type="source" position={Position.Right}
+        style={{ background: p.border, width: 8, height: 8, border: "none" }} />
+    </div>
+  );
+}
+
+const NODE_TYPES = { entityNode: EntityNode };
+
+function applyDagreLayout(nodes: FlowNode[], edges: FlowEdge[]): FlowNode[] {
+  if (nodes.length === 0) return nodes;
+  const g = new dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({ rankdir: "LR", ranksep: 110, nodesep: 70, marginx: 50, marginy: 50 });
+  nodes.forEach(n => g.setNode(n.id, { width: 190, height: 62 }));
+  edges.forEach(e => g.setEdge(e.source, e.target));
+  dagre.layout(g);
+  return nodes.map(n => {
+    const pos = g.node(n.id);
+    return { ...n, position: { x: pos.x - 95, y: pos.y - 31 } };
+  });
+}
+
+// ── Shared types ──────────────────────────────────────────────────────────────
 interface KB {
   id: string;
   name: string;
   description: string;
+  kb_type: "basic" | "graph";
   documentCount: number;
   createdAt: string;
 }
@@ -17,6 +94,56 @@ interface KBDocument {
   status: string;
 }
 
+interface GraphData {
+  entities: Array<{ id: string; name: string; type: string; description: string }>;
+  relationships: Array<{
+    id: string; source_id: string; target_id: string; relation: string; context: string;
+  }>;
+}
+
+// ── KB type definitions for create modal ─────────────────────────────────────
+const KB_TYPE_OPTIONS = [
+  {
+    key: "basic" as const,
+    label: "Basic",
+    sub: "Simple vector-based retrieval with embeddings",
+    disabled: false,
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+          d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25 4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+      </svg>
+    ),
+  },
+  {
+    key: "graph" as const,
+    label: "Graph",
+    sub: "Knowledge graph with entity relationships",
+    disabled: false,
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <circle cx="5" cy="12" r="2" strokeWidth={1.5} />
+        <circle cx="19" cy="6" r="2" strokeWidth={1.5} />
+        <circle cx="19" cy="18" r="2" strokeWidth={1.5} />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+          d="M7 11.5l10-4.5M7 12.5l10 4.5" />
+      </svg>
+    ),
+  },
+  {
+    key: "semantic" as const,
+    label: "Semantic Data Model",
+    sub: "Schema-aware retrieval with database integration",
+    disabled: true,
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+          d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25" />
+      </svg>
+    ),
+  },
+];
+
 // ── Modal: Create KB ──────────────────────────────────────────────────────────
 interface CreateModalProps {
   onClose: () => void;
@@ -24,29 +151,26 @@ interface CreateModalProps {
 }
 
 function CreateModal({ onClose, onCreate }: CreateModalProps) {
+  const [kbType, setKbType] = useState<"basic" | "graph">("basic");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   async function handleCreate() {
-    if (!name.trim()) {
-      setError("Name is required.");
-      return;
-    }
-    setLoading(true);
-    setError("");
+    if (!name.trim()) { setError("Name is required."); return; }
+    setLoading(true); setError("");
     try {
-      const res = await ragApi.createKB(name.trim(), description.trim());
-      const data = res.data as { id: string; name: string; description: string };
-      const kb: KB = {
+      const res = await ragApi.createKB(name.trim(), description.trim(), kbType);
+      const data = res.data as { id: string; name: string; description: string; kb_type?: string };
+      onCreate({
         id: data.id,
         name: data.name,
         description: data.description,
+        kb_type: (data.kb_type as "basic" | "graph") || "basic",
         documentCount: 0,
         createdAt: new Date().toISOString(),
-      };
-      onCreate(kb);
+      });
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       setError(msg || "Failed to create knowledge base.");
@@ -56,10 +180,13 @@ function CreateModal({ onClose, onCreate }: CreateModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold text-slate-900">New Knowledge Base</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Create Knowledge Base</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Configure a new knowledge base for your agent</p>
+          </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -67,13 +194,53 @@ function CreateModal({ onClose, onCreate }: CreateModalProps) {
           </button>
         </div>
 
+        {/* Type selector cards */}
+        <div className="mb-6">
+          <p className="text-sm font-medium text-slate-700 mb-3">Knowledge Base Type</p>
+          <div className="grid grid-cols-3 gap-3">
+            {KB_TYPE_OPTIONS.map((t) => {
+              const active = !t.disabled && kbType === t.key;
+              return (
+                <button
+                  key={t.key}
+                  onClick={() => { if (!t.disabled) setKbType(t.key as "basic" | "graph"); }}
+                  disabled={t.disabled}
+                  className={`relative flex flex-col items-center text-center p-4 rounded-xl border-2 transition-all ${
+                    t.disabled
+                      ? "opacity-45 cursor-not-allowed border-gray-100 bg-gray-50"
+                      : active
+                      ? "border-indigo-500 bg-indigo-50 shadow-sm"
+                      : "border-gray-200 bg-white hover:border-indigo-200 hover:bg-indigo-50/40 cursor-pointer"
+                  }`}
+                >
+                  {t.disabled && (
+                    <span className="absolute top-1.5 right-1.5 text-[9px] font-semibold text-gray-400 bg-gray-100 rounded-full px-1.5 py-0.5 leading-tight">
+                      Soon
+                    </span>
+                  )}
+                  <div className={`mb-2 ${active ? "text-indigo-600" : "text-gray-400"}`}>
+                    {t.icon}
+                  </div>
+                  <p className={`text-xs font-semibold mb-1 ${active ? "text-indigo-700" : "text-slate-700"}`}>
+                    {t.label}
+                  </p>
+                  <p className="text-[10px] text-gray-400 leading-tight">{t.sub}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Name <span className="text-red-400">*</span>
+            </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleCreate()}
               placeholder="e.g. Product Documentation"
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             />
@@ -84,7 +251,7 @@ function CreateModal({ onClose, onCreate }: CreateModalProps) {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Briefly describe what this KB contains…"
-              rows={3}
+              rows={2}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
             />
           </div>
@@ -103,7 +270,7 @@ function CreateModal({ onClose, onCreate }: CreateModalProps) {
             disabled={loading}
             className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
           >
-            {loading ? "Creating…" : "Create"}
+            {loading ? "Creating…" : "Create Knowledge Base"}
           </button>
         </div>
       </div>
@@ -141,10 +308,7 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
 
   async function runQuery(q: string) {
     if (!q.trim()) return;
-    setLoading(true);
-    setAnswer("");
-    setError("");
-    setAskedQuestion(q.trim());
+    setLoading(true); setAnswer(""); setError(""); setAskedQuestion(q.trim());
     try {
       const res = await ragApi.query(kb.id, q.trim());
       const data = res.data as { answer: string };
@@ -157,26 +321,14 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
     }
   }
 
-  function handleSuggestionClick(q: string) {
-    setQuestion(q);
-    runQuery(q);
-  }
-
   function clearQuery() {
-    setQuestion("");
-    setAskedQuestion("");
-    setAnswer("");
-    setError("");
+    setQuestion(""); setAskedQuestion(""); setAnswer(""); setError("");
   }
 
   function handleQuestionChange(value: string) {
     setQuestion(value);
-    // Clearing the input resets the whole Q&A state -- brings the suggested
-    // questions back instead of leaving a stale answer hiding them forever.
     if (value.trim() === "" && (answer || error)) {
-      setAskedQuestion("");
-      setAnswer("");
-      setError("");
+      setAskedQuestion(""); setAnswer(""); setError("");
     }
   }
 
@@ -215,11 +367,8 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
                 className="w-full border border-gray-200 rounded-lg pl-3 pr-8 py-2 text-sm text-slate-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               />
               {question && (
-                <button
-                  onClick={clearQuery}
-                  title="Clear"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500 transition-colors"
-                >
+                <button onClick={clearQuery} title="Clear"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500 transition-colors">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -236,9 +385,7 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                 </svg>
-              ) : (
-                "Ask"
-              )}
+              ) : "Ask"}
             </button>
           </div>
 
@@ -249,12 +396,8 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
               <p className="text-xs font-medium text-gray-400 mb-2">Suggested questions</p>
               <div className="flex flex-wrap gap-2">
                 {suggestions.map((q, i) => (
-                  <button
-                    key={i}
-                    onClick={() => handleSuggestionClick(q)}
-                    disabled={loading}
-                    className="text-left text-xs text-slate-600 bg-gray-50 border border-gray-200 rounded-full px-3 py-1.5 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
+                  <button key={i} onClick={() => { setQuestion(q); runQuery(q); }} disabled={loading}
+                    className="text-left text-xs text-slate-600 bg-gray-50 border border-gray-200 rounded-full px-3 py-1.5 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
                     {q}
                   </button>
                 ))}
@@ -266,9 +409,7 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
         {(loading || answer) && (
           <div className="mt-4 mx-6 mb-6 flex-1 min-h-0 flex flex-col bg-indigo-50 border border-indigo-100 rounded-xl overflow-hidden">
             <div className="px-4 pt-4 pb-2 flex-shrink-0 border-b border-indigo-100/70">
-              {askedQuestion && (
-                <p className="text-xs text-indigo-400 mb-1.5 italic truncate">"{askedQuestion}"</p>
-              )}
+              {askedQuestion && <p className="text-xs text-indigo-400 mb-1.5 italic truncate">"{askedQuestion}"</p>}
               <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wider">Answer</p>
             </div>
             <div className="px-4 py-3 overflow-y-auto">
@@ -318,17 +459,13 @@ function UploadPanel({ kb, onDocAdded, onClose }: UploadPanelProps) {
         const res = await ragApi.upload(kb.id, file);
         const data = res.data as { replaced_existing?: boolean };
         const finalStatus = data.replaced_existing ? "replaced" : "done";
-        setUploads((prev) =>
-          prev.map((u) => (u.name === file.name ? { ...u, status: finalStatus } : u))
-        );
+        setUploads((prev) => prev.map((u) => u.name === file.name ? { ...u, status: finalStatus } : u));
         onDocAdded();
       } catch (e: unknown) {
         const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-        setUploads((prev) =>
-          prev.map((u) =>
-            u.name === file.name ? { ...u, status: "error", error: msg || "Upload failed" } : u
-          )
-        );
+        setUploads((prev) => prev.map((u) =>
+          u.name === file.name ? { ...u, status: "error", error: msg || "Upload failed" } : u
+        ));
       }
     }
   }
@@ -337,19 +474,26 @@ function UploadPanel({ kb, onDocAdded, onClose }: UploadPanelProps) {
     <div className="mt-4 bg-gray-50 border border-gray-200 rounded-xl p-4">
       <div className="flex items-center justify-between mb-3">
         <p className="text-sm font-medium text-slate-700">Upload Documents</p>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors text-xs">
-          Close
-        </button>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors text-xs">Close</button>
       </div>
+
+      {kb.kb_type === "graph" && (
+        <div className="mb-3 flex items-start gap-2 bg-purple-50 border border-purple-100 rounded-lg p-2.5">
+          <svg className="w-3.5 h-3.5 text-purple-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p className="text-[10px] text-purple-700 leading-relaxed">
+            Graph extraction runs LLM entity recognition per chunk. Processing may take longer than Basic KB.
+          </p>
+        </div>
+      )}
 
       <div
         className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer hover:border-indigo-400 hover:bg-indigo-50/30 transition-colors"
         onClick={() => fileRef.current?.click()}
         onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => {
-          e.preventDefault();
-          handleFiles(e.dataTransfer.files);
-        }}
+        onDrop={(e) => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
       >
         <svg className="w-7 h-7 text-gray-300 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -357,14 +501,8 @@ function UploadPanel({ kb, onDocAdded, onClose }: UploadPanelProps) {
         </svg>
         <p className="text-xs text-gray-500">Drop files here or <span className="text-indigo-600 font-medium">browse</span></p>
         <p className="text-xs text-gray-400 mt-0.5">PDF, DOCX, TXT, CSV</p>
-        <input
-          ref={fileRef}
-          type="file"
-          multiple
-          accept=".pdf,.docx,.txt,.csv"
-          className="hidden"
-          onChange={(e) => handleFiles(e.target.files)}
-        />
+        <input ref={fileRef} type="file" multiple accept=".pdf,.docx,.txt,.csv" className="hidden"
+          onChange={(e) => handleFiles(e.target.files)} />
       </div>
 
       {uploads.length > 0 && (
@@ -391,13 +529,289 @@ function UploadPanel({ kb, onDocAdded, onClose }: UploadPanelProps) {
               {u.status === "uploading" && <span className="text-xs text-gray-400">Uploading…</span>}
               {u.status === "done" && <span className="text-xs text-emerald-600">Done</span>}
               {u.status === "replaced" && (
-                <span className="text-xs text-emerald-600" title="An existing document with this name was replaced">
-                  Replaced existing
-                </span>
+                <span className="text-xs text-emerald-600" title="An existing document with this name was replaced">Replaced</span>
               )}
               {u.status === "error" && <span className="text-xs text-red-600">{u.error}</span>}
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Graph Explorer Modal ──────────────────────────────────────────────────────
+interface GraphExplorerProps {
+  kb: KB;
+  onClose: () => void;
+}
+
+function GraphExplorerModal({ kb, onClose }: GraphExplorerProps) {
+  const [graphData, setGraphData] = useState<GraphData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [selectedEntity, setSelectedEntity] = useState<GraphData["entities"][0] | null>(null);
+  const [filterType, setFilterType] = useState<string | null>(null);
+
+  useEffect(() => {
+    ragApi.getGraph(kb.id)
+      .then((res) => setGraphData(res.data as GraphData))
+      .catch(() => setError("Failed to load graph data."))
+      .finally(() => setLoading(false));
+  }, [kb.id]);
+
+  const entityTypes = useMemo(
+    () => [...new Set((graphData?.entities || []).map((e) => e.type))].sort(),
+    [graphData]
+  );
+
+  const { nodes, edges } = useMemo(() => {
+    if (!graphData) return { nodes: [] as FlowNode[], edges: [] as FlowEdge[] };
+
+    const filtered = filterType
+      ? graphData.entities.filter((e) => e.type === filterType)
+      : graphData.entities;
+    const idSet = new Set(filtered.map((e) => e.id));
+
+    const rawNodes: FlowNode[] = filtered.map((e) => ({
+      id: e.id,
+      type: "entityNode",
+      data: { name: e.name, entityType: e.type, description: e.description } as unknown as Record<string, unknown>,
+      position: { x: 0, y: 0 },
+    }));
+
+    const rawEdges: FlowEdge[] = graphData.relationships
+      .filter((r) => idSet.has(r.source_id) && idSet.has(r.target_id))
+      .map((r) => ({
+        id: r.id,
+        source: r.source_id,
+        target: r.target_id,
+        label: r.relation,
+        type: "smoothstep",
+        labelStyle: { fontSize: 10, fill: "#64748b", fontWeight: 500 },
+        labelBgStyle: { fill: "#f8fafc", fillOpacity: 0.9 },
+        labelBgPadding: [4, 3] as [number, number],
+        labelBgBorderRadius: 3,
+        style: { stroke: "#cbd5e1", strokeWidth: 1.5 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: "#94a3b8", width: 14, height: 14 },
+      }));
+
+    return { nodes: applyDagreLayout(rawNodes, rawEdges), edges: rawEdges };
+  }, [graphData, filterType]);
+
+  const entityRelationships = useMemo(() => {
+    if (!selectedEntity || !graphData) return [];
+    const byId = new Map(graphData.entities.map((e) => [e.id, e]));
+    return graphData.relationships
+      .filter((r) => r.source_id === selectedEntity.id || r.target_id === selectedEntity.id)
+      .map((r) => ({
+        direction: r.source_id === selectedEntity.id ? "out" : "in",
+        relation: r.relation,
+        other: byId.get(r.source_id === selectedEntity.id ? r.target_id : r.source_id),
+        context: r.context,
+      }));
+  }, [selectedEntity, graphData]);
+
+  const palette = selectedEntity
+    ? ENTITY_PALETTE[selectedEntity.type] || ENTITY_PALETTE.CONCEPT
+    : null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-white flex flex-col">
+      {/* Header */}
+      <div className="flex items-center gap-4 px-5 py-3.5 border-b border-gray-200 flex-shrink-0 bg-white">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
+            <svg className="w-4.5 h-4.5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <circle cx="5" cy="12" r="2.5" strokeWidth={1.5} />
+              <circle cx="20" cy="5" r="2.5" strokeWidth={1.5} />
+              <circle cx="20" cy="19" r="2.5" strokeWidth={1.5} />
+              <path strokeLinecap="round" strokeWidth={1.5} d="M7.5 11.2L17.5 6.3M7.5 12.8L17.5 17.7" />
+            </svg>
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-slate-900 truncate">{kb.name}</h2>
+            <p className="text-[11px] text-gray-400">
+              {graphData?.entities.length ?? "—"} entities · {graphData?.relationships.length ?? "—"} relationships
+            </p>
+          </div>
+        </div>
+
+        {/* Type filter chips */}
+        {entityTypes.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              onClick={() => setFilterType(null)}
+              className={`px-2.5 py-1 text-[11px] font-medium rounded-full border transition-colors ${
+                filterType === null
+                  ? "bg-slate-800 text-white border-slate-800"
+                  : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"
+              }`}
+            >
+              All
+            </button>
+            {entityTypes.map((t) => {
+              const p = ENTITY_PALETTE[t] || ENTITY_PALETTE.CONCEPT;
+              const active = filterType === t;
+              return (
+                <button
+                  key={t}
+                  onClick={() => setFilterType(active ? null : t)}
+                  style={active ? { background: p.bg, color: p.text, borderColor: p.border } : undefined}
+                  className={`px-2.5 py-1 text-[11px] font-medium rounded-full border transition-colors ${
+                    active
+                      ? ""
+                      : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"
+                  }`}
+                >
+                  {t}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <button onClick={onClose}
+          className="ml-auto flex-shrink-0 p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Canvas + Side panel */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Graph canvas */}
+        <div className="flex-1" style={{ position: "relative" }}>
+          {loading ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-gray-400">
+              <svg className="w-7 h-7 animate-spin text-indigo-400" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+              <p className="text-sm">Loading knowledge graph…</p>
+            </div>
+          ) : error ? (
+            <div className="absolute inset-0 flex items-center justify-center text-sm text-red-500">{error}</div>
+          ) : nodes.length === 0 ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center p-8">
+              <div className="w-14 h-14 rounded-2xl bg-purple-50 flex items-center justify-center">
+                <svg className="w-7 h-7 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <circle cx="5" cy="12" r="2.5" strokeWidth={1.5} />
+                  <circle cx="20" cy="5" r="2.5" strokeWidth={1.5} />
+                  <circle cx="20" cy="19" r="2.5" strokeWidth={1.5} />
+                  <path strokeLinecap="round" strokeWidth={1.5} d="M7.5 11.2L17.5 6.3M7.5 12.8L17.5 17.7" />
+                </svg>
+              </div>
+              <p className="text-sm font-medium text-slate-700">No graph data yet</p>
+              <p className="text-xs text-gray-400 max-w-xs">
+                Upload documents to extract entities and relationships automatically.
+              </p>
+            </div>
+          ) : (
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={NODE_TYPES}
+              fitView
+              fitViewOptions={{ padding: 0.2 }}
+              onNodeClick={(_, node) => {
+                const e = graphData?.entities.find((e) => e.id === node.id);
+                setSelectedEntity(e || null);
+              }}
+              onPaneClick={() => setSelectedEntity(null)}
+              style={{ width: "100%", height: "100%" }}
+            >
+              <Background color="#e2e8f0" gap={20} />
+              <Controls />
+              <MiniMap
+                nodeColor={(n) => {
+                  const d = n.data as EntityNodeData;
+                  return ENTITY_PALETTE[d?.entityType]?.dot || "#94a3b8";
+                }}
+                style={{ borderRadius: 8 }}
+              />
+            </ReactFlow>
+          )}
+        </div>
+
+        {/* Entity detail side panel */}
+        {selectedEntity && palette && (
+          <div className="w-64 border-l border-gray-200 flex flex-col overflow-hidden bg-gray-50 flex-shrink-0">
+            {/* Entity header */}
+            <div className="p-4 border-b border-gray-200 bg-white">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: palette.dot, flexShrink: 0 }} />
+                    <span style={{ color: palette.text }}
+                      className="text-[10px] font-semibold uppercase tracking-wider">
+                      {selectedEntity.type}
+                    </span>
+                  </div>
+                  <h3 className="text-sm font-semibold text-slate-900 leading-tight">{selectedEntity.name}</h3>
+                </div>
+                <button
+                  onClick={() => setSelectedEntity(null)}
+                  className="flex-shrink-0 text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              {selectedEntity.description && (
+                <p className="text-xs text-gray-500 mt-2 leading-relaxed">{selectedEntity.description}</p>
+              )}
+            </div>
+
+            {/* Relationships */}
+            <div className="flex-1 overflow-y-auto p-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                Relationships ({entityRelationships.length})
+              </p>
+              {entityRelationships.length === 0 ? (
+                <p className="text-xs text-gray-400">No relationships found.</p>
+              ) : (
+                <div className="space-y-3">
+                  {entityRelationships.map((r, i) => (
+                    <div key={i} className="bg-white rounded-lg border border-gray-200 p-2.5">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                          r.direction === "out"
+                            ? "bg-indigo-50 text-indigo-600"
+                            : "bg-amber-50 text-amber-600"
+                        }`}>
+                          {r.direction === "out" ? "→" : "←"} {r.relation}
+                        </span>
+                      </div>
+                      {r.other && (
+                        <p className="text-xs font-medium text-slate-700 truncate">{r.other.name}</p>
+                      )}
+                      {r.context && (
+                        <p className="text-[10px] text-gray-400 mt-1 leading-relaxed line-clamp-2">{r.context}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Legend footer */}
+      {nodes.length > 0 && (
+        <div className="flex items-center gap-4 px-5 py-2.5 border-t border-gray-100 bg-white flex-shrink-0">
+          <span className="text-[11px] text-gray-400 font-medium">Entity types:</span>
+          <div className="flex items-center gap-3 flex-wrap">
+            {Object.entries(ENTITY_PALETTE).map(([type, p]) => (
+              <div key={type} className="flex items-center gap-1.5">
+                <div style={{ width: 7, height: 7, borderRadius: "50%", background: p.dot }} />
+                <span style={{ color: p.text }} className="text-[11px] font-medium">{type}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -409,14 +823,17 @@ interface KBCardProps {
   kb: KB;
   onDelete: (id: string) => void;
   onQuery: (kb: KB) => void;
+  onExploreGraph: (kb: KB) => void;
 }
 
-function KBCard({ kb, onDelete, onQuery }: KBCardProps) {
+function KBCard({ kb, onDelete, onQuery, onExploreGraph }: KBCardProps) {
   const [showUpload, setShowUpload] = useState(false);
   const [docs, setDocs] = useState<KBDocument[]>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
+
+  const isGraph = kb.kb_type === "graph";
 
   useEffect(() => {
     let cancelled = false;
@@ -424,15 +841,9 @@ function KBCard({ kb, onDelete, onQuery }: KBCardProps) {
       if (cancelled) return;
       const data = res.data as { documents: KBDocument[] };
       setDocs(data.documents || []);
-    }).catch(() => {
-      if (!cancelled) setDocs([]);
-    });
+    }).catch(() => { if (!cancelled) setDocs([]); });
     return () => { cancelled = true; };
   }, [kb.id, refreshTick]);
-
-  function handleDocAdded() {
-    setRefreshTick((t) => t + 1);
-  }
 
   async function handleConfirmDelete() {
     setDeleting(true);
@@ -440,31 +851,50 @@ function KBCard({ kb, onDelete, onQuery }: KBCardProps) {
       await ragApi.delete(kb.id);
       onDelete(kb.id);
     } catch {
-      setDeleting(false);
-      setConfirmDelete(false);
+      setDeleting(false); setConfirmDelete(false);
     }
   }
 
   const dateLabel = new Date(kb.createdAt).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
+    year: "numeric", month: "short", day: "numeric",
   });
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col">
+    <div className={`bg-white border rounded-xl shadow-sm flex flex-col transition-shadow hover:shadow-md ${
+      isGraph ? "border-purple-100" : "border-gray-200"
+    }`}>
       <div className="p-5 flex-1">
         {/* Card header */}
         <div className="flex items-start justify-between gap-3 mb-3">
-          <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0">
-            <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-            </svg>
+          <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
+            isGraph ? "bg-purple-50" : "bg-indigo-50"
+          }`}>
+            {isGraph ? (
+              <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="5" cy="12" r="2.5" strokeWidth={1.5} />
+                <circle cx="20" cy="5.5" r="2.5" strokeWidth={1.5} />
+                <circle cx="20" cy="18.5" r="2.5" strokeWidth={1.5} />
+                <path strokeLinecap="round" strokeWidth={1.5} d="M7.5 11.2L17.5 6.8M7.5 12.8L17.5 17.2" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25 4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+              </svg>
+            )}
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-slate-900 text-sm leading-tight truncate">{kb.name}</h3>
-            <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{kb.description || "No description"}</p>
+            <div className="flex items-center gap-2 mb-0.5">
+              <h3 className="font-semibold text-slate-900 text-sm leading-tight truncate">{kb.name}</h3>
+              <span className={`flex-shrink-0 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                isGraph
+                  ? "bg-purple-50 text-purple-700 border border-purple-200"
+                  : "bg-indigo-50 text-indigo-700 border border-indigo-100"
+              }`}>
+                {isGraph ? "Graph" : "Basic"}
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 line-clamp-2">{kb.description || "No description"}</p>
           </div>
         </div>
 
@@ -500,20 +930,14 @@ function KBCard({ kb, onDelete, onQuery }: KBCardProps) {
                   {d.filename}
                 </li>
               ))}
-              {docs.length > 4 && (
-                <li className="text-xs text-gray-400">+{docs.length - 4} more</li>
-              )}
+              {docs.length > 4 && <li className="text-xs text-gray-400">+{docs.length - 4} more</li>}
             </ul>
           </div>
         )}
 
         {/* Upload panel */}
         {showUpload && (
-          <UploadPanel
-            kb={kb}
-            onDocAdded={handleDocAdded}
-            onClose={() => setShowUpload(false)}
-          />
+          <UploadPanel kb={kb} onDocAdded={() => setRefreshTick((t) => t + 1)} onClose={() => setShowUpload(false)} />
         )}
       </div>
 
@@ -529,38 +953,61 @@ function KBCard({ kb, onDelete, onQuery }: KBCardProps) {
           </svg>
           Upload
         </button>
-        <button
-          onClick={() => onQuery(kb)}
-          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 border border-gray-200 bg-white rounded-lg hover:bg-gray-50 transition-colors"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 15.803a7.5 7.5 0 0010.607 0z" />
-          </svg>
-          Query
-        </button>
+
+        {isGraph ? (
+          <button
+            onClick={() => onExploreGraph(kb)}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-700 border border-purple-200 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <circle cx="5" cy="12" r="2" strokeWidth={2} />
+              <circle cx="19" cy="6" r="2" strokeWidth={2} />
+              <circle cx="19" cy="18" r="2" strokeWidth={2} />
+              <path strokeLinecap="round" strokeWidth={1.5} d="M7 11.5l10-4M7 12.5l10 4" />
+            </svg>
+            Explore Graph
+          </button>
+        ) : (
+          <button
+            onClick={() => onQuery(kb)}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 border border-gray-200 bg-white rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 15.803a7.5 7.5 0 0010.607 0z" />
+            </svg>
+            Query
+          </button>
+        )}
+
+        {isGraph && (
+          <button
+            onClick={() => onQuery(kb)}
+            className="flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-600 border border-gray-200 bg-white rounded-lg hover:bg-gray-50 transition-colors"
+            title="Query this knowledge base"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 15.803a7.5 7.5 0 0010.607 0z" />
+            </svg>
+          </button>
+        )}
+
         {confirmDelete ? (
           <div className="flex items-center gap-1">
-            <button
-              onClick={handleConfirmDelete}
-              disabled={deleting}
-              className="px-2.5 py-1.5 text-xs font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors disabled:opacity-60"
-            >
+            <button onClick={handleConfirmDelete} disabled={deleting}
+              className="px-2.5 py-1.5 text-xs font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors disabled:opacity-60">
               {deleting ? "…" : "Confirm"}
             </button>
-            <button
-              onClick={() => setConfirmDelete(false)}
-              className="px-2.5 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-            >
+            <button onClick={() => setConfirmDelete(false)}
+              className="px-2.5 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
               No
             </button>
           </div>
         ) : (
-          <button
-            onClick={() => setConfirmDelete(true)}
+          <button onClick={() => setConfirmDelete(true)}
             className="p-1.5 text-gray-400 border border-gray-200 rounded-lg hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-colors"
-            title="Delete"
-          >
+            title="Delete">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
@@ -578,16 +1025,19 @@ export default function KnowledgeBases() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [queryTarget, setQueryTarget] = useState<KB | null>(null);
+  const [graphTarget, setGraphTarget] = useState<KB | null>(null);
 
   useEffect(() => {
     ragApi.list().then((res) => {
       const data = res.data as {
-        id: string; name: string; description: string; document_count: number; created_at: string;
+        id: string; name: string; description: string; kb_type?: string;
+        document_count: number; created_at: string;
       }[];
       setKBs(data.map((d) => ({
         id: d.id,
         name: d.name,
         description: d.description,
+        kb_type: (d.kb_type as "basic" | "graph") || "basic",
         documentCount: d.document_count,
         createdAt: d.created_at,
       })));
@@ -595,14 +1045,11 @@ export default function KnowledgeBases() {
       .finally(() => setLoading(false));
   }, []);
 
-  function handleCreate(kb: KB) {
-    setKBs((prev) => [...prev, kb]);
-    setShowCreate(false);
-  }
+  function handleCreate(kb: KB) { setKBs((prev) => [...prev, kb]); setShowCreate(false); }
+  function handleDelete(id: string) { setKBs((prev) => prev.filter((kb) => kb.id !== id)); }
 
-  function handleDelete(id: string) {
-    setKBs((prev) => prev.filter((kb) => kb.id !== id));
-  }
+  const graphCount = kbs.filter((k) => k.kb_type === "graph").length;
+  const basicCount = kbs.filter((k) => k.kb_type === "basic").length;
 
   return (
     <div className="p-8 bg-gray-50 min-h-screen">
@@ -629,6 +1076,16 @@ export default function KnowledgeBases() {
           <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
             {kbs.length} knowledge base{kbs.length !== 1 ? "s" : ""}
           </span>
+          {basicCount > 0 && (
+            <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
+              {basicCount} Basic
+            </span>
+          )}
+          {graphCount > 0 && (
+            <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200">
+              {graphCount} Graph
+            </span>
+          )}
         </div>
       )}
 
@@ -640,12 +1097,12 @@ export default function KnowledgeBases() {
           <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mb-4">
             <svg className="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25 4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
             </svg>
           </div>
           <h3 className="text-base font-semibold text-slate-900 mb-1">No knowledge bases yet</h3>
           <p className="text-sm text-gray-500 mb-6 max-w-sm">
-            Create a knowledge base to upload documents and let your AI agents query them.
+            Create a Basic KB for fast vector search, or a Graph KB to extract entity relationships from your documents.
           </p>
           <button
             onClick={() => setShowCreate(true)}
@@ -665,18 +1122,16 @@ export default function KnowledgeBases() {
               kb={kb}
               onDelete={handleDelete}
               onQuery={(k) => setQueryTarget(k)}
+              onExploreGraph={(k) => setGraphTarget(k)}
             />
           ))}
         </div>
       )}
 
       {/* Modals */}
-      {showCreate && (
-        <CreateModal onClose={() => setShowCreate(false)} onCreate={handleCreate} />
-      )}
-      {queryTarget && (
-        <QueryModal kb={queryTarget} onClose={() => setQueryTarget(null)} />
-      )}
+      {showCreate && <CreateModal onClose={() => setShowCreate(false)} onCreate={handleCreate} />}
+      {queryTarget && <QueryModal kb={queryTarget} onClose={() => setQueryTarget(null)} />}
+      {graphTarget && <GraphExplorerModal kb={graphTarget} onClose={() => setGraphTarget(null)} />}
     </div>
   );
 }
