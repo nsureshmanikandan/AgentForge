@@ -3957,6 +3957,54 @@ def _ensure_requirements_complete(all_files: dict) -> dict:
     return all_files
 
 
+# Known frontend npm import -> package.json dependency entry, for backfilling
+# package.json when the generated App.tsx imports a package the prompt
+# explicitly requires but the LLM's own package.json omits. Same reliability
+# pattern as _IMPORT_TO_REQUIREMENT below, for the frontend side.
+_FRONTEND_IMPORT_TO_DEPENDENCY: dict[str, str] = {
+    "lucide-react": '"lucide-react": "^0.400.0"',
+}
+
+
+def _ensure_frontend_dependencies_complete(all_files: dict) -> dict:
+    """
+    Scan the generated src/App.tsx (and any other .tsx/.ts frontend file) for
+    imports from packages package.json is explicitly told to always include
+    (lucide-react), and backfill package.json when the LLM's own dependency
+    list omits one despite the prompt's "never omit any" instruction --
+    confirmed via live downloads that shipped `import {...} from 'lucide-react'`
+    with no matching package.json entry, breaking the dev server at first
+    load with "Failed to resolve import" (a blank white screen otherwise).
+    """
+    import re as _re
+
+    pkg_path = next((p for p in all_files if p == "package.json" or p.endswith("/package.json")), None)
+    if pkg_path is None:
+        return all_files
+
+    frontend_src = "\n".join(
+        content for path, content in all_files.items()
+        if path.endswith((".tsx", ".ts")) and "backend" not in path
+    )
+
+    pkg_src = all_files[pkg_path]
+    additions = [
+        entry
+        for module, entry in _FRONTEND_IMPORT_TO_DEPENDENCY.items()
+        if _re.search(rf'from\s+[\'"]{_re.escape(module)}[\'"]', frontend_src) and f'"{module}"' not in pkg_src
+    ]
+    if not additions:
+        return all_files
+
+    all_files[pkg_path] = _re.sub(
+        r'("dependencies"\s*:\s*\{)',
+        lambda m: m.group(1) + "\n    " + ",\n    ".join(additions) + ",",
+        pkg_src,
+        count=1,
+    )
+    return all_files
+
+
 def _dedupe_model_classes(all_files: dict) -> dict:
     """
     If models.py defines the same class name twice (observed: two competing
@@ -5996,6 +6044,7 @@ def _rerun_deterministic_fixups(all_files: dict, app_name: str, summary: str) ->
     all_files = _enforce_agentic_structure(all_files, app_name, summary)
     all_files = _dedupe_model_classes(all_files)
     all_files = _ensure_requirements_complete(all_files)
+    all_files = _ensure_frontend_dependencies_complete(all_files)
     all_files = _normalize_vite_proxy_port(all_files)
     all_files = _fix_router_prefixes(all_files)
     all_files = _ensure_documents_router_registered(all_files)
