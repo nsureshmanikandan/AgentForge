@@ -529,4 +529,25 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     createdBy: "AgentForge Team",
     publishedDate: "2026-07-14",
   },
+  {
+    id: "business-analysis-consultant",
+    name: "Business Analysis Consultant",
+    category: "Analytics & Insights",
+    useCases: ["Data Analysis", "Reporting"],
+    integrations: ["Google Drive", "Airtable"],
+    llmModel: "GPT-4",
+    shortDescription: "Turns a short business intake form into a full multi-agent consulting report.",
+    about:
+      "A multi-agent business consulting app: the user fills in a short intake form about their company, and a manager agent orchestrates strategy, market/finance, and growth sub-agents to produce a complete report (executive summary, SWOT, market & financial notes, and a 4-week growth plan), saved to a running Reports list.",
+    tags: ["consulting", "business-analysis", "multi-agent", "strategy"],
+    prompt:
+      "A business analysis consultant app with: (1) a Home dashboard showing Total Analyses, Reports Saved, and Latest Industry stat cards plus a Recent Analyses list with a 'Start New Analysis' call to action; (2) a New Analysis page with a multi-section intake form (Company Basics: business name, industry, business stage; Team & Revenue: team size, monthly revenue range; Audience & Goals: target audience, current challenges, goals) with a form-completion progress bar; (3) a Reports page listing saved past analyses with a 'New Analysis' shortcut; (4) a Settings page showing workspace name/logo fields and a read-only Agents section listing the orchestration agents (Manager Agent - orchestrates business analysis; Strategy Sub-Agent - executive summary, SWOT, personas; Market & Finance Sub-Agent - marketing, sales, revenue, costs; Growth Sub-Agent - AI tools and a 4-week growth plan), each shown as Active. Submitting the intake form generates a full structured consulting report (executive summary, SWOT, market & finance notes, 4-week growth plan) and saves it to Reports.",
+    testDataFileName: "sample-business-intake.txt",
+    testData:
+      "Business Name: Acme Analytics Co.\nIndustry: B2B SaaS - Data Analytics\nBusiness Stage: Early revenue (seed funded)\nTeam Size: 12\nMonthly Revenue: $15,000 - $50,000\nTarget Audience: Series A startups in North America with 20-200 employees\nCurrent Challenges: Long sales cycles, low trial-to-paid conversion (8%), and inconsistent onboarding leading to early churn.\nGoals (next 90 days): Raise trial-to-paid conversion above 15%, cut onboarding time from 3 weeks to 1 week, and close 5 new logo deals.",
+    previewImagePath: "/marketplace-previews/business-analysis-consultant.png",
+    hasPreview: false,
+    createdBy: "AgentForge Team",
+    publishedDate: "2026-07-28",
+  },
 ];
