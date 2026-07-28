@@ -4578,7 +4578,21 @@ Open \`sandbox.html\` directly in any browser for a fully working UI demo — no
   zip.file("Dockerfile", frontendDockerfile);
   zip.file("docker-compose.yml", dockerCompose);
   zip.file("src/main.tsx", mainTsx);
-  zip.file("src/App.tsx", isRagPlan(plan) ? appTsx : buildDynamicAppTsx(plan, appTitle, 8000));
+  // Step 1's generate-project call tries to build a real bespoke App.tsx per app.
+  // Unconditionally overwriting it here with the generic keyword-guessed scaffold
+  // threw away good LLM output and replaced it with a much cruder placeholder
+  // whenever the guesser misclassified a feature -- e.g. any intake form whose
+  // description also happens to mention "upload" got a bare ID-lookup box instead
+  // of its actual form fields (confirmed live on the STORM Research Engine prompt).
+  // Only fall back to the scaffold when Step 1 didn't produce a usable App.tsx.
+  const aiAppTsxKey = Object.keys(aiFiles).find(
+    (k) => k === "src/App.tsx" || k === "frontend/src/App.tsx"
+  );
+  const aiAppTsx = aiAppTsxKey ? (aiFiles[aiAppTsxKey] as string) : "";
+  const hasUsableAiAppTsx = aiAppTsx.trim().length > 500;
+  if (!hasUsableAiAppTsx) {
+    zip.file("src/App.tsx", isRagPlan(plan) ? appTsx : buildDynamicAppTsx(plan, appTitle, 8000));
+  }
   zip.file("src/index.css", indexCss);
 
   // ── Option B: build chat.py that wires to the AI's primary answer agent ────────
