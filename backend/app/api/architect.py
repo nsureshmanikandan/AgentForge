@@ -4088,6 +4088,75 @@ def _dedupe_model_classes(all_files: dict) -> dict:
     return all_files
 
 
+def _dedupe_tablename_collisions(all_files: dict) -> dict:
+    """
+    v3: `_dedupe_model_classes` above only catches two DIFFERENT class blocks
+    with the SAME class name. It misses the equally-crashing case of two
+    DIFFERENTLY-NAMED classes both declaring `__tablename__ = "documents"`
+    (confirmed live: a generated `Document` class and a separate leftover
+    generic-chatbot `Document`-shaped class under a different name, both
+    claiming the "documents" table) -- SQLAlchemy raises the identical
+    `InvalidRequestError: Table 'X' is already defined for this MetaData
+    instance` at import time. Reuses the same "score by which class's field
+    names actually appear as constructor kwargs elsewhere" logic to decide
+    which definition to keep, since "keep the last one" has already been
+    shown (in `_dedupe_model_classes`) to sometimes keep the wrong,
+    incompatible variant.
+    """
+    import re as _re
+
+    models_path = next((p for p in all_files if p.endswith("models.py")), None)
+    if models_path is None:
+        return all_files
+
+    src = all_files[models_path]
+    class_starts = [m.start() for m in _re.finditer(r'^class \w+\(', src, _re.MULTILINE)]
+    if len(class_starts) < 2:
+        return all_files
+
+    header = src[:class_starts[0]]
+    blocks = []
+    for i, start in enumerate(class_starts):
+        end = class_starts[i + 1] if i + 1 < len(class_starts) else len(src)
+        blocks.append(src[start:end])
+
+    indices_by_table: dict[str, list[int]] = {}
+    for i, block in enumerate(blocks):
+        table_match = _re.search(r'__tablename__\s*=\s*["\'](\w+)["\']', block)
+        if table_match:
+            indices_by_table.setdefault(table_match.group(1), []).append(i)
+
+    colliding = {table: idxs for table, idxs in indices_by_table.items() if len(idxs) > 1}
+    if not colliding:
+        return all_files
+
+    other_src = "\n".join(c for p, c in all_files.items() if p != models_path and p.endswith(".py"))
+    drop_indices: set[int] = set()
+    for table, idxs in colliding.items():
+        scores = []
+        for i in idxs:
+            name_match = _re.match(r'class (\w+)\(', blocks[i])
+            class_name = name_match.group(1) if name_match else ""
+            used_kwargs: set[str] = set()
+            for call_match in _re.finditer(rf'\b{class_name}\(([^)]*)\)', other_src):
+                for kwarg_match in _re.finditer(r'(\w+)\s*=', call_match.group(1)):
+                    used_kwargs.add(kwarg_match.group(1))
+            field_names = set(_re.findall(r'^\s+(\w+)\s*:\s*Mapped', blocks[i], _re.MULTILINE))
+            scores.append((len(field_names & used_kwargs), i))
+        scores.sort(reverse=True)
+        # Keep the highest-scoring definition (or the last one on a tie/no
+        # signal), drop the rest so only one class claims this table.
+        for _, i in scores[1:]:
+            drop_indices.add(i)
+
+    if not drop_indices:
+        return all_files
+
+    kept_indices = [i for i in range(len(blocks)) if i not in drop_indices]
+    all_files[models_path] = header + "".join(blocks[i] for i in kept_indices)
+    return all_files
+
+
 def _normalize_vite_proxy_port(all_files: dict, backend_port: int = 8002) -> dict:
     """
     The frontend and backend are generated in two separate LLM calls with no
@@ -4363,6 +4432,186 @@ def _fix_env_asyncpg_driver(all_files: dict) -> dict:
         'DATABASE_URL=postgresql+asyncpg://',
         env_src,
     )
+    return all_files
+
+
+def _fix_database_url_scheme_drift(all_files: dict) -> dict:
+    """
+    v3: broader than `_fix_env_asyncpg_driver` above (which only adds a
+    missing +asyncpg driver) -- this catches config.py's default using one
+    DB backend entirely (sqlite) while .env.example's example value uses a
+    different one (postgres), or vice versa. A first-run user who never
+    edits .env just gets config.py's coded default; if .env.example implies
+    a different backend, copying it verbatim (the normal getting-started
+    step) silently switches the app to a database it was never tested
+    against. Make .env.example's scheme match config.py's actual default.
+    """
+    import re as _re
+
+    config_path = next((p for p in all_files if p.endswith("config.py") and "backend" in p), None)
+    env_path = next((p for p in all_files if p.endswith(".env.example")), None)
+    if config_path is None or env_path is None:
+        return all_files
+
+    config_match = _re.search(r'DATABASE_URL:\s*str\s*=\s*["\'](\w+(?:\+\w+)?)://', all_files[config_path])
+    env_match = _re.search(r'^DATABASE_URL=(\w+(?:\+\w+)?)://', all_files[env_path], _re.MULTILINE)
+    if not config_match or not env_match:
+        return all_files
+
+    config_scheme, env_scheme = config_match.group(1), env_match.group(1)
+    if config_scheme == env_scheme:
+        return all_files
+
+    all_files[env_path] = _re.sub(
+        r'^DATABASE_URL=\w+(?:\+\w+)?://.*$',
+        lambda m: m.group(0).replace(f"{env_scheme}://", f"{config_scheme}://", 1),
+        all_files[env_path],
+        count=1,
+        flags=_re.MULTILINE,
+    )
+    return all_files
+
+
+def _fix_missing_logging_config(all_files: dict) -> dict:
+    """
+    v3: some generations configure zero logging anywhere in the backend --
+    no `logging.basicConfig`, no `logging.getLogger`. Every `logger.info`/
+    `logger.error` call this codebase's own prompt requires elsewhere then
+    silently goes nowhere (Python's root logger with no handler just
+    discards it), so a running app that appears to log actually produces no
+    output at all. Inject a minimal, safe default right after main.py's
+    `load_dotenv()` call, which every generation already has per this
+    prompt's own required import order.
+    """
+    import re as _re
+
+    main_path = _resolve_primary_main_py(all_files)
+    if main_path is None:
+        return all_files
+    src = all_files[main_path]
+    has_logging_config = bool(_re.search(r'logging\.basicConfig|logging\.getLogger', src))
+    any_logging_config = has_logging_config or any(
+        p != main_path and p.endswith(".py") and "backend" in p
+        and _re.search(r'logging\.basicConfig', c)
+        for p, c in all_files.items()
+    )
+    if any_logging_config:
+        return all_files
+
+    all_files[main_path] = _re.sub(
+        r'(load_dotenv\(\)\n)',
+        r'\1import logging\nlogging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")\n',
+        src,
+        count=1,
+    )
+    return all_files
+
+
+def _fix_dead_telemetry(all_files: dict) -> dict:
+    """
+    v3: telemetry.py is generated (defines `setup_telemetry`) per this
+    prompt's own observability instructions, but main.py sometimes never
+    calls it -- the whole OTEL setup is dead code, and no traces/spans are
+    ever emitted despite the project appearing to have tracing configured.
+    """
+    import re as _re
+
+    telemetry_path = next((p for p in all_files if p.endswith("telemetry.py")), None)
+    main_path = _resolve_primary_main_py(all_files)
+    if telemetry_path is None or main_path is None:
+        return all_files
+    if "def setup_telemetry" not in all_files[telemetry_path]:
+        return all_files
+
+    main_src = all_files[main_path]
+    if "setup_telemetry(" in main_src:
+        return all_files  # already wired
+
+    if "from telemetry import setup_telemetry" not in main_src and "from .telemetry import setup_telemetry" not in main_src:
+        main_src = _re.sub(r'(load_dotenv\(\)\n)', r'\1from telemetry import setup_telemetry\n', main_src, count=1)
+    main_src = _re.sub(
+        r'(app\s*=\s*FastAPI\([^)]*\)\n)',
+        r'\1setup_telemetry(app)\n',
+        main_src,
+        count=1,
+    )
+    all_files[main_path] = main_src
+    return all_files
+
+
+def _fix_dockerfile_expose_port(all_files: dict) -> dict:
+    """
+    v3: extends the existing entrypoint/CMD Dockerfile check with a second,
+    independent drift: `EXPOSE <port>` not matching the port the CMD's
+    uvicorn invocation actually binds to (`--port <port>`, or 8000 if the
+    flag is absent, matching this prompt's own uvicorn.run default).
+    EXPOSE is documentation-only to Docker itself, but it's what every
+    `docker run -p` example and docker-compose.yml port mapping in the
+    generated README/compose file is built from, so a wrong value breaks
+    the documented deploy path even though the container starts.
+    """
+    import re as _re
+
+    dockerfile_path = next((p for p in all_files if p.endswith("backend/Dockerfile")), None)
+    if dockerfile_path is None:
+        return all_files
+    src = all_files[dockerfile_path]
+
+    expose_match = _re.search(r'^EXPOSE\s+(\d+)', src, _re.MULTILINE)
+    port_match = _re.search(r'--port["\']?,\s*["\']?(\d+)', src) or _re.search(r'--port\s+(\d+)', src)
+    cmd_port = port_match.group(1) if port_match else "8000"
+
+    if not expose_match:
+        return all_files
+    if expose_match.group(1) == cmd_port:
+        return all_files
+
+    all_files[dockerfile_path] = _re.sub(
+        r'^EXPOSE\s+\d+', f'EXPOSE {cmd_port}', src, count=1, flags=_re.MULTILINE,
+    )
+    return all_files
+
+
+def _fix_json_response_format_missing_keyword(all_files: dict) -> dict:
+    """
+    v3 (found during live testing, not in the original spec draft): Azure
+    OpenAI/OpenAI reject any chat.completions.create(..., response_format=
+    {"type": "json_object"}) call whose messages never contain the literal
+    word "json" -- confirmed live: a generated agent method crashed with
+    `BadRequestError: 'messages' must contain the word 'json' in some form`
+    because its system prompt said "Produce a concise executive summary and
+    recommendation" with no schema description at all. Every agent method
+    in this codebase's own prompt template already gets an explicit "Return
+    JSON exactly as: {...}" instruction; this just catches the case where
+    one slipped through without it, appending a minimal, safe instruction
+    rather than rewriting the prompt's actual content.
+    """
+    import re as _re
+
+    for path, content in list(all_files.items()):
+        if not (path.endswith(".py") and "agents" in path):
+            continue
+        changed = False
+        # Match each chat.completions.create(...) call and check whether its
+        # own messages argument (not the whole file) already mentions "json".
+        for call_match in _re.finditer(r'\.chat\.completions\.create\(([\s\S]*?)\)\)', content):
+            call_src = call_match.group(1)
+            if 'response_format' not in call_src or 'json_object' not in call_src:
+                continue
+            if _re.search(r'json', call_src, _re.IGNORECASE):
+                continue
+            # Append the reminder to the first system-role content string in this call.
+            new_call_src = _re.sub(
+                r'("role"\s*:\s*"system"\s*,\s*"content"\s*:\s*")',
+                r'\1Return your answer as JSON. ',
+                call_src,
+                count=1,
+            )
+            if new_call_src != call_src:
+                content = content.replace(call_src, new_call_src, 1)
+                changed = True
+        if changed:
+            all_files[path] = content
     return all_files
 
 
@@ -4918,6 +5167,135 @@ def _static_code_quality_report(all_files: dict) -> list[str]:
                     f"entrypoint at {entrypoint}) -- the container will crash with "
                     f"ModuleNotFoundError on start."
                 )
+
+        # -- v3: agent-pipeline completeness --------------------------------
+        # Confirmed live on two independent real downloads: a multi-agent
+        # pipeline (Coordinator -> Web Search -> Synthesis -> Citation
+        # Validator -> Report Writer, one class per stage) shipped with only
+        # the first agent ever called; a second app (5 domain methods on a
+        # SINGLE agent class) shipped with only 2 of 5 methods ever called --
+        # and for 2 of the 3 unwired ones, the DB table they existed for was
+        # still written to via plain manual CRUD that bypassed the agent
+        # entirely, which is why this checks CALLS, not table writes.
+        # PROJECT_BACKEND_PROMPT's only orchestration mandate is a single
+        # `answer_question` entry point; nothing else it generates is
+        # required to actually run.
+        agent_methods: list[tuple[str, str, str]] = []  # (short_path, class_name, method_name)
+        for path, tree in trees.items():
+            if "/agents/" not in path and "\\agents\\" not in path:
+                continue
+            short = path.split("backend/", 1)[-1]
+            for node in _ast.walk(tree):
+                if not isinstance(node, _ast.ClassDef):
+                    continue
+                for item in node.body:
+                    if not isinstance(item, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                        continue
+                    if item.name in ("__init__", "answer_question") or item.name.startswith("_"):
+                        continue
+                    agent_methods.append((short, node.name, item.name))
+
+        if agent_methods:
+            api_src = "\n".join(
+                content for path, content in all_files.items()
+                if path.endswith(".py") and "/api/" in path.replace("\\", "/")
+            )
+            for short, class_name, method_name in agent_methods:
+                if not _re.search(rf'\.{_re.escape(method_name)}\(', api_src):
+                    issues.append(
+                        f"Agent method {class_name}.{method_name} in {short} is defined but never "
+                        f"called from any API route -- this declared agent's logic never runs."
+                    )
+
+        # -- v3: DB init / first-run correctness -----------------------------
+        table_to_classes: dict[str, set[str]] = {}
+        for path, tree in trees.items():
+            for node in _ast.walk(tree):
+                if not isinstance(node, _ast.ClassDef):
+                    continue
+                for item in node.body:
+                    if (
+                        isinstance(item, _ast.Assign) and len(item.targets) == 1
+                        and isinstance(item.targets[0], _ast.Name) and item.targets[0].id == "__tablename__"
+                        and isinstance(item.value, _ast.Constant) and isinstance(item.value.value, str)
+                    ):
+                        table_to_classes.setdefault(item.value.value, set()).add(node.name)
+        for table, classes in table_to_classes.items():
+            if len(classes) > 1:
+                issues.append(
+                    f"Table '{table}' is claimed by {len(classes)} different model classes "
+                    f"({', '.join(sorted(classes))}) -- SQLAlchemy will crash at import time with "
+                    f"'Table already defined for this MetaData instance'."
+                )
+
+        config_path = next((p for p in all_files if p.endswith("config.py") and "backend" in p), None)
+        env_path = next((p for p in all_files if p.endswith(".env.example")), None)
+        if config_path and env_path:
+            config_scheme_match = _re.search(r'DATABASE_URL:\s*str\s*=\s*["\'](\w+(?:\+\w+)?)://', all_files[config_path])
+            env_scheme_match = _re.search(r'^DATABASE_URL=(\w+(?:\+\w+)?)://', all_files[env_path], _re.MULTILINE)
+            if config_scheme_match and env_scheme_match and config_scheme_match.group(1) != env_scheme_match.group(1):
+                issues.append(
+                    f"config.py's DATABASE_URL default uses '{config_scheme_match.group(1)}', but "
+                    f".env.example's example value uses '{env_scheme_match.group(1)}' -- a user who "
+                    f"copies .env.example verbatim (the normal first-run step) silently switches to a "
+                    f"database backend that was never tested."
+                )
+
+        # -- v3: observability ------------------------------------------------
+        any_logging = any(
+            p.endswith(".py") and "backend" in p and _re.search(r'logging\.basicConfig|logging\.getLogger', c)
+            for p, c in all_files.items()
+        )
+        if not any_logging:
+            issues.append(
+                "No file in the generated backend configures logging (no logging.basicConfig or "
+                "logging.getLogger) -- any logger.info/logger.error calls elsewhere in the code "
+                "silently go nowhere."
+            )
+
+        telemetry_path = next((p for p in all_files if p.endswith("telemetry.py")), None)
+        if telemetry_path and "def setup_telemetry" in all_files[telemetry_path]:
+            main_path_for_otel = _resolve_primary_main_py(all_files)
+            if main_path_for_otel and "setup_telemetry(" not in all_files[main_path_for_otel]:
+                issues.append(
+                    "telemetry.py defines setup_telemetry(), but main.py never calls it -- OTEL "
+                    "instrumentation is dead code and no traces/spans are ever emitted."
+                )
+
+        # -- v3: Docker validity ----------------------------------------------
+        if dockerfile_path:
+            dockerfile_src = all_files[dockerfile_path]
+            expose_match = _re.search(r'^EXPOSE\s+(\d+)', dockerfile_src, _re.MULTILINE)
+            port_match = _re.search(r'--port["\']?,\s*["\']?(\d+)', dockerfile_src) or _re.search(r'--port\s+(\d+)', dockerfile_src)
+            cmd_port = port_match.group(1) if port_match else "8000"
+            if expose_match and expose_match.group(1) != cmd_port:
+                issues.append(
+                    f"Dockerfile's EXPOSE {expose_match.group(1)} doesn't match the port the CMD's "
+                    f"uvicorn invocation actually binds to ({cmd_port}) -- every documented "
+                    f"`docker run -p` example built from EXPOSE will be wrong."
+                )
+
+        compose_path = next((p for p in all_files if p.endswith("docker-compose.yml")), None)
+        if compose_path and config_path:
+            compose_src = all_files[compose_path]
+            config_src_for_compose = all_files[config_path]
+            for field_match in _re.finditer(r'^\s*(\w+)\s*:\s*str\s*=\s*["\']([^"\']*)["\']', config_src_for_compose, _re.MULTILINE):
+                field, default_val = field_match.group(1), field_match.group(2)
+                if field != "DATABASE_URL":
+                    continue
+                compose_env_match = _re.search(rf'{field}\s*[:=]\s*(\S+)', compose_src)
+                if not compose_env_match:
+                    continue
+                compose_val = compose_env_match.group(1).strip('"\'')
+                default_scheme = default_val.split("://", 1)[0] if "://" in default_val else None
+                compose_scheme = compose_val.split("://", 1)[0] if "://" in compose_val else None
+                if default_scheme and compose_scheme and default_scheme != compose_scheme:
+                    issues.append(
+                        f"docker-compose.yml sets {field} to a '{compose_scheme}' URL, but config.py's "
+                        f"own default uses '{default_scheme}' -- this is a real DB backend choice the "
+                        f"generated code should resolve consistently, not leave conflicting between the "
+                        f"two files."
+                    )
     except Exception as e:
         issues.append(f"(static code quality checker itself failed: {e!r} -- results may be incomplete)")
 
@@ -6043,6 +6421,7 @@ def _rerun_deterministic_fixups(all_files: dict, app_name: str, summary: str) ->
     """
     all_files = _enforce_agentic_structure(all_files, app_name, summary)
     all_files = _dedupe_model_classes(all_files)
+    all_files = _dedupe_tablename_collisions(all_files)
     all_files = _ensure_requirements_complete(all_files)
     all_files = _ensure_frontend_dependencies_complete(all_files)
     all_files = _normalize_vite_proxy_port(all_files)
@@ -6051,9 +6430,14 @@ def _rerun_deterministic_fixups(all_files: dict, app_name: str, summary: str) ->
     all_files = _ensure_health_endpoint(all_files, app_name)
     all_files = _strip_dead_imports(all_files)
     all_files = _fix_env_asyncpg_driver(all_files)
+    all_files = _fix_database_url_scheme_drift(all_files)
     all_files = _fix_slowapi_import_path(all_files)
     all_files = _ensure_jwt_settings(all_files)
     all_files = _fix_dockerfile_entrypoint(all_files)
+    all_files = _fix_dockerfile_expose_port(all_files)
+    all_files = _fix_missing_logging_config(all_files)
+    all_files = _fix_dead_telemetry(all_files)
+    all_files = _fix_json_response_format_missing_keyword(all_files)
     all_files = _ensure_msal_dependencies(all_files)
     return all_files
 
