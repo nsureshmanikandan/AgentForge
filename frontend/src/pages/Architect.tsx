@@ -5342,6 +5342,7 @@ export default function Architect() {
         doc_types: docTypes,
         documents: sessionDocs?.length ? sessionDocs : undefined,
         user_feedback: feedbackHint ?? undefined,
+        original_prompt: userPrompt || undefined,
       });
       const html = res.data.html;
       setProgressStep(3);

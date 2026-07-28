@@ -2707,6 +2707,9 @@ class GenerateUIRequest(BaseModel):
     doc_types: Optional[List[str]] = None
     documents: Optional[List[DocContent]] = None  # actual uploaded doc content
     user_feedback: Optional[str] = None           # refinement instructions from follow-up chat
+    original_prompt: Optional[str] = None         # the user's original detailed request (pre-summarization),
+                                                   # used for app-type detection and to preserve exact page/
+                                                   # form specs the plan summary paraphrases away
 
 
 class ChatMessage(BaseModel):
@@ -2805,8 +2808,19 @@ async def generate_ui(req: GenerateUIRequest):
     doc_types = req.doc_types or ["DOCX", "PDF"]
     features_text = "\n".join(f"- {f}" for f in req.features[:10])
 
-    # Detect app type from prompt keywords â€" CHATBOT checked FIRST to prevent false matches
-    prompt_lower = (req.summary + " " + req.app_name).lower()
+    # Detect app type from prompt keywords â€" CHATBOT checked FIRST to prevent false matches.
+    # Include the original detailed prompt (when the frontend sends it) alongside the plan
+    # summary/app_name -- the summary is an LLM paraphrase that often contains generic words
+    # like "report" (a DASHBOARD trigger keyword below) even for apps that are really a
+    # bespoke multi-agent tool with a required input form. Detecting off the paraphrase alone
+    # was misrouting those into the rigid DASHBOARD template, which has no concept of a
+    # custom intake form and silently drops the app's actual required fields.
+    original_prompt_lower = (req.original_prompt or "").lower()
+    prompt_lower = (req.summary + " " + req.app_name + " " + (req.original_prompt or "")).lower()
+    # Strong signal this is a bespoke multi-agent app with its own page/form spec that must
+    # be honored verbatim -- never let generic DASHBOARD keywords (report/chart/metrics/etc.)
+    # override that, since the rigid DASHBOARD template can't render a custom intake form.
+    _is_explicit_multi_agent_spec = "ai agents:" in original_prompt_lower or "ai agent" in original_prompt_lower
 
     # Priority 1: Council/decision-intelligence apps (checked first, most specific)
     if any(k in prompt_lower for k in ["decision intelligence", "decision advisor", "verdict", "the council",
@@ -2881,7 +2895,8 @@ async def generate_ui(req: GenerateUIRequest):
                                           "conversational", "assistant bot"]):
         detected_type = "CHATBOT"
 
-    elif any(k in prompt_lower for k in ["dashboard", "analytics", "kpi", "metrics", "monitor", "report", "chart"]):
+    elif any(k in prompt_lower for k in ["dashboard", "analytics", "kpi", "metrics", "monitor", "report", "chart"]) \
+            and not _is_explicit_multi_agent_spec:
         detected_type = "DASHBOARD"
 
     else:
@@ -3043,6 +3058,21 @@ If building a CHATBOT:
   - DOC_SECTIONS = [] (empty array, no documents provided)
 """
 
+    # The plan summary paraphrases away specifics like exact page names and required form
+    # fields (e.g. "Research Intake -- Form: Topic (required), Perspectives, Depth"). When the
+    # user's original detailed prompt is available, include it verbatim so the LLM builds the
+    # actual specified pages/fields instead of improvising a generic layout for {detected_type}.
+    original_prompt_block = ""
+    if req.original_prompt and req.original_prompt.strip():
+        original_prompt_block = f"""
+
+ORIGINAL DETAILED REQUEST (this is the source of truth for exact page names, form fields,
+and agent behavior -- follow it precisely, especially any required input fields):
+-----------
+{req.original_prompt.strip()[:6000]}
+-----------
+"""
+
     user_prompt = f"""Build a production-quality enterprise {detected_type} application for this requirement:
 
 REQUIREMENT
@@ -3053,7 +3083,7 @@ Domain: {domain}
 Summary: {req.summary}
 Document types: {', '.join(doc_types)}
 App type: {detected_type}
-
+{original_prompt_block}
 Key features to include:
 {features_text}
 

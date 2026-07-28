@@ -125,6 +125,7 @@ export const architectApi = {
     doc_types?: string[];
     documents?: { name: string; text: string }[];
     user_feedback?: string;
+    original_prompt?: string;
   }) => api.post("/architect/generate-ui", payload),
 };
 
