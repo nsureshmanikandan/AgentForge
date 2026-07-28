@@ -2888,11 +2888,17 @@ async def generate_ui(req: GenerateUIRequest):
                                           "sql query result", "pricing research", "brand health"]):
         detected_type = "DATA_APP"
 
-    # Priority 3: Generic chatbot / dashboard fallback keywords
+    # Priority 3: Generic chatbot / dashboard fallback keywords.
+    # "rag"/"knowledge base"/"conversational" are single generic words that show up naturally
+    # in plenty of non-chatbot feature descriptions (e.g. "RAG-grounded citation validation" in
+    # a multi-agent research engine) -- guarded the same way as DASHBOARD below, so an explicit
+    # multi-agent spec never gets forced into the rigid CHATBOT template just because one of its
+    # AI-generated feature bullets happens to contain one of these words.
     elif any(k in prompt_lower for k in ["chatbot", "chat bot", "support bot", "virtual agent", "rag", "faq",
                                           "knowledge base", "it support", "service desk", "helpdesk", "help desk",
                                           "customer support", "support ticket", "qa bot", "q&a bot",
-                                          "conversational", "assistant bot"]):
+                                          "conversational", "assistant bot"]) \
+            and not _is_explicit_multi_agent_spec:
         detected_type = "CHATBOT"
 
     elif any(k in prompt_lower for k in ["dashboard", "analytics", "kpi", "metrics", "monitor", "report", "chart"]) \
