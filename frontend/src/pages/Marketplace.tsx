@@ -1,6 +1,13 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CATEGORIES, MARKETPLACE_TEMPLATES, type MarketplaceTemplate } from "../components/marketplaceTemplates";
+import {
+  CATEGORIES,
+  USE_CASES,
+  INTEGRATIONS,
+  LLM_MODELS,
+  MARKETPLACE_TEMPLATES,
+  type MarketplaceTemplate,
+} from "../components/marketplaceTemplates";
 import TemplateCard from "../components/TemplateCard";
 import TemplateDetailModal from "../components/TemplateDetailModal";
 
@@ -19,13 +26,14 @@ export default function Marketplace() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [selectedUseCases, setSelectedUseCases] = useState<string[]>([]);
+  const [selectedIntegrations, setSelectedIntegrations] = useState<string[]>([]);
+  const [selectedModels, setSelectedModels] = useState<string[]>([]);
   const [sort, setSort] = useState<SortMode>("popular");
   const [activeTemplate, setActiveTemplate] = useState<MarketplaceTemplate | null>(null);
 
-  function toggleCategory(cat: string) {
-    setSelectedCategories((prev) =>
-      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
-    );
+  function toggle(list: string[], setList: (v: string[]) => void, value: string) {
+    setList(list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
   }
 
   const filtered = useMemo(() => {
@@ -37,7 +45,12 @@ export default function Marketplace() {
         t.shortDescription.toLowerCase().includes(q) ||
         t.tags.some((tag) => tag.toLowerCase().includes(q));
       const matchCat = selectedCategories.length === 0 || selectedCategories.includes(t.category);
-      return matchSearch && matchCat;
+      const matchUseCase =
+        selectedUseCases.length === 0 || t.useCases.some((u) => selectedUseCases.includes(u));
+      const matchIntegration =
+        selectedIntegrations.length === 0 || t.integrations.some((i) => selectedIntegrations.includes(i));
+      const matchModel = selectedModels.length === 0 || selectedModels.includes(t.llmModel);
+      return matchSearch && matchCat && matchUseCase && matchIntegration && matchModel;
     });
 
     if (sort === "popular") {
@@ -48,11 +61,30 @@ export default function Marketplace() {
     // "top-rated" has no real rating data yet -- keep curated order as a
     // reasonable placeholder (see design spec's Non-Goals section).
     return items;
-  }, [search, selectedCategories, sort]);
+  }, [search, selectedCategories, selectedUseCases, selectedIntegrations, selectedModels, sort]);
 
-  function handleUseTemplate(prompt: string) {
+  function handleUseTemplate(template: MarketplaceTemplate) {
     setActiveTemplate(null);
-    navigate("/architect", { state: { prompt } });
+    navigate("/architect", {
+      state: {
+        prompt: template.prompt,
+        files: [{ name: template.testDataFileName, text: template.testData }],
+      },
+    });
+  }
+
+  const allFilters: { label: string; group: string; onClear: () => void }[] = [
+    ...selectedCategories.map((v) => ({ label: v, group: "category", onClear: () => toggle(selectedCategories, setSelectedCategories, v) })),
+    ...selectedUseCases.map((v) => ({ label: v, group: "useCase", onClear: () => toggle(selectedUseCases, setSelectedUseCases, v) })),
+    ...selectedIntegrations.map((v) => ({ label: v, group: "integration", onClear: () => toggle(selectedIntegrations, setSelectedIntegrations, v) })),
+    ...selectedModels.map((v) => ({ label: v, group: "model", onClear: () => toggle(selectedModels, setSelectedModels, v) })),
+  ];
+
+  function clearAllFilters() {
+    setSelectedCategories([]);
+    setSelectedUseCases([]);
+    setSelectedIntegrations([]);
+    setSelectedModels([]);
   }
 
   return (
@@ -94,48 +126,54 @@ export default function Marketplace() {
       </div>
 
       <div className="flex gap-6">
-        <aside className="w-56 flex-shrink-0">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Categories</p>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setSelectedCategories([...CATEGORIES])}
-                className="text-[11px] text-indigo-600 hover:underline"
-              >
-                Select all
-              </button>
-              {selectedCategories.length > 0 && (
-                <button onClick={() => setSelectedCategories([])} className="text-[11px] text-indigo-600 hover:underline">
-                  Clear all
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            {CATEGORIES.map((cat) => (
-              <label key={cat} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={selectedCategories.includes(cat)}
-                  onChange={() => toggleCategory(cat)}
-                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                />
-                {cat}
-              </label>
-            ))}
-          </div>
+        <aside className="w-56 flex-shrink-0 space-y-5">
+          <FilterSection
+            title="Categories"
+            options={CATEGORIES as readonly string[]}
+            selected={selectedCategories}
+            onToggle={(v) => toggle(selectedCategories, setSelectedCategories, v)}
+            onSelectAll={() => setSelectedCategories([...CATEGORIES])}
+            onClearAll={() => setSelectedCategories([])}
+          />
+          <FilterSection
+            title="Use Cases"
+            options={USE_CASES as readonly string[]}
+            selected={selectedUseCases}
+            onToggle={(v) => toggle(selectedUseCases, setSelectedUseCases, v)}
+            onSelectAll={() => setSelectedUseCases([...USE_CASES])}
+            onClearAll={() => setSelectedUseCases([])}
+          />
+          <FilterSection
+            title="Integrations"
+            options={INTEGRATIONS as readonly string[]}
+            selected={selectedIntegrations}
+            onToggle={(v) => toggle(selectedIntegrations, setSelectedIntegrations, v)}
+            onSelectAll={() => setSelectedIntegrations([...INTEGRATIONS])}
+            onClearAll={() => setSelectedIntegrations([])}
+          />
+          <FilterSection
+            title="LLM Models"
+            options={LLM_MODELS as readonly string[]}
+            selected={selectedModels}
+            onToggle={(v) => toggle(selectedModels, setSelectedModels, v)}
+            onSelectAll={() => setSelectedModels([...LLM_MODELS])}
+            onClearAll={() => setSelectedModels([])}
+          />
         </aside>
 
         <div className="flex-1">
-          {selectedCategories.length > 0 && (
+          {allFilters.length > 0 && (
             <div className="flex items-center gap-2 mb-4 flex-wrap">
               <span className="text-xs text-gray-500">Active filters:</span>
-              {selectedCategories.map((cat) => (
-                <span key={cat} className="flex items-center gap-1 text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded-full">
-                  {cat}
-                  <button onClick={() => toggleCategory(cat)} className="hover:text-indigo-900">×</button>
+              {allFilters.map((f) => (
+                <span key={`${f.group}-${f.label}`} className="flex items-center gap-1 text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded-full">
+                  {f.label}
+                  <button onClick={f.onClear} className="hover:text-indigo-900">×</button>
                 </span>
               ))}
+              <button onClick={clearAllFilters} className="text-[11px] text-indigo-600 hover:underline ml-1">
+                Clear all
+              </button>
             </div>
           )}
           <p className="text-sm text-gray-500 mb-4">Results ({filtered.length})</p>
@@ -159,6 +197,53 @@ export default function Marketplace() {
           onUseTemplate={handleUseTemplate}
         />
       )}
+    </div>
+  );
+}
+
+function FilterSection({
+  title,
+  options,
+  selected,
+  onToggle,
+  onSelectAll,
+  onClearAll,
+}: {
+  title: string;
+  options: readonly string[];
+  selected: string[];
+  onToggle: (value: string) => void;
+  onSelectAll: () => void;
+  onClearAll: () => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{title}</p>
+        <div className="flex items-center gap-2">
+          <button onClick={onSelectAll} className="text-[11px] text-indigo-600 hover:underline">
+            Select all
+          </button>
+          {selected.length > 0 && (
+            <button onClick={onClearAll} className="text-[11px] text-indigo-600 hover:underline">
+              Clear all
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        {options.map((opt) => (
+          <label key={opt} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={selected.includes(opt)}
+              onChange={() => onToggle(opt)}
+              className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            {opt}
+          </label>
+        ))}
+      </div>
     </div>
   );
 }

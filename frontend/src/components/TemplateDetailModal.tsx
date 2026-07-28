@@ -28,7 +28,7 @@ export default function TemplateDetailModal({
 }: {
   template: MarketplaceTemplate;
   onClose: () => void;
-  onUseTemplate: (prompt: string) => void;
+  onUseTemplate: (template: MarketplaceTemplate) => void;
 }) {
   const [views, setViews] = useState(() => readCounter("af_marketplace_views", template.id));
   const [clones, setClones] = useState(() => readCounter("af_marketplace_clones", template.id));
@@ -44,7 +44,7 @@ export default function TemplateDetailModal({
 
   function handleUseTemplate() {
     setClones(bumpCounter("af_marketplace_clones", template.id));
-    onUseTemplate(template.prompt);
+    onUseTemplate(template);
   }
 
   return (
@@ -77,11 +77,26 @@ export default function TemplateDetailModal({
           </div>
 
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Tags</p>
-          <div className="flex flex-wrap gap-1.5 mb-5">
+          <div className="flex flex-wrap gap-1.5 mb-4">
             {template.tags.map((t) => (
               <span key={t} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{t}</span>
             ))}
           </div>
+
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Use cases</p>
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            {template.useCases.map((u) => (
+              <span key={u} className="text-xs bg-sky-50 text-sky-700 px-2 py-0.5 rounded-full">{u}</span>
+            ))}
+          </div>
+
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Integrations</p>
+          <div className="flex flex-wrap gap-1.5 mb-1">
+            {template.integrations.map((i) => (
+              <span key={i} className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">{i}</span>
+            ))}
+          </div>
+          <p className="text-[11px] text-gray-400 mb-5">Model: {template.llmModel}</p>
 
           <div className="flex gap-2 mb-5">
             {template.hasPreview && (

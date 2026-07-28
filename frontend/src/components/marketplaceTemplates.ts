@@ -1,7 +1,8 @@
 // Curated AgentForge app templates for the Marketplace gallery.
-// Reuses the UX pattern (categories, card/detail-modal fields) observed on
-// Lyzr AI's Marketplace, but every name/description/prompt/tag below is
-// original AgentForge content -- nothing is copied from Lyzr.
+// Reuses the UX pattern (categories, use cases, integrations, LLM model
+// filters, card/detail-modal fields) observed on Lyzr AI's Marketplace, but
+// every name/description/prompt/tag/test-data sample below is original
+// AgentForge content -- nothing is copied from Lyzr.
 //
 // See docs/superpowers/specs/2026-07-27-agentforge-marketplace-design.md
 
@@ -9,10 +10,20 @@ export interface MarketplaceTemplate {
   id: string;
   name: string;
   category: string;
+  useCases: string[];
+  integrations: string[];
+  llmModel: string;
   shortDescription: string;
   about: string;
   tags: string[];
   prompt: string;
+  // Realistic sample data (CSV/plain text) that a user would actually upload
+  // to test this app once built. Passed to Architect via the same
+  // {files:[{name,text}]} handoff used for sample-file blueprints, so
+  // clicking "Use This Template" both queues the prompt and pre-loads a
+  // real test file.
+  testDataFileName: string;
+  testData: string;
   previewImagePath: string;
   // Whether previewImagePath actually points at a real, generated
   // screenshot yet. Most templates don't have one until someone runs
@@ -41,17 +52,58 @@ export const CATEGORIES = [
   "Other",
 ] as const;
 
+export const USE_CASES = [
+  "Lead Generation",
+  "Customer Engagement",
+  "Workflow Automation",
+  "Data Analysis",
+  "Content Creation",
+  "Task Management",
+  "Reporting",
+  "Scheduling",
+] as const;
+
+export const INTEGRATIONS = [
+  "Slack",
+  "Gmail",
+  "Google Drive",
+  "Notion",
+  "Zapier",
+  "HubSpot",
+  "Salesforce",
+  "Zendesk",
+  "Stripe",
+  "GitHub",
+  "Jira",
+  "Airtable",
+] as const;
+
+export const LLM_MODELS = [
+  "GPT-4",
+  "GPT-4o",
+  "GPT-4o Mini",
+  "GPT-3.5",
+  "Claude 3 Opus",
+  "Claude 3 Sonnet",
+] as const;
+
 export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
   {
     id: "hr-policy-faq",
     name: "HR Policy FAQ Assistant",
     category: "HR & Recruiting",
+    useCases: ["Customer Engagement", "Workflow Automation"],
+    integrations: ["Google Drive", "Slack"],
+    llmModel: "GPT-4o",
     shortDescription: "Answers employee questions from uploaded HR policy documents, with SSO.",
     about:
       "An internal HR assistant that answers employee questions from uploaded HR policy PDFs/DOCX, citing the exact source document and confidence for every answer, with Microsoft Entra ID (Azure AD) SSO login for authentication.",
     tags: ["hr", "rag", "sso", "chatbot"],
     prompt:
       "An internal HR FAQ chatbot that authenticates employees via Microsoft Entra ID SSO and answers questions from uploaded HR policy documents, with document upload, admin audit log, and rate limiting.",
+    testDataFileName: "hr-leave-policy.txt",
+    testData:
+      "ACME CORP - LEAVE POLICY (effective 2026-01-01)\n\n1. Annual Leave: All full-time employees accrue 18 paid leave days per calendar year, credited monthly at 1.5 days/month.\n2. Sick Leave: 10 paid sick days per year. A medical certificate is required for absences longer than 2 consecutive days.\n3. Maternity Leave: 26 weeks paid leave for the primary caregiver, as per statutory requirement.\n4. Paternity Leave: 2 weeks paid leave, must be taken within 3 months of the child's birth.\n5. Work From Home: Employees may work remotely up to 2 days/week with manager approval logged in the HRMS.\n6. Notice Period: 60 days written notice required for resignation from all confirmed employees.\n7. Leave Carry Forward: Up to 10 unused annual leave days may be carried forward to the next calendar year; excess days lapse on Dec 31.",
     previewImagePath: "/marketplace-previews/hr-policy-faq.png",
     hasPreview: false,
     createdBy: "AgentForge Team",
@@ -61,12 +113,18 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     id: "sales-lead-scorer",
     name: "Sales Lead Scorer",
     category: "Sales & CRM",
+    useCases: ["Lead Generation", "Reporting"],
+    integrations: ["Salesforce", "HubSpot"],
+    llmModel: "GPT-4",
     shortDescription: "Scores inbound leads and drafts personalized outreach emails.",
     about:
       "A sales intelligence app that scores inbound leads 0-100 from CRM data, explains the score with an AI-written rationale, and drafts a personalized first-touch outreach email per lead.",
     tags: ["sales", "crm", "lead-scoring", "outreach"],
     prompt:
       "A sales intelligence app for scoring inbound leads and drafting personalized cold outreach emails, with a leads table (name, company, score, stage) and an AI email composer.",
+    testDataFileName: "inbound-leads.csv",
+    testData:
+      "name,company,title,employees,industry,last_activity,source\nPriya Menon,Bluewave Retail,VP Operations,450,Retail,2026-07-20,Website Demo Request\nCarlos Diaz,Northgate Logistics,IT Director,1200,Logistics,2026-07-18,LinkedIn Ad\nAyesha Khan,Finlytics Corp,CFO,80,FinTech,2026-07-25,Referral\nTom Becker,GreenFields Agri,Owner,15,Agriculture,2026-07-10,Cold Email Reply\nLena Fischer,Orbit Health,Head of Procurement,600,Healthcare,2026-07-22,Webinar Signup",
     previewImagePath: "/marketplace-previews/sales-lead-scorer.png",
     hasPreview: false,
     createdBy: "AgentForge Team",
@@ -76,12 +134,18 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     id: "support-ticket-triage",
     name: "Support Ticket Triage",
     category: "Customer Support",
+    useCases: ["Customer Engagement", "Workflow Automation"],
+    integrations: ["Zendesk", "Slack"],
+    llmModel: "GPT-4o",
     shortDescription: "Classifies and prioritizes incoming support tickets automatically.",
     about:
       "An omni-channel support triage app that classifies incoming tickets by category and urgency, suggests a resolution from the knowledge base, and escalates unresolved tickets to a human agent.",
     tags: ["support", "helpdesk", "triage", "csat"],
     prompt:
       "A customer support ticket triage app that classifies incoming tickets by category and urgency, suggests resolutions from a knowledge base, and escalates unresolved tickets to a human agent.",
+    testDataFileName: "support-tickets.csv",
+    testData:
+      "ticket_id,customer,subject,message,channel,created_at\nT-1042,Rahul S.,Cannot log in,\"I reset my password twice but still get 'invalid credentials' on the mobile app.\",Email,2026-07-24\nT-1043,Green Leaf Cafe,Billing discrepancy,\"We were charged twice for the June invoice, please refund the duplicate charge.\",Chat,2026-07-24\nT-1044,Meera P.,Feature request,\"Would love a dark mode option in the dashboard.\",Portal,2026-07-25\nT-1045,David K.,App crashing,\"The app crashes every time I try to export a report to PDF on iOS 18.\",Email,2026-07-25",
     previewImagePath: "/marketplace-previews/support-ticket-triage.png",
     hasPreview: false,
     createdBy: "AgentForge Team",
@@ -91,12 +155,18 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     id: "kpi-dashboard-builder",
     name: "KPI Dashboard Builder",
     category: "Analytics & Insights",
+    useCases: ["Data Analysis", "Reporting"],
+    integrations: ["Google Drive", "Airtable"],
+    llmModel: "GPT-4",
     shortDescription: "Turns an uploaded spreadsheet into a live KPI dashboard.",
     about:
       "A business intelligence app that ingests an uploaded CSV/Excel file and builds a KPI dashboard (charts, trend lines, summary stats) derived entirely from the real uploaded data.",
     tags: ["analytics", "dashboard", "bi", "data"],
     prompt:
       "A business intelligence dashboard app that ingests an uploaded CSV or Excel file and builds KPI charts, trend lines, and summary stats derived from the real uploaded data.",
+    testDataFileName: "monthly-sales.csv",
+    testData:
+      "month,region,revenue,units_sold,new_customers\n2026-01,North,182000,910,42\n2026-02,North,175500,875,38\n2026-03,North,201300,1005,55\n2026-01,South,143200,716,29\n2026-02,South,151800,759,33\n2026-03,South,168900,844,41",
     previewImagePath: "/marketplace-previews/kpi-dashboard-builder.png",
     hasPreview: false,
     createdBy: "AgentForge Team",
@@ -106,12 +176,18 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     id: "invoice-processor",
     name: "Invoice Processing Agent",
     category: "Finance & Accounting",
+    useCases: ["Data Analysis", "Workflow Automation"],
+    integrations: ["Stripe", "Google Drive"],
+    llmModel: "GPT-4o",
     shortDescription: "Extracts line items from uploaded invoices and flags anomalies.",
     about:
       "A finance automation app that extracts vendor, line items, and totals from uploaded invoice PDFs, checks them against a budget threshold, and flags anomalies for manual review.",
     tags: ["finance", "invoicing", "automation", "ocr"],
     prompt:
       "An invoice processing app that extracts vendor, line items, and totals from uploaded invoice PDFs, checks them against a budget threshold, and flags anomalies for manual review.",
+    testDataFileName: "vendor-invoices.csv",
+    testData:
+      "invoice_no,vendor,date,line_item,amount,budget_limit\nINV-3301,Skyline Office Supplies,2026-07-01,Printer paper (50 reams),620.00,1000\nINV-3302,Skyline Office Supplies,2026-07-01,Toner cartridges,1450.00,1000\nINV-3401,CloudHost Inc,2026-07-05,Monthly server hosting,3200.00,3500\nINV-3402,Bright Marketing Co,2026-07-08,Q3 campaign design,8900.00,5000",
     previewImagePath: "/marketplace-previews/invoice-processor.png",
     hasPreview: false,
     createdBy: "AgentForge Team",
@@ -121,12 +197,18 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     id: "meeting-notes-summarizer",
     name: "Meeting Notes Summarizer",
     category: "Productivity",
+    useCases: ["Task Management", "Content Creation"],
+    integrations: ["Notion", "Slack"],
+    llmModel: "GPT-4o Mini",
     shortDescription: "Turns raw meeting transcripts into action items and summaries.",
     about:
       "A productivity app that takes an uploaded meeting transcript and produces a concise summary, a list of decisions made, and action items with owners, ready to share with the team.",
     tags: ["productivity", "meetings", "summarization"],
     prompt:
       "A meeting notes app that takes an uploaded meeting transcript and produces a concise summary, decisions made, and action items with owners.",
+    testDataFileName: "standup-transcript.txt",
+    testData:
+      "[Weekly Product Sync - 2026-07-22]\nPriya: We finished the onboarding flow redesign, ready for QA on Monday.\nCarlos: API rate limiting is still blocked on the infra ticket, ETA slipped to next Friday.\nAyesha: Marketing wants the release notes page live before the webinar on the 30th.\nTom: I'll pair with Carlos tomorrow to unblock the rate limiting ticket.\nDecision: Webinar date stays fixed at July 30; release notes page is now the top priority for Ayesha's team.\nAction items: Priya -> hand off to QA Monday. Carlos & Tom -> unblock rate limiting by Thursday. Ayesha -> ship release notes page by July 29.",
     previewImagePath: "/marketplace-previews/meeting-notes-summarizer.png",
     hasPreview: false,
     createdBy: "AgentForge Team",
@@ -136,12 +218,18 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     id: "code-review-assistant",
     name: "Code Review Assistant",
     category: "Developer Tools",
+    useCases: ["Workflow Automation", "Task Management"],
+    integrations: ["GitHub", "Jira"],
+    llmModel: "Claude 3 Sonnet",
     shortDescription: "Reviews uploaded code diffs and suggests improvements.",
     about:
       "A developer tool that reviews an uploaded code diff for bugs, style issues, and missing tests, and generates a structured review comment ready to paste into a pull request.",
     tags: ["devtools", "code-review", "engineering"],
     prompt:
       "A code review assistant app that reviews an uploaded code diff for bugs, style issues, and missing tests, and generates a structured pull-request review comment.",
+    testDataFileName: "sample.diff",
+    testData:
+      "--- a/src/utils/discount.ts\n+++ b/src/utils/discount.ts\n@@ -1,7 +1,10 @@\n-export function applyDiscount(price: number, pct: number) {\n-  return price - price * pct;\n+export function applyDiscount(price: number, pct: number) {\n+  if (pct < 0 || pct > 1) throw new Error(\"pct must be between 0 and 1\");\n+  const discounted = price - price * pct;\n+  return Math.round(discounted * 100) / 100;\n }\n+\n+// NOTE: no unit test added for the new bounds check yet",
     previewImagePath: "/marketplace-previews/code-review-assistant.png",
     hasPreview: false,
     createdBy: "AgentForge Team",
@@ -151,12 +239,18 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     id: "social-content-planner",
     name: "Social Content Planner",
     category: "Marketing",
+    useCases: ["Content Creation", "Scheduling"],
+    integrations: ["Zapier", "Notion"],
+    llmModel: "GPT-4",
     shortDescription: "Generates a week of on-brand social posts from a topic list.",
     about:
       "A marketing app that takes a list of topics and a brand voice description, and generates a week's worth of social media post drafts with suggested posting times.",
     tags: ["marketing", "social-media", "content"],
     prompt:
       "A social content planner app that takes a list of topics and a brand voice description, and generates a week's worth of social media post drafts with suggested posting times.",
+    testDataFileName: "content-topics.txt",
+    testData:
+      "Brand voice: Friendly, upbeat, plain-spoken. Avoid jargon and exclamation overload.\n\nTopics for next week:\n1. Launch of our new eco-friendly packaging\n2. Customer spotlight: a small bakery using our platform\n3. Behind-the-scenes: how our support team resolves tickets in under an hour\n4. Reminder: free onboarding webinar this Thursday at 3pm\n5. Quick tip: 3 ways to reduce checkout abandonment",
     previewImagePath: "/marketplace-previews/social-content-planner.png",
     hasPreview: false,
     createdBy: "AgentForge Team",
@@ -166,12 +260,18 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     id: "onboarding-buddy",
     name: "New Hire Onboarding Buddy",
     category: "HR & Recruiting",
+    useCases: ["Task Management", "Customer Engagement"],
+    integrations: ["Slack", "Notion"],
+    llmModel: "GPT-4o Mini",
     shortDescription: "Guides new hires through their first-week checklist.",
     about:
       "An HR onboarding app that walks new hires through a first-week checklist (paperwork, tool access, introductions), tracks completion, and answers onboarding-related questions.",
     tags: ["hr", "onboarding", "checklist"],
     prompt:
       "A new hire onboarding app that walks employees through a first-week checklist, tracks completion progress, and answers onboarding-related questions.",
+    testDataFileName: "onboarding-checklist.txt",
+    testData:
+      "Week 1 Checklist - New Hire\n[ ] Day 1: Complete I-9 / tax paperwork in HRMS\n[ ] Day 1: Laptop and badge pickup from IT desk\n[ ] Day 1: Meet your onboarding buddy and manager\n[ ] Day 2: Set up Slack, email, and VPN access\n[ ] Day 2: Complete security & compliance training module\n[ ] Day 3: 1:1 intro meetings with immediate team members\n[ ] Day 4: Shadow a live customer call or sprint standup\n[ ] Day 5: Submit first-week feedback survey",
     previewImagePath: "/marketplace-previews/onboarding-buddy.png",
     hasPreview: false,
     createdBy: "AgentForge Team",
@@ -181,12 +281,18 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     id: "expense-report-assistant",
     name: "Expense Report Assistant",
     category: "Finance & Accounting",
+    useCases: ["Data Analysis", "Reporting"],
+    integrations: ["Stripe", "Airtable"],
+    llmModel: "GPT-4o",
     shortDescription: "Extracts and categorizes receipts into a submittable expense report.",
     about:
       "A finance app that extracts amount, vendor, and date from uploaded receipt images, auto-categorizes each expense, and compiles them into a submittable expense report.",
     tags: ["finance", "expenses", "receipts"],
     prompt:
       "An expense report app that extracts amount, vendor, and date from uploaded receipt images, auto-categorizes each expense, and compiles a submittable expense report.",
+    testDataFileName: "expenses.csv",
+    testData:
+      "date,vendor,amount,note\n2026-07-14,Delta Airlines,412.50,Flight to client site - Chicago\n2026-07-14,Hilton Downtown,238.00,Hotel - 1 night, client visit\n2026-07-15,Uber,18.75,Airport to hotel\n2026-07-16,Cafe Roma,24.30,Team lunch with client",
     previewImagePath: "/marketplace-previews/expense-report-assistant.png",
     hasPreview: false,
     createdBy: "AgentForge Team",
@@ -196,12 +302,18 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     id: "document-qa-workspace",
     name: "Document Q&A Workspace",
     category: "Data Processing",
+    useCases: ["Data Analysis", "Workflow Automation"],
+    integrations: ["Google Drive", "Notion"],
+    llmModel: "GPT-4",
     shortDescription: "Upload any documents and ask questions grounded in their content.",
     about:
       "A general-purpose document Q&A app: upload any mix of PDFs, DOCX, and text files, then ask questions and get answers grounded in and cited from the actual uploaded content.",
     tags: ["rag", "documents", "search"],
     prompt:
       "A document Q&A workspace app where users upload PDFs, DOCX, and text files, then ask questions and get answers grounded in and cited from the actual uploaded content.",
+    testDataFileName: "vendor-contract.txt",
+    testData:
+      "SERVICE AGREEMENT SUMMARY\nParties: Acme Corp (Client) and Northwind Consulting (Vendor)\nTerm: 12 months, effective 2026-08-01, auto-renews unless either party gives 30 days written notice.\nScope: Vendor provides quarterly IT infrastructure audits and a dedicated support engineer during business hours (9am-6pm IST).\nFees: $12,000/quarter, invoiced net-30.\nSLA: Critical incidents acknowledged within 2 hours, resolved or mitigated within 24 hours.\nTermination: Either party may terminate for material breach with a 15-day cure period.",
     previewImagePath: "/marketplace-previews/document-qa-workspace.png",
     hasPreview: false,
     createdBy: "AgentForge Team",
@@ -211,15 +323,210 @@ export const MARKETPLACE_TEMPLATES: MarketplaceTemplate[] = [
     id: "release-notes-generator",
     name: "Release Notes Generator",
     category: "Automation",
+    useCases: ["Content Creation", "Reporting"],
+    integrations: ["GitHub", "Slack"],
+    llmModel: "GPT-4o Mini",
     shortDescription: "Turns a list of merged PR titles into polished release notes.",
     about:
       "An automation app that takes a raw list of merged pull request titles and generates polished, categorized release notes (Features, Fixes, Breaking Changes) ready to publish.",
     tags: ["automation", "devtools", "release-notes"],
     prompt:
       "A release notes generator app that takes a list of merged pull request titles and generates polished, categorized release notes (Features, Fixes, Breaking Changes).",
+    testDataFileName: "merged-prs.txt",
+    testData:
+      "#412 Add dark mode toggle to settings page\n#415 Fix crash when exporting empty report to PDF\n#418 BREAKING: rename /api/v1/users to /api/v2/accounts\n#421 Add bulk CSV import for contacts\n#423 Fix incorrect timezone offset in scheduled reports\n#426 Improve load time of dashboard by lazy-loading charts",
     previewImagePath: "/marketplace-previews/release-notes-generator.png",
     hasPreview: false,
     createdBy: "AgentForge Team",
     publishedDate: "2026-06-26",
+  },
+  {
+    id: "event-outreach-tracker",
+    name: "Event Outreach Tracker",
+    category: "Sales & CRM",
+    useCases: ["Lead Generation", "Scheduling"],
+    integrations: ["HubSpot", "Google Drive"],
+    llmModel: "GPT-4",
+    shortDescription: "Finds relevant industry events and tracks outreach status per contact.",
+    about:
+      "A sales/events app that helps reps track which industry events matter for their pipeline, log outreach attempts per contact, and get AI-suggested follow-up messages based on event context.",
+    tags: ["sales", "events", "outreach", "pipeline"],
+    prompt:
+      "An event outreach tracker app where reps log target industry events, add contacts met at each event, track outreach status per contact, and get AI-drafted follow-up messages referencing the event.",
+    testDataFileName: "event-contacts.csv",
+    testData:
+      "event,contact_name,company,met_date,outreach_status\nCloud Summit 2026,Nina Patel,Vertex Systems,2026-06-10,Follow-up sent\nCloud Summit 2026,Marcus Lee,DataForge Inc,2026-06-10,Not contacted\nFinTech Connect,Sara Ibrahim,PayNorth,2026-07-02,Meeting scheduled\nFinTech Connect,Omar Haddad,LedgerWorks,2026-07-02,Not contacted",
+    previewImagePath: "/marketplace-previews/event-outreach-tracker.png",
+    hasPreview: false,
+    createdBy: "AgentForge Team",
+    publishedDate: "2026-06-28",
+  },
+  {
+    id: "habit-tracker",
+    name: "Daily Habit Tracker",
+    category: "Productivity",
+    useCases: ["Task Management", "Data Analysis"],
+    integrations: ["Notion", "Slack"],
+    llmModel: "GPT-4o Mini",
+    shortDescription: "Logs daily habits and surfaces streaks, gaps, and gentle nudges.",
+    about:
+      "A personal productivity app for logging daily habits (exercise, reading, sleep, etc.), visualizing streaks over time, and getting a short AI-written weekly reflection on patterns and gaps.",
+    tags: ["productivity", "habits", "wellness", "tracking"],
+    prompt:
+      "A daily habit tracker app where users log habits each day, see streaks and a calendar heatmap, and get a weekly AI-written reflection summarizing patterns and suggesting one small adjustment.",
+    testDataFileName: "habit-log.csv",
+    testData:
+      "date,habit,completed\n2026-07-20,Exercise,yes\n2026-07-20,Read 20 min,yes\n2026-07-21,Exercise,no\n2026-07-21,Read 20 min,yes\n2026-07-22,Exercise,yes\n2026-07-22,Read 20 min,no\n2026-07-23,Exercise,yes\n2026-07-23,Read 20 min,yes",
+    previewImagePath: "/marketplace-previews/habit-tracker.png",
+    hasPreview: false,
+    createdBy: "AgentForge Team",
+    publishedDate: "2026-06-30",
+  },
+  {
+    id: "claims-review-assistant",
+    name: "Insurance Claims Review Assistant",
+    category: "Finance & Accounting",
+    useCases: ["Data Analysis", "Workflow Automation"],
+    integrations: ["Google Drive", "Zendesk"],
+    llmModel: "GPT-4",
+    shortDescription: "Reviews uploaded insurance claim details and flags ones needing manual review.",
+    about:
+      "A claims operations app that reviews an uploaded claim's details against policy rules, calculates a risk/anomaly flag, and produces a short written rationale for whether it should auto-approve or escalate to a human adjuster.",
+    tags: ["insurance", "claims", "risk", "compliance"],
+    prompt:
+      "An insurance claims review app that takes uploaded claim records, checks each against policy coverage rules, flags anomalies (amount outliers, mismatched dates, missing documentation), and recommends auto-approve vs escalate to a human adjuster with a written rationale.",
+    testDataFileName: "claims.csv",
+    testData:
+      "claim_id,policy_no,claim_type,amount,incident_date,filed_date,documents_attached\nCLM-8801,POL-4021,Auto Collision,4200,2026-07-01,2026-07-03,yes\nCLM-8802,POL-4055,Water Damage,18500,2026-06-15,2026-07-20,no\nCLM-8803,POL-4021,Auto Collision,950,2026-07-10,2026-07-11,yes\nCLM-8804,POL-4099,Theft,12000,2026-07-05,2026-07-06,yes",
+    previewImagePath: "/marketplace-previews/claims-review-assistant.png",
+    hasPreview: false,
+    createdBy: "AgentForge Team",
+    publishedDate: "2026-07-02",
+  },
+  {
+    id: "research-digest-mailer",
+    name: "Research Digest Mailer",
+    category: "Automation",
+    useCases: ["Content Creation", "Scheduling"],
+    integrations: ["Gmail", "Zapier"],
+    llmModel: "GPT-4o",
+    shortDescription: "Summarizes a batch of research paper abstracts into a weekly digest email.",
+    about:
+      "An automation app for research teams: upload a list of paper titles and abstracts, and it drafts a categorized weekly digest email (by topic) with one-line summaries and relevance notes, ready to send.",
+    tags: ["research", "email", "summarization", "automation"],
+    prompt:
+      "A research digest app that takes an uploaded list of paper titles and abstracts, groups them by topic, and drafts a weekly digest email with one-line summaries and a relevance note per paper.",
+    testDataFileName: "paper-abstracts.txt",
+    testData:
+      "Title: Efficient Retrieval-Augmented Generation for Long Documents\nAbstract: We propose a chunking strategy that improves retrieval precision on documents over 200 pages by 18% without added latency.\n\nTitle: Calibrating Confidence Scores in Customer Support Chatbots\nAbstract: A lightweight calibration method that reduces overconfident wrong answers in production support bots by 27%.\n\nTitle: Cost-Aware Scheduling for Multi-Agent LLM Pipelines\nAbstract: A scheduler that reduces average pipeline cost by 31% by routing simple sub-tasks to smaller models.",
+    previewImagePath: "/marketplace-previews/research-digest-mailer.png",
+    hasPreview: false,
+    createdBy: "AgentForge Team",
+    publishedDate: "2026-07-04",
+  },
+  {
+    id: "standup-scheduler",
+    name: "Team Standup Scheduler",
+    category: "Communication",
+    useCases: ["Scheduling", "Workflow Automation"],
+    integrations: ["Slack", "Google Drive"],
+    llmModel: "GPT-3.5",
+    shortDescription: "Collects async standup updates and posts a rolled-up summary daily.",
+    about:
+      "A communication app where team members submit their daily standup update (yesterday/today/blockers) through a simple form, and the app posts an AI-rolled-up team summary highlighting shared blockers.",
+    tags: ["communication", "standup", "team", "async"],
+    prompt:
+      "A team standup scheduler app where each member submits yesterday/today/blockers updates, and the app generates a rolled-up daily summary that groups shared blockers and flags anyone who hasn't submitted yet.",
+    testDataFileName: "standup-updates.csv",
+    testData:
+      "name,yesterday,today,blockers\nPriya,Finished onboarding UI,Start QA pass,None\nCarlos,Debugged rate limiter,Pair with Tom on infra ticket,Waiting on infra access\nTom,Reviewed 3 PRs,Help Carlos on infra ticket,Waiting on infra access\nAyesha,Drafted release notes,Publish release notes page,None",
+    previewImagePath: "/marketplace-previews/standup-scheduler.png",
+    hasPreview: false,
+    createdBy: "AgentForge Team",
+    publishedDate: "2026-07-06",
+  },
+  {
+    id: "contract-clause-extractor",
+    name: "Contract Clause Extractor",
+    category: "Data Processing",
+    useCases: ["Data Analysis", "Reporting"],
+    integrations: ["Google Drive", "Airtable"],
+    llmModel: "Claude 3 Opus",
+    shortDescription: "Extracts key clauses (term, fees, SLA, termination) from uploaded contracts.",
+    about:
+      "A legal-ops app that scans an uploaded contract and extracts a structured summary of key clauses (term length, fees, SLA commitments, termination conditions), flagging any clause that looks unusual versus a standard template.",
+    tags: ["legal", "contracts", "extraction", "compliance"],
+    prompt:
+      "A contract clause extractor app that takes an uploaded contract document and produces a structured summary table of term length, fees, SLA commitments, and termination conditions, flagging any clause that deviates from a standard template.",
+    testDataFileName: "sample-contract.txt",
+    testData:
+      "MASTER SERVICES AGREEMENT (excerpt)\nTerm: This agreement is effective for 24 months from the Effective Date and renews automatically for successive 12-month terms unless either party provides 45 days' written notice.\nFees: Client shall pay $9,500 monthly, due within 15 days of invoice (non-standard: most templates use net-30).\nSLA: Provider guarantees 99.5% uptime measured monthly; credits of 5% of monthly fee per 0.1% below threshold.\nTermination: Either party may terminate immediately for a security breach affecting Client data.",
+    previewImagePath: "/marketplace-previews/contract-clause-extractor.png",
+    hasPreview: false,
+    createdBy: "AgentForge Team",
+    publishedDate: "2026-07-08",
+  },
+  {
+    id: "candidate-screener",
+    name: "Resume Screening Assistant",
+    category: "HR & Recruiting",
+    useCases: ["Data Analysis", "Workflow Automation"],
+    integrations: ["Google Drive", "Slack"],
+    llmModel: "GPT-4",
+    shortDescription: "Screens uploaded resumes against a job description and ranks candidates.",
+    about:
+      "A recruiting app that takes an uploaded job description and a batch of resumes, scores each candidate's fit with an explained rationale, and produces a ranked shortlist for the hiring manager.",
+    tags: ["hr", "recruiting", "resume-screening", "ranking"],
+    prompt:
+      "A resume screening app that takes an uploaded job description and a batch of candidate resumes, scores each candidate 0-100 for fit with a written rationale, and outputs a ranked shortlist.",
+    testDataFileName: "candidates.csv",
+    testData:
+      "name,years_experience,current_title,key_skills,notice_period_days\nJordan Alvarez,6,Senior Backend Engineer,\"Python, Postgres, AWS\",30\nMei Lin,3,Backend Engineer,\"Node.js, MongoDB\",15\nSam O'Connor,9,Staff Engineer,\"Python, Kubernetes, Kafka\",60\nRitika Sharma,4,Backend Engineer,\"Python, Postgres, Docker\",30",
+    previewImagePath: "/marketplace-previews/candidate-screener.png",
+    hasPreview: false,
+    createdBy: "AgentForge Team",
+    publishedDate: "2026-07-10",
+  },
+  {
+    id: "churn-risk-detector",
+    name: "Customer Churn Risk Detector",
+    category: "Analytics & Insights",
+    useCases: ["Data Analysis", "Reporting"],
+    integrations: ["Salesforce", "Stripe"],
+    llmModel: "GPT-4o",
+    shortDescription: "Flags at-risk accounts from usage/billing data and suggests retention actions.",
+    about:
+      "A customer success app that ingests uploaded account usage and billing data, flags accounts showing churn-risk signals (declining usage, late payments, support escalations), and suggests a tailored retention action per account.",
+    tags: ["customer-success", "churn", "retention", "analytics"],
+    prompt:
+      "A churn risk detector app that takes uploaded account usage and billing data, flags accounts with declining usage or payment issues as at-risk, and suggests a specific retention action per flagged account.",
+    testDataFileName: "account-usage.csv",
+    testData:
+      "account,monthly_active_users,logins_last_30d,mrr,payment_status,last_login\nAcme Retail,42,180,2400,current,2026-07-25\nNorthgate Logistics,8,12,1800,overdue,2026-07-05\nBlueSky Media,15,20,900,current,2026-07-24\nOrbit Health,30,5,3200,overdue,2026-06-30",
+    previewImagePath: "/marketplace-previews/churn-risk-detector.png",
+    hasPreview: false,
+    createdBy: "AgentForge Team",
+    publishedDate: "2026-07-12",
+  },
+  {
+    id: "faq-widget-builder",
+    name: "Website FAQ Widget Builder",
+    category: "Customer Support",
+    useCases: ["Customer Engagement", "Content Creation"],
+    integrations: ["Zendesk", "Notion"],
+    llmModel: "GPT-4o Mini",
+    shortDescription: "Turns an uploaded help-center export into a searchable FAQ widget.",
+    about:
+      "A support-content app that takes an uploaded help-center article export, organizes it into categorized FAQ entries, and generates a searchable widget preview ready to embed on a marketing site.",
+    tags: ["support", "faq", "content", "widget"],
+    prompt:
+      "A website FAQ widget builder app that takes an uploaded help-center article export, organizes entries into categories, and renders a searchable FAQ widget preview with expandable answers.",
+    testDataFileName: "help-articles.txt",
+    testData:
+      "Q: How do I reset my password?\nA: Go to Settings > Account > Reset Password. A reset link is emailed within 5 minutes.\n\nQ: Can I change my billing cycle?\nA: Yes, from Settings > Billing you can switch between monthly and annual billing at any time; changes apply next cycle.\n\nQ: Is there a free trial?\nA: Yes, all plans include a 14-day free trial, no credit card required.\n\nQ: How do I export my data?\nA: Settings > Data > Export All generates a CSV download within a few minutes.",
+    previewImagePath: "/marketplace-previews/faq-widget-builder.png",
+    hasPreview: false,
+    createdBy: "AgentForge Team",
+    publishedDate: "2026-07-14",
   },
 ];
