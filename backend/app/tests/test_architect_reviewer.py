@@ -12,8 +12,14 @@ downloading and executing an actual generated project, not a hypothetical.
 from unittest.mock import AsyncMock, patch
 
 from app.api.architect import (
+    _dedupe_tablename_collisions,
     _ensure_requirements_complete,
+    _fix_database_url_scheme_drift,
+    _fix_dead_telemetry,
     _fix_dockerfile_entrypoint,
+    _fix_dockerfile_expose_port,
+    _fix_json_response_format_missing_keyword,
+    _fix_missing_logging_config,
     _resolve_primary_main_py,
     _review_and_fix_generated_code,
     _run_verified_review_loop,
@@ -58,6 +64,10 @@ def _base_project() -> dict:
         "backend/app/models.py": MODELS_PY,
         "backend/app/config.py": CONFIG_PY,
         "backend/app/main.py": (
+            "from dotenv import load_dotenv\n"
+            "load_dotenv()\n"
+            "import logging\n"
+            "logging.basicConfig(level=logging.INFO)\n"
             "from fastapi import FastAPI\n"
             "app = FastAPI()\n"
         ),
@@ -305,3 +315,288 @@ async def test_review_and_fix_survives_llm_failure_unchanged():
             dict(files), AsyncMock(), "gpt-4o", "max_tokens", known_issues=["something"],
         )
     assert result == files
+
+
+# ── v3: agent-pipeline completeness ──────────────────────────────────────────
+# docs/superpowers/specs/2026-07-28-agentic-code-reviewer-agent-v3-pipeline-completeness-design.md
+
+def test_pipeline_completeness_flags_unwired_agent_classes():
+    """Reproduces the confirmed research-engine bug: 5 separate agent
+    classes, only the first (Coordinator) ever called from a route."""
+    files = _base_project()
+    files["backend/app/agents/ResearchCoordinatorAgent.py"] = (
+        "class ResearchCoordinatorAgent:\n    def define_scope(self, topic): return {}\n"
+    )
+    files["backend/app/agents/WebSearchAgent.py"] = (
+        "class WebSearchAgent:\n    def search(self, query): return {}\n"
+    )
+    files["backend/app/agents/SynthesisAgent.py"] = (
+        "class SynthesisAgent:\n    def synthesize(self, findings): return {}\n"
+    )
+    files["backend/app/agents/CitationValidatorAgent.py"] = (
+        "class CitationValidatorAgent:\n    def validate(self, claims): return {}\n"
+    )
+    files["backend/app/agents/ReportWriterAgent.py"] = (
+        "class ReportWriterAgent:\n    def write_report(self, context): return {}\n"
+    )
+    files["backend/app/api/research_runs.py"] = (
+        "from app.agents.ResearchCoordinatorAgent import ResearchCoordinatorAgent\n"
+        "def create_run(topic):\n"
+        "    agent = ResearchCoordinatorAgent()\n"
+        "    return agent.define_scope(topic)\n"
+    )
+    issues = _static_code_quality_report(files)
+    unwired = [i for i in issues if "never called from any API route" in i]
+    assert len(unwired) == 4
+    assert any("WebSearchAgent.search" in i for i in unwired)
+    assert any("SynthesisAgent.synthesize" in i for i in unwired)
+    assert any("CitationValidatorAgent.validate" in i for i in unwired)
+    assert any("ReportWriterAgent.write_report" in i for i in unwired)
+    assert not any("define_scope" in i for i in unwired)
+
+
+def test_pipeline_completeness_flags_unwired_methods_on_single_class():
+    """Reproduces the confirmed recruitment-app bug: one agent class with 5
+    domain methods, only 2 ever called -- the shape that motivated checking
+    at the method level instead of matching classes to tables, since 2 of
+    the 3 unwired methods here still have their DB table written to via
+    plain manual CRUD that bypasses the agent entirely."""
+    files = _base_project()
+    files["backend/app/agents/RecruitmentPipelineAgent.py"] = (
+        "class RecruitmentPipelineAgent:\n"
+        "    def analyze_resume_batch(self, jd, resumes): return {}\n"
+        "    def score_candidate(self, profile): return {}\n"
+        "    def propose_interview_slots(self, name, constraints): return {}\n"
+        "    def collect_feedback_summary(self, text): return {}\n"
+        "    def generate_hiring_report(self, context): return {}\n"
+        "    def answer_question(self, question, history=None): return {}\n"
+    )
+    files["backend/app/api/jobs.py"] = (
+        "from app.agents.RecruitmentPipelineAgent import RecruitmentPipelineAgent\n"
+        "def upload_resumes(jd, resumes):\n"
+        "    agent = RecruitmentPipelineAgent()\n"
+        "    return agent.analyze_resume_batch(jd, resumes)\n"
+    )
+    files["backend/app/api/candidates.py"] = (
+        "from app.agents.RecruitmentPipelineAgent import RecruitmentPipelineAgent\n"
+        "def create_interview(candidate_id):\n"
+        "    interview = {}  # manual CRUD, agent never consulted\n"
+        "    return interview\n"
+        "def generate_report(candidate_id, context):\n"
+        "    agent = RecruitmentPipelineAgent()\n"
+        "    return agent.generate_hiring_report(context)\n"
+    )
+    issues = _static_code_quality_report(files)
+    unwired = [i for i in issues if "never called from any API route" in i]
+    assert len(unwired) == 3
+    assert any("score_candidate" in i for i in unwired)
+    assert any("propose_interview_slots" in i for i in unwired)
+    assert any("collect_feedback_summary" in i for i in unwired)
+    # answer_question is the mandatory chat orchestrator entry point --
+    # excluded from this check even though nothing calls it here either.
+    assert not any("answer_question" in i for i in unwired)
+
+
+def test_pipeline_completeness_reports_nothing_when_fully_wired():
+    files = _base_project()
+    files["backend/app/agents/SoloAgent.py"] = (
+        "class SoloAgent:\n    def do_thing(self, x): return {}\n"
+    )
+    files["backend/app/api/things.py"] = (
+        "from app.agents.SoloAgent import SoloAgent\n"
+        "def run(x):\n    agent = SoloAgent()\n    return agent.do_thing(x)\n"
+    )
+    issues = _static_code_quality_report(files)
+    assert not any("never called from any API route" in i for i in issues)
+
+
+def test_pipeline_completeness_ignores_plain_chat_app():
+    """A single-agent chatbot with only answer_question must never trigger
+    this check -- it's the common case, not the bug shape."""
+    files = _base_project()
+    files["backend/app/agents/ChatAgent.py"] = (
+        "class ChatAgent:\n"
+        "    def __init__(self): pass\n"
+        "    def answer_question(self, question, history=None): return {}\n"
+    )
+    issues = _static_code_quality_report(files)
+    assert not any("never called from any API route" in i for i in issues)
+
+
+# ── v3: DB init / first-run correctness ──────────────────────────────────────
+
+def test_detects_tablename_collision_across_differently_named_classes():
+    files = _base_project()
+    files["backend/app/models.py"] += (
+        "\nclass LegacyDocument(Base):\n"
+        "    __tablename__ = \"policy_documents\"\n"
+        "    id: Mapped[int] = mapped_column(Integer, primary_key=True)\n"
+    )
+    issues = _static_code_quality_report(files)
+    assert any("policy_documents" in i and "different model classes" in i for i in issues)
+
+
+def test_dedupe_tablename_collisions_keeps_the_used_definition():
+    files = _base_project()
+    files["backend/app/models.py"] += (
+        "\nclass LegacyDocument(Base):\n"
+        "    __tablename__ = \"policy_documents\"\n"
+        "    id: Mapped[int] = mapped_column(Integer, primary_key=True)\n"
+        "    old_field: Mapped[str] = mapped_column(String(50))\n"
+    )
+    files["backend/app/api/documents.py"] = "PolicyDocument(title='x')\n"  # only the real one is used
+    result = _dedupe_tablename_collisions(files)
+    assert "class LegacyDocument" not in result["backend/app/models.py"]
+    assert "class PolicyDocument" in result["backend/app/models.py"]
+
+
+def test_no_tablename_collision_reports_nothing():
+    issues = _static_code_quality_report(_base_project())
+    assert not any("different model classes" in i for i in issues)
+
+
+def test_detects_database_url_scheme_drift():
+    files = _base_project()
+    files["backend/app/config.py"] = CONFIG_PY.replace(
+        "sqlite:///./app.db", "postgresql+asyncpg://postgres:postgres@localhost:5432/app"
+    )
+    files["backend/.env.example"] = "DATABASE_URL=sqlite:///./app.db\n"
+    issues = _static_code_quality_report(files)
+    assert any("DATABASE_URL default uses" in i for i in issues)
+
+
+def test_fix_database_url_scheme_drift_makes_env_example_match_config():
+    files = _base_project()
+    files["backend/app/config.py"] = CONFIG_PY.replace(
+        "sqlite:///./app.db", "postgresql+asyncpg://postgres:postgres@localhost:5432/app"
+    )
+    files["backend/.env.example"] = "DATABASE_URL=sqlite:///./app.db\n"
+    result = _fix_database_url_scheme_drift(files)
+    assert result["backend/.env.example"].startswith("DATABASE_URL=postgresql+asyncpg://")
+    # idempotent -- re-running on already-fixed output changes nothing further
+    assert _fix_database_url_scheme_drift(result) == result
+
+
+def test_no_database_url_drift_reports_nothing():
+    issues = _static_code_quality_report(_base_project())
+    assert not any("DATABASE_URL default uses" in i for i in issues)
+
+
+# ── v3: observability ─────────────────────────────────────────────────────────
+
+def test_detects_missing_logging_config():
+    files = _base_project()
+    files["backend/app/main.py"] = "from fastapi import FastAPI\napp = FastAPI()\n"
+    issues = _static_code_quality_report(files)
+    assert any("No file in the generated backend configures logging" in i for i in issues)
+
+
+def test_fix_missing_logging_config_injects_basicConfig():
+    files = _base_project()
+    files["backend/app/main.py"] = "from dotenv import load_dotenv\nload_dotenv()\nfrom fastapi import FastAPI\napp = FastAPI()\n"
+    result = _fix_missing_logging_config(files)
+    assert "logging.basicConfig" in result["backend/app/main.py"]
+    assert not any(
+        "No file in the generated backend configures logging" in i
+        for i in _static_code_quality_report(result)
+    )
+
+
+def test_base_project_reports_no_logging_issue():
+    issues = _static_code_quality_report(_base_project())
+    assert not any("No file in the generated backend configures logging" in i for i in issues)
+
+
+def test_detects_dead_telemetry():
+    files = _base_project()
+    files["backend/telemetry.py"] = "def setup_telemetry(app):\n    pass\n"
+    issues = _static_code_quality_report(files)
+    assert any("OTEL instrumentation is dead code" in i for i in issues)
+
+
+def test_fix_dead_telemetry_wires_the_call():
+    files = _base_project()
+    files["backend/telemetry.py"] = "def setup_telemetry(app):\n    pass\n"
+    result = _fix_dead_telemetry(files)
+    assert "setup_telemetry(" in result["backend/app/main.py"]
+    assert not any("OTEL instrumentation is dead code" in i for i in _static_code_quality_report(result))
+
+
+def test_no_telemetry_file_reports_nothing():
+    issues = _static_code_quality_report(_base_project())
+    assert not any("dead code" in i for i in issues)
+
+
+# ── v3: Docker validity ───────────────────────────────────────────────────────
+
+def test_detects_expose_port_mismatch():
+    files = _base_project()
+    files["backend/Dockerfile"] = (
+        "FROM python:3.11-slim\nWORKDIR /app\nCOPY . .\nEXPOSE 8080\n"
+        'CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]\n'
+    )
+    issues = _static_code_quality_report(files)
+    assert any("EXPOSE 8080" in i and "8000" in i for i in issues)
+
+
+def test_fix_dockerfile_expose_port_matches_cmd():
+    files = _base_project()
+    files["backend/Dockerfile"] = (
+        "FROM python:3.11-slim\nWORKDIR /app\nCOPY . .\nEXPOSE 8080\n"
+        'CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]\n'
+    )
+    result = _fix_dockerfile_expose_port(files)
+    assert "EXPOSE 8000" in result["backend/Dockerfile"]
+    assert not any("doesn't match the port" in i for i in _static_code_quality_report(result))
+
+
+def test_expose_port_match_reports_nothing():
+    issues = _static_code_quality_report(_base_project())
+    assert not any("doesn't match the port" in i for i in issues)
+
+
+def test_detects_docker_compose_env_drift():
+    files = _base_project()
+    files["backend/docker-compose.yml"] = (
+        "services:\n  backend:\n    environment:\n"
+        "      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/app\n"
+    )
+    issues = _static_code_quality_report(files)
+    assert any("docker-compose.yml sets" in i for i in issues)
+
+
+def test_docker_compose_matching_scheme_reports_nothing():
+    files = _base_project()
+    files["backend/docker-compose.yml"] = (
+        "services:\n  backend:\n    environment:\n      DATABASE_URL: sqlite:///./app.db\n"
+    )
+    issues = _static_code_quality_report(files)
+    assert not any("docker-compose.yml sets" in i for i in issues)
+
+
+# ── v3 bonus: response_format json_object without the word "json" ───────────
+
+def test_fix_json_response_format_missing_keyword_appends_reminder():
+    files = _base_project()
+    files["backend/app/agents/ReportAgent.py"] = (
+        'class ReportAgent:\n'
+        '    def generate(self, ctx):\n'
+        '        r = self.client.chat.completions.create(model="x", messages=[{"role": "system", "content": "You are a report generator."}], response_format={"type": "json_object"})\n'
+    )
+    result = _fix_json_response_format_missing_keyword(files)
+    assert "json" in result["backend/app/agents/ReportAgent.py"].lower()
+    # Second call is idempotent -- doesn't double-append
+    twice = _fix_json_response_format_missing_keyword(result)
+    assert twice["backend/app/agents/ReportAgent.py"] == result["backend/app/agents/ReportAgent.py"]
+
+
+def test_fix_json_response_format_leaves_compliant_prompts_alone():
+    files = _base_project()
+    original = (
+        'class ReportAgent:\n'
+        '    def generate(self, ctx):\n'
+        '        r = self.client.chat.completions.create(model="x", messages=[{"role": "system", "content": "Return JSON exactly as: {...}"}], response_format={"type": "json_object"})\n'
+    )
+    files["backend/app/agents/ReportAgent.py"] = original
+    result = _fix_json_response_format_missing_keyword(files)
+    assert result["backend/app/agents/ReportAgent.py"] == original
