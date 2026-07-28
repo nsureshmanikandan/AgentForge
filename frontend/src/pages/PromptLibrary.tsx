@@ -9,6 +9,10 @@ interface Prompt {
   tools: string[];
   complexity: "Starter" | "Intermediate" | "Advanced";
   sampleFile?: { name: string; url: string };
+  // Inline sample data (name + raw text), attached to Architect the same way
+  // an uploaded file would be -- used instead of sampleFile when there's no
+  // static file to host, e.g. for the Orchestration Pipelines prompts.
+  sampleData?: { name: string; text: string };
 }
 
 const PROMPTS: Prompt[] = [
@@ -1945,6 +1949,348 @@ Sample data: Pre-populate with 8 sample consulting clients with varied health sc
     complexity: "Intermediate",
     sampleFile: { name: "client-health-scorecard-sample.csv", url: "/samples/general/client-health-scorecard.csv" },
   },
+
+  // ── Orchestration Pipelines ──────────────────────────────────────────────
+  // Migrated from the standalone Blueprints page: these are multi-agent
+  // orchestration pipeline concepts (agent chain + workflow steps + tools),
+  // now expressed as full Architect prompts with pages, UI, and database
+  // notes, matching the rest of the library.
+  {
+    category: "Orchestration Pipelines",
+    title: "STORM-Style Research Engine",
+    description: "Multi-perspective research that explores any topic through 5 AI analyst lenses, synthesizes findings, and produces a comprehensive cited report.",
+    prompt: `Build a multi-agent research engine that explores any topic from 5 AI analyst perspectives in parallel, synthesizes the findings, validates citations, and produces a comprehensive research report.
+
+AI agents:
+1. Research Coordinator — Defines research scope from the topic and fans out to the 4 perspective agents in parallel.
+2. Web Search Agent (x4 perspectives) — Each searches and retrieves sources for one analyst lens (technical, business, academic, contrarian) and extracts relevant passages.
+3. Synthesis Agent — Merges all perspective findings into one coherent narrative, noting where perspectives disagree.
+4. Citation Validator — Confirms every claim traces to a specific retrieved passage and flags unsupported claims.
+5. Report Writer — Produces the final report: executive summary, per-perspective sections, and a bibliography.
+
+Pages:
+1. Research Intake — Form: Topic (required), Perspectives to include (checkboxes), Depth (Quick/Standard/Deep). Live progress stepper while agents run.
+2. Report View — Full cited report with expandable per-perspective sections and a bibliography sidebar.
+3. Research History — Live list from the database (NOT hardcoded) of past research runs: topic, date, source count, status. Click to reopen.
+
+UI: Clean two-column layout, collapsible left nav (Intake, Reports, History), citations as clickable superscript numbers.
+
+Database: Persist every research run with sub-questions, sources, synthesized report, and citation flags. History reads live from the DB.`,
+    tools: ["Web Search", "RAG", "PDF Parser"],
+    complexity: "Advanced",
+    sampleData: {
+      name: "research-topic.txt",
+      text: "Research topic: The impact of AI coding assistants on software team productivity.\nFocus areas: developer velocity, code quality/defect rate, onboarding time for new hires, and job-market impact.\nExcluded domains: none.",
+    },
+  },
+  {
+    category: "Orchestration Pipelines",
+    title: "AI Blog Writing Pipeline",
+    description: "Research-backed blog pipeline: keyword research, outline generation, first draft, SEO optimization, and publish-ready final post.",
+    prompt: `Build a multi-agent blog writing pipeline that does keyword research, generates a structured outline, writes a full draft, optimizes for SEO, and produces a publish-ready blog post.
+
+AI agents:
+1. Keyword Researcher — Given a topic, identifies primary and secondary target keywords and search intent.
+2. Outline Planner — Builds a structured H2/H3 outline covering the keywords and intent.
+3. Content Writer — Writes the full draft from the outline, matching a specified tone/voice.
+4. SEO Optimizer — Optimizes title, meta description, and keyword density; suggests internal link opportunities.
+
+Pages:
+1. New Post — Form: Topic, Target audience, Tone, Word count target. Progress stepper: Keywords -> Outline -> Draft -> SEO -> Final.
+2. Draft Editor — Editable draft with SEO score panel (keyword density, readability, meta preview) alongside.
+3. Post History — Live list from the database (NOT hardcoded) of past posts: title, keyword, SEO score, status (draft/published). Search and filter.
+
+UI: Clean editor-style layout, SEO score shown as a gauge, keyword usage highlighted inline in the draft.
+
+Database: Persist every post with keywords, outline, draft, SEO score, and status. History reads live from the DB.`,
+    tools: ["Web Search", "Webhook"],
+    complexity: "Intermediate",
+    sampleData: {
+      name: "blog-brief.txt",
+      text: "Topic: How small e-commerce brands can reduce cart abandonment.\nTarget audience: Shopify store owners with under $1M annual revenue.\nTone: Practical, friendly, no jargon.\nWord count target: 1200-1500 words.",
+    },
+  },
+  {
+    category: "Orchestration Pipelines",
+    title: "Content Strategy & Editorial",
+    description: "End-to-end content engine: strategy planning, content calendar generation, multi-format content creation, and performance tracking.",
+    prompt: `Build a content strategy multi-agent system that audits existing content, defines content pillars, generates a 30-day editorial calendar, creates multi-format content, and tracks performance.
+
+AI agents:
+1. Strategy Planner — Audits an uploaded list of existing content and defines 3-5 content pillars aligned to stated business goals.
+2. Calendar Builder — Generates a 30-day editorial calendar across the pillars, assigning format (blog/social/email) and publish date per entry.
+3. Content Writer — Drafts each calendar entry in the appropriate format and length.
+4. Social Adapter — Repurposes long-form drafts into short-form social variants (LinkedIn, X, Instagram caption).
+5. Analytics Tracker — Once performance data is entered, summarizes what's working per pillar and recommends calendar adjustments.
+
+Pages:
+1. Content Audit — Upload existing content list; view identified pillars and gaps.
+2. Editorial Calendar — Calendar/list view of the 30-day plan with format badges and status (planned/drafted/published).
+3. Draft Workspace — Per-entry draft editor with the social-format variants shown alongside.
+4. Performance Dashboard — Enter/import engagement metrics per published entry; bar chart of performance by pillar; Analytics Tracker's recommendation panel.
+
+UI: Calendar view as the centerpiece, pillar color-coding carried through calendar entries and dashboard charts.
+
+Database: Persist pillars, calendar entries, drafts, social variants, and performance metrics. Dashboard reads live from the DB.`,
+    tools: ["Web Search", "Email", "Webhook"],
+    complexity: "Advanced",
+    sampleData: {
+      name: "existing-content.csv",
+      text: "title,format,publish_date,pillar\n5 Shopify Apps for Cart Recovery,blog,2026-05-02,Conversion\nHow We Cut Churn 18% in One Quarter,case-study,2026-05-20,Retention\nWeekly Newsletter #34,email,2026-06-01,Retention\nBehind the Scenes: Our Support Team,social,2026-06-10,Brand",
+    },
+  },
+  {
+    category: "Orchestration Pipelines",
+    title: "Autonomous Sales Outreach",
+    description: "Find leads, enrich profiles, personalize outreach emails, send sequences, and log all activity back to your CRM automatically.",
+    prompt: `Build an autonomous sales outreach pipeline that finds leads, enriches their profiles, writes personalized emails, manages a send sequence, and logs all activity to the CRM.
+
+AI agents:
+1. Lead Finder — Given target-account criteria, identifies candidate accounts/contacts from an uploaded list.
+2. Data Enricher — Enriches each contact with firmographic detail (company size, industry, recent signals) from the uploaded data.
+3. Email Personalizer — Writes a personalized first-touch email per contact referencing a specific signal or detail.
+4. Sequence Manager — Plans a 3-email follow-up sequence with timing, adapting based on open/reply status.
+5. CRM Logger — Logs every send, open, and reply against the contact record.
+
+Pages:
+1. Target Criteria — Form: industry, company size range, persona/title. Upload a candidate contact list.
+2. Lead Queue — Table of enriched leads with signal tags, personalized email preview, and sequence status.
+3. Sequence Tracker — Per-contact timeline of sent/opened/replied emails, with next-send date.
+4. CRM Activity Log — Live list from the database (NOT hardcoded) of all outreach activity across contacts. Filter by status.
+
+UI: Table-first layout for the lead queue, timeline view for sequence tracking, status badges (queued/sent/opened/replied/bounced).
+
+Database: Persist contacts, enrichment data, generated emails, sequence status, and activity log. Pages read live from the DB.`,
+    tools: ["Web Search", "Email", "CRM", "Webhook"],
+    complexity: "Advanced",
+    sampleData: {
+      name: "target-contacts.csv",
+      text: "name,company,title,employees,industry,signal\nDana Wu,BrightPath Learning,VP Sales,85,EdTech,Raised Series A last month\nOmar Reyes,FreightLoop,Head of Ops,140,Logistics,Posted 3 open sales-eng roles\nElena Popescu,Marlowe Health,CRO,60,HealthTech,Published a hiring blog post on GTM",
+    },
+  },
+  {
+    category: "Orchestration Pipelines",
+    title: "Employee Onboarding Pipeline",
+    description: "Automated onboarding: send welcome emails, provision accounts, schedule introductory meetings, deliver policy docs, and track completion.",
+    prompt: `Build an automated employee onboarding pipeline that sends welcome emails, provisions system access, schedules introductory meetings, delivers policy documents, and tracks completion.
+
+AI agents:
+1. Onboarding Coordinator — Triggered by a new-hire record; builds the first-week checklist and orchestrates the other agents.
+2. Account Provisioner — Determines which systems the new hire needs based on role, and generates a provisioning checklist for IT.
+3. Meeting Scheduler — Proposes intro meetings with manager and immediate teammates based on stated availability.
+4. Document Sender — Sends required policy documents and tracks acknowledgment status.
+
+Pages:
+1. New Hire Intake — Form: name, role, start date, manager, team members. Triggers checklist generation.
+2. Onboarding Checklist — Per-new-hire checklist view with task status (paperwork, access, meetings, policy ack), completion percentage.
+3. Team Roster — Live list from the database (NOT hardcoded) of all new hires in their first 30 days, with status and any blocked items flagged.
+
+UI: Checklist-style layout with progress bars per new hire, status badges (pending/in-progress/complete) per task category.
+
+Database: Persist new-hire records, checklist items, provisioning status, meeting schedule, and document acknowledgment. Roster reads live from the DB.`,
+    tools: ["Email", "Calendar", "Knowledge Base", "Slack"],
+    complexity: "Intermediate",
+    sampleData: {
+      name: "new-hire-intake.txt",
+      text: "Name: Priya Nataraj\nRole: Backend Engineer\nStart Date: 2026-08-10\nManager: Carlos Diaz\nTeam Members: Tom Becker, Ayesha Khan\nSystems needed: GitHub, Slack, AWS (read-only), Jira",
+    },
+  },
+  {
+    category: "Orchestration Pipelines",
+    title: "Customer Support Triage Pipeline",
+    description: "Classify incoming support tickets by urgency and type, auto-resolve common issues with RAG, escalate complex cases, and measure resolution quality.",
+    prompt: `Build a customer support triage pipeline that classifies tickets by urgency, auto-resolves common issues using a knowledge base, routes complex cases to the right human team, and evaluates resolution quality.
+
+AI agents:
+1. Ticket Classifier — Classifies each incoming ticket by type and urgency (low/medium/high/critical).
+2. RAG Resolver — Attempts to answer from the knowledge base for common issue types, with a confidence score.
+3. Escalation Router — Routes tickets the RAG Resolver can't confidently answer to the correct human team based on ticket type.
+4. Quality Evaluator — Once a ticket is closed, scores the resolution quality and flags any pattern of repeat issues.
+
+Pages:
+1. Ticket Queue — Live list from the database (NOT hardcoded) of incoming tickets with urgency badge, classification, and auto-resolution confidence.
+2. Ticket Detail — Full ticket thread, RAG-suggested answer with confidence and source citation, escalate/resolve actions.
+3. Quality Dashboard — Resolution quality scores over time, most common ticket types, repeat-issue flags.
+
+UI: Queue-first layout with urgency color coding (critical red, high amber, medium/low gray), confidence score shown as a percentage badge.
+
+Database: Persist tickets, classifications, RAG answers with confidence, escalation routing, and quality scores. Pages read live from the DB.`,
+    tools: ["RAG", "Knowledge Base", "Email", "Slack"],
+    complexity: "Intermediate",
+    sampleData: {
+      name: "support-tickets.csv",
+      text: "ticket_id,subject,message,channel\nT-201,Cannot reset password,\"Reset link never arrives after 3 tries\",Email\nT-202,Billing question,\"Why was I charged twice this month?\",Chat\nT-203,Feature request,\"Would like CSV export on the reports page\",Portal\nT-204,App crash,\"App crashes when exporting a large report on iOS\",Email",
+    },
+  },
+  {
+    category: "Orchestration Pipelines",
+    title: "Weekly Finance Report Generator",
+    description: "Pull financial data, calculate KPIs, generate executive narrative, flag anomalies, and email the formatted report to stakeholders every Monday.",
+    prompt: `Build a weekly finance reporting pipeline that pulls financial data, calculates KPIs, detects anomalies, generates an executive narrative summary, and emails the formatted report to stakeholders every Monday.
+
+AI agents:
+1. Data Collector — Ingests an uploaded weekly financial data export (revenue, expenses, cash position).
+2. KPI Calculator — Calculates weekly KPIs (revenue growth, burn rate, runway, gross margin).
+3. Anomaly Detector — Flags any KPI that deviates significantly from the trailing 8-week average.
+4. Report Narrator — Writes a short executive narrative summarizing the week's numbers and any flagged anomalies.
+5. Email Distributor — Formats the final report and prepares it for distribution to stakeholders.
+
+Pages:
+1. Data Upload — Upload this week's financial export; view parsed KPIs before generating the report.
+2. Weekly Report — Formatted report view: KPI row, trend charts (Line), anomaly callouts, executive narrative.
+3. Report History — Live list from the database (NOT hardcoded) of past weekly reports with KPI trend chart across all weeks.
+
+UI: KPI cards at the top, trend line charts below, anomalies highlighted in a callout box within the narrative.
+
+Database: Persist every weekly report's KPIs, anomalies, and narrative. History reads live from the DB.`,
+    tools: ["Webhook", "Email", "Slack"],
+    complexity: "Intermediate",
+    sampleData: {
+      name: "weekly-financials.csv",
+      text: "week,revenue,expenses,cash_balance\n2026-06-01,142000,98000,410000\n2026-06-08,138500,101000,447500\n2026-06-15,151200,99500,499200\n2026-06-22,96000,102000,493200",
+    },
+  },
+  {
+    category: "Orchestration Pipelines",
+    title: "Code Review & PR Pipeline",
+    description: "Review PRs for security vulnerabilities, style guide violations, and performance issues; post inline comments; and block merges on critical findings.",
+    prompt: `Build a multi-agent code review pipeline that scans PRs for security vulnerabilities, style guide violations, and performance issues, posts inline review comments, and sets merge status based on findings.
+
+AI agents:
+1. Security Scanner — Scans an uploaded diff for common vulnerability patterns (injection risk, hardcoded secrets, unsafe deserialization).
+2. Style Checker — Flags style-guide violations (naming, formatting, unused imports).
+3. Performance Analyzer — Flags likely performance issues (N+1 queries, unbounded loops, missing indexes referenced in code).
+4. Comment Writer — Compiles all findings into inline review comments matched to specific lines.
+5. Merge Gatekeeper — Sets a merge status (approve/request-changes/block) based on the severity of findings.
+
+Pages:
+1. PR Intake — Upload a PR diff; view live scan progress across the 3 scanner agents.
+2. Review View — Diff view with inline comments attached to specific lines, grouped by severity.
+3. Merge Status — Final gatekeeper decision with a one-paragraph rationale and a list of blocking issues if any.
+
+UI: Diff-viewer-style layout, inline comments color-coded by severity (critical red, warning amber, style gray).
+
+Database: Persist every reviewed PR's diff, findings, inline comments, and final merge decision.`,
+    tools: ["GitHub", "Slack", "Webhook"],
+    complexity: "Advanced",
+    sampleData: {
+      name: "feature-pr.diff",
+      text: "--- a/src/api/users.ts\n+++ b/src/api/users.ts\n@@ -5,6 +5,10 @@\n export async function getUser(req, res) {\n-  const id = req.params.id;\n+  const id = req.params.id;\n+  const query = `SELECT * FROM users WHERE id = ${id}`; // built via string concat\n   const user = await db.query(query);\n+  console.log('user lookup', user); // debug log\n   res.json(user);\n }",
+    },
+  },
+  {
+    category: "Orchestration Pipelines",
+    title: "Market Intelligence Monitor",
+    description: "Monitor competitor news, pricing changes, job postings, and product updates daily, then deliver a curated intelligence briefing to your team.",
+    prompt: `Build a market intelligence pipeline that monitors competitor websites, news, pricing, and job postings daily, detects meaningful changes, and delivers a curated intelligence briefing to your team.
+
+AI agents:
+1. Web Monitor — Given an uploaded list of competitor sources, checks each for changes since the last run.
+2. News Aggregator — Aggregates relevant news mentions for the tracked competitors.
+3. Change Detector — Determines which detected changes are meaningful (pricing change, new product, leadership change, notable job posting) versus noise.
+4. Briefing Writer — Writes a short daily intelligence briefing grouped by competitor.
+5. Distributor — Formats the briefing for distribution to the team.
+
+Pages:
+1. Tracked Sources — Manage the list of competitor sources being monitored (website, news query, careers page).
+2. Daily Briefing — Today's briefing grouped by competitor, with a 'meaningful change' badge per item.
+3. Briefing Archive — Live list from the database (NOT hardcoded) of past daily briefings, searchable by competitor.
+
+UI: Briefing-feed layout, competitor logos/initials as section headers, meaningful-change items highlighted.
+
+Database: Persist tracked sources, detected changes, and generated briefings. Archive reads live from the DB.`,
+    tools: ["Web Search", "Email", "Slack"],
+    complexity: "Advanced",
+    sampleData: {
+      name: "tracked-competitors.txt",
+      text: "Competitor: ServiceTitan -- track pricing page, careers page, press releases.\nCompetitor: Jobber -- track pricing page, product blog.\nCompetitor: Housecall Pro -- track careers page, product blog.\nLast known ServiceTitan pricing: Core plan $199/mo, Established plan custom pricing.",
+    },
+  },
+  {
+    category: "Orchestration Pipelines",
+    title: "Invoice Processing Workflow",
+    description: "Extract invoice data from PDFs, validate against PO records, route for approval, post to accounting system, and notify vendors on payment.",
+    prompt: `Build an invoice processing pipeline that extracts data from PDF invoices, validates against purchase orders, routes for approval, posts to the accounting system, and notifies vendors of payment status.
+
+AI agents:
+1. Invoice Extractor — Extracts vendor, line items, amounts, and PO reference from an uploaded invoice.
+2. PO Validator — Matches the invoice against an uploaded purchase order record and flags mismatches.
+3. Approval Router — Routes invoices above a configurable threshold to manager approval; auto-approves below it.
+4. Accounting Poster — Prepares the approved invoice for posting to the accounting system.
+5. Vendor Notifier — Drafts a payment-status notification to the vendor.
+
+Pages:
+1. Invoice Intake — Upload an invoice; view extracted fields and PO match status side by side.
+2. Approval Queue — Live list from the database (NOT hardcoded) of invoices pending approval, with mismatch flags highlighted.
+3. Payment Status — Table of processed invoices with posting status and vendor notification status.
+
+UI: Side-by-side extracted-data vs PO-record comparison view, mismatch fields highlighted in amber.
+
+Database: Persist invoices, extracted data, PO match results, approval status, and vendor notifications. Pages read live from the DB.`,
+    tools: ["PDF Parser", "Email", "Webhook"],
+    complexity: "Intermediate",
+    sampleData: {
+      name: "invoice-and-po.csv",
+      text: "invoice_no,po_number,vendor,line_item,invoice_amount,po_amount\nINV-7701,PO-2201,Skyline Office Supplies,Printer paper (50 reams),620.00,620.00\nINV-7702,PO-2202,CloudHost Inc,Monthly server hosting,3450.00,3200.00\nINV-7703,PO-2203,Bright Marketing Co,Q3 campaign design,8900.00,8900.00",
+    },
+  },
+  {
+    category: "Orchestration Pipelines",
+    title: "Recruitment Pipeline",
+    description: "Screen resumes, score candidates against job criteria, schedule interviews, collect feedback, and generate a hiring recommendation report.",
+    prompt: `Build a recruitment pipeline that screens and scores resumes against job criteria, schedules interviews, collects structured feedback from interviewers, and generates a hiring recommendation report.
+
+AI agents:
+1. Resume Screener — Parses an uploaded batch of resumes against a job description.
+2. Candidate Scorer — Scores each candidate 0-100 for fit with a written rationale.
+3. Interview Scheduler — Proposes interview slots based on interviewer availability for shortlisted candidates.
+4. Feedback Collector — Collects structured interviewer feedback (score + notes) per candidate per round.
+5. Report Generator — Compiles a hiring recommendation report per candidate combining resume score and interview feedback.
+
+Pages:
+1. Job & Resumes — Enter/upload the job description and a batch of resumes.
+2. Candidate Shortlist — Ranked table of candidates with fit score and rationale.
+3. Interview Tracker — Per-candidate interview schedule and collected feedback per round.
+4. Hiring Report — Live list from the database (NOT hardcoded) of final hiring recommendations per candidate, exportable to PDF.
+
+UI: Ranked-table-first layout for the shortlist, per-candidate detail drawer showing resume score, interview notes, and final recommendation.
+
+Database: Persist candidates, resume scores, interview schedule, feedback, and final recommendations. Pages read live from the DB.`,
+    tools: ["Email", "Calendar", "PDF Parser", "Slack"],
+    complexity: "Advanced",
+    sampleData: {
+      name: "candidates.csv",
+      text: "name,years_experience,current_title,key_skills\nJordan Alvarez,6,Senior Backend Engineer,\"Python, Postgres, AWS\"\nMei Lin,3,Backend Engineer,\"Node.js, MongoDB\"\nSam O'Connor,9,Staff Engineer,\"Python, Kubernetes, Kafka\"",
+    },
+  },
+  {
+    category: "Orchestration Pipelines",
+    title: "Bug Triage & Resolution Pipeline",
+    description: "Read new GitHub issues, classify severity, assign to the right team, suggest root causes, and track resolution time automatically.",
+    prompt: `Build a bug triage pipeline that monitors GitHub for new issues, classifies severity, assigns to the right team, suggests root causes from the codebase, and tracks resolution time.
+
+AI agents:
+1. Issue Classifier — Classifies each new issue by type (bug, feature request, question) from an uploaded issue export.
+2. Severity Scorer — Scores bugs by severity (critical/high/medium/low) based on described impact.
+3. Assignment Router — Assigns each bug to the correct team based on the affected component.
+4. Root Cause Analyzer — Suggests likely root causes based on the bug description and any stack trace included.
+5. Resolution Tracker — Tracks time-to-resolution per bug and flags anything trending past SLA.
+
+Pages:
+1. Issue Intake — Upload an issue export; view classified type and severity per issue.
+2. Triage Board — Kanban by severity (Critical, High, Medium, Low) with assigned team and root-cause suggestion per card.
+3. Resolution Dashboard — Live list from the database (NOT hardcoded) of resolution times per bug, average time-to-resolution by severity (Bar chart), SLA-risk flags.
+
+UI: Kanban board as centerpiece with severity color coding, root-cause suggestion shown as an expandable note on each card.
+
+Database: Persist issues, classifications, severity scores, assignments, root-cause suggestions, and resolution times. Dashboard reads live from the DB.`,
+    tools: ["GitHub", "Slack", "Webhook"],
+    complexity: "Intermediate",
+    sampleData: {
+      name: "github-issues.csv",
+      text: "issue_id,title,description,component\n#1201,Checkout fails on Safari,\"Payment button unresponsive, no console error\",Checkout\n#1204,Search returns stale results,\"Results don't update after filter change\",Search\n#1207,Export button missing on mobile,\"CSV export button not visible below 768px width\",Reports",
+    },
+  },
 ];
 
 const COMPLEXITY_COLOR: Record<string, string> = {
@@ -1953,7 +2299,7 @@ const COMPLEXITY_COLOR: Record<string, string> = {
   Advanced: "bg-rose-50 text-rose-700 border-rose-200",
 };
 
-const CATEGORIES = ["All", "General", "Marketing", "Sales", "Legal", "HR", "Support", "Productivity", "Development", "Analysts", "Data & Analysis"];
+const CATEGORIES = ["All", "General", "Marketing", "Sales", "Legal", "HR", "Support", "Productivity", "Development", "Analysts", "Data & Analysis", "Orchestration Pipelines"];
 
 function PreviewModal({ prompt, onClose, onUse }: { prompt: Prompt; onClose: () => void; onUse: () => void }) {
   return (
@@ -2011,6 +2357,17 @@ function PreviewModal({ prompt, onClose, onUse }: { prompt: Prompt; onClose: () 
             </a>
           </div>
         )}
+        {prompt.sampleData && (
+          <div className="px-6 pb-2">
+            <div className="flex items-center gap-2 w-full py-2 px-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700">
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span className="font-medium">Sample data attached automatically</span>
+              <span className="text-emerald-500 text-xs ml-auto">{prompt.sampleData.name}</span>
+            </div>
+          </div>
+        )}
         <div className="px-6 pb-6 flex gap-3">
           <button
             onClick={onClose}
@@ -2044,7 +2401,13 @@ export default function PromptLibrary() {
   });
 
   const usePrompt = (p: Prompt) => {
-    navigate("/architect", { state: { prompt: p.prompt, sampleFile: p.sampleFile } });
+    navigate("/architect", {
+      state: {
+        prompt: p.prompt,
+        sampleFile: p.sampleFile,
+        files: p.sampleData ? [{ name: p.sampleData.name, text: p.sampleData.text }] : undefined,
+      },
+    });
   };
 
   return (

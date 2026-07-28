@@ -9,7 +9,6 @@ import PublishedProjects from "./pages/PublishedProjects";
 import SharedProjects from "./pages/SharedProjects";
 import Usage from "./pages/Usage";
 import PromptLibrary from "./pages/PromptLibrary";
-import Blueprints from "./pages/Blueprints";
 import Marketplace from "./pages/Marketplace";
 import WorkflowBuilder from "./pages/WorkflowBuilder";
 import ApprovalPage from "./pages/ApprovalPage";
@@ -441,9 +440,6 @@ function Sidebar() {
         <NavLink to="/builder" className={linkClass} title={collapsed ? "Visual Builder" : undefined}>
           <IconWrench />{!collapsed && "Visual Builder"}
         </NavLink>
-        <NavLink to="/blueprints" className={linkClass} title={collapsed ? "Blueprints" : undefined}>
-          <IconArchitect />{!collapsed && "Blueprints"}
-        </NavLink>
         <NavLink to="/marketplace" className={linkClass} title={collapsed ? "Marketplace" : undefined}>
           <IconStore />{!collapsed && "Marketplace"}
         </NavLink>
@@ -573,7 +569,6 @@ export default function App() {
                   <Route path="/builder" element={<WorkflowBuilder />} />
                   <Route path="/approvals/:runId" element={<ApprovalPage />} />
                   <Route path="/prompts" element={<PromptLibrary />} />
-                  <Route path="/blueprints" element={<Blueprints />} />
                   <Route path="/marketplace" element={<Marketplace />} />
                   <Route path="/what-to-build" element={<WhatShouldIBuild />} />
                   <Route path="/architect" element={<Architect />} />
