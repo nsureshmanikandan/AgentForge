@@ -990,6 +990,31 @@ def test_fix_json_response_format_ignores_json_dumps_as_false_compliance():
     assert "Return your answer as JSON." in fixed
 
 
+def test_fix_json_response_format_does_not_corrupt_bare_variable_content():
+    """Reproduces a real, serious confirmed bug in this exact fixup: when
+    the system message's content is a bare variable/parameter with no
+    string literal in this call at all (a generic `_json_call(self,
+    system_prompt, user_prompt)` helper method, as generated for API
+    Documentation Assistant), the old lazy [^"]*? match had no boundary and
+    kept consuming forward across the dict's own closing `}` and into the
+    NEXT message's `{"role":`, corrupting it into `{"Return your answer as
+    JSON. role": "user", ...}` -- a message object with no recognizable
+    "role" key at all. Must now safely skip (no edit) instead of reaching
+    into unrelated code."""
+    files = _base_project()
+    original = (
+        'class Foo:\n'
+        '    def _json_call(self, system_prompt, user_prompt):\n'
+        '        r = _call_with_retry(lambda: self.client.chat.completions.create(model=settings.X, messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}], max_completion_tokens=1000, temperature=0.3, response_format={"type": "json_object"}))\n'
+        '        return r\n'
+    )
+    files["backend/app/agents/Foo.py"] = original
+    result = _fix_json_response_format_missing_keyword(files)
+    fixed = result["backend/app/agents/Foo.py"]
+    assert '"Return your answer as JSON. role"' not in fixed
+    assert fixed == original  # safely skipped, not silently mangled
+
+
 # ── _format_database_schema_for_prompt / _format_phase_coverage_instruction ──
 
 def test_format_database_schema_handles_structured_array():

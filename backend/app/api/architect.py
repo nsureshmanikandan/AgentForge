@@ -4737,12 +4737,23 @@ def _fix_json_response_format_missing_keyword(all_files: dict) -> dict:
                 continue
             # Append the reminder right after the first quote that opens the
             # system message's content string. Generated agents build that
-            # content two different ways -- a literal string ("content":"X")
-            # or a concatenation ("content": self.SYSTEM_PROMPT + "X") -- so
-            # match up to the first `"` after "content": rather than assuming
-            # it's a literal string immediately following the colon.
+            # content several different ways -- a literal string
+            # ("content":"X"), a concatenation ("content": self.SYSTEM_PROMPT
+            # + "X"), or (confirmed live, a real shipped bug from this exact
+            # fixup) a bare variable/parameter with NO string literal in this
+            # call at all ("content": system_prompt). The lazy [^"]*? used to
+            # have no boundary, so when content had no nearby quote at all it
+            # kept consuming forward across the dict's own `}` and the next
+            # message's `{"role":`, landing the reminder INSIDE the next
+            # dict's key -- corrupting `{"role": "user", ...}` into
+            # `{"Return your answer as JSON. role": "user", ...}`, a message
+            # object OpenAI's API doesn't recognize as having a role at all.
+            # Excluding `}` from the lazy match means: if this call's own
+            # content has no string literal to attach the reminder to, the
+            # regex simply doesn't match for it (skip, don't corrupt) rather
+            # than reaching into unrelated code.
             new_call_src = _re.sub(
-                r'("role"\s*:\s*"system"\s*,\s*"content"\s*:\s*[^"]*?")',
+                r'("role"\s*:\s*"system"\s*,\s*"content"\s*:\s*[^"}]*?")',
                 r'\1Return your answer as JSON. ',
                 call_src,
                 count=1,
