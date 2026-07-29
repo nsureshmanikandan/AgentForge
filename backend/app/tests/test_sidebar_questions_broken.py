@@ -5,6 +5,7 @@ from app.api.architect import (
     _patch_duplicate_welcome,
     _patch_sidebar_questions,
     _find_matching_paren_close,
+    _top_questions_wrongly_included,
 )
 
 
@@ -153,3 +154,34 @@ def test_patch_sidebar_questions_inserts_working_render_and_resolves_detector():
 def test_patch_sidebar_questions_returns_unchanged_when_no_anchor_found():
     html = "const sidebarQuestions = activeTopic ? TOPIC_QUESTIONS[activeTopic] : FAQ_DATA;"
     assert _patch_sidebar_questions(html) == html
+
+
+# ── _top_questions_wrongly_included ──────────────────────────────────────────
+
+def test_top_questions_not_flagged_for_chatbot_type():
+    """The pattern is legitimate for CHATBOT apps -- must never be flagged there."""
+    html = '<div className="text-xs uppercase">Top Questions</div>'
+    assert _top_questions_wrongly_included(html, "CHATBOT") is False
+
+
+def test_top_questions_flagged_for_non_chatbot_type():
+    """Reproduces a real confirmed bug: a document-processing HR_APP
+    (ResumeJDMatch) shipped a 'Top Questions' sidebar despite its own
+    template section explicitly specifying 'Attached Files'/'Filter by
+    Department' instead -- likely the model blending in content from the
+    CHATBOT section of this same multi-branch prompt."""
+    html = '<div className="text-xs uppercase">Top Questions</div>'
+    assert _top_questions_wrongly_included(html, "HR_APP") is True
+    assert _top_questions_wrongly_included(html, "DASHBOARD") is True
+    assert _top_questions_wrongly_included(html, "SALES_APP") is True
+
+
+def test_top_questions_variants_all_flagged_for_non_chatbot_type():
+    for variant in ("Top Questions", "Top 10 Questions", "Top N Questions", "Suggested Questions"):
+        html = f'<div>{variant}</div>'
+        assert _top_questions_wrongly_included(html, "HR_APP") is True, variant
+
+
+def test_top_questions_not_flagged_when_absent():
+    html = '<div className="text-xs uppercase">Attached Files</div>'
+    assert _top_questions_wrongly_included(html, "HR_APP") is False

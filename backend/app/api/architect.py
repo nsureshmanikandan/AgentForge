@@ -126,6 +126,24 @@ def _nav_items_broken(html: str) -> bool:
     return "navItems.map(" not in html and "navItems.map (" not in html
 
 
+def _top_questions_wrongly_included(html: str, detected_type: str) -> bool:
+    """The "Top Questions"/"Top N Questions"/"Suggested Questions" sidebar
+    pattern is exclusive to CHATBOT-type apps -- the generation prompt's own
+    FINAL SELF-CHECK instruction already tells the model to delete it for
+    every other type, but LLM compliance with that self-check is unreliable.
+    Confirmed live: a document-processing HR_APP (ResumeJDMatch, detected_type
+    correctly resolved to HR_APP, whose own template section explicitly asks
+    for "Attached Files"/"Filter by Department" in the right panel -- nothing
+    resembling a questions list) still shipped a "Top Questions" panel, likely
+    the model blending in content from the CHATBOT section of this same
+    multi-branch mega-prompt rather than following only its assigned block.
+    """
+    if detected_type == "CHATBOT":
+        return False
+    import re as _re
+    return bool(_re.search(r'Top\s+(\d+\s+|N\s+)?Questions|Suggested Questions', html, _re.IGNORECASE))
+
+
 def _duplicate_welcome_broken(html: str) -> bool:
     """A distinct rendering bug observed live: the chatbot's initial greeting
     is seeded as the first entry of the `messages` state array (so it renders
@@ -3346,8 +3364,19 @@ Incorporate ALL of the above changes while keeping everything else from the orig
 
         if _attempt < _max_attempts - 1 and (
             _sidebar_questions_broken(html) or _nav_items_broken(html) or _duplicate_welcome_broken(html)
+            or _top_questions_wrongly_included(html, detected_type)
         ):
             _bugs = []
+            if _top_questions_wrongly_included(html, detected_type):
+                _bugs.append(
+                    f"WRONG APP TYPE PATTERN: this app's type is {detected_type}, not CHATBOT, but "
+                    "the response includes a 'Top Questions'/'Suggested Questions'/FAQ-style panel "
+                    "or sidebar. That pattern belongs EXCLUSIVELY to CHATBOT-type apps. You MUST "
+                    "DELETE that entire panel/column/sidebar and any state/variables that only exist "
+                    "to support it, and replace that space with whatever this app's OWN type section "
+                    "actually specifies for that area (e.g. HR_APP's right panel is 'Attached Files' "
+                    "+ 'Filter by Department' + quick stats -- never a questions list)."
+                )
             if _sidebar_questions_broken(html):
                 _bugs.append(
                     "FILTER BUG: `sidebarQuestions` is computed but never actually rendered, so "
