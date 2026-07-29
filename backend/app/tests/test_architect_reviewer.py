@@ -20,6 +20,7 @@ from app.api.architect import (
     _fix_dockerfile_expose_port,
     _fix_json_response_format_missing_keyword,
     _fix_missing_logging_config,
+    _ensure_missing_schema_classes,
     _format_database_schema_for_prompt,
     _format_phase_coverage_instruction,
     _resolve_primary_main_py,
@@ -135,6 +136,64 @@ def test_detects_undeclared_settings_field():
     )
     issues = _static_code_quality_report(files)
     assert any("JWT_SECRET" in i and "security.py" in i for i in issues)
+
+
+# ── _ensure_missing_schema_classes ──────────────────────────────────────────
+
+def test_ensure_missing_schema_classes_appends_permissive_stub():
+    """Reproduces a real confirmed bug: reproducing the LLM reviewer loop
+    directly against a real broken download (Performance Review Assistant)
+    showed it could fix-and-regress-and-partially-refix this exact issue
+    across 3 iterations without ever fully resolving one single missing
+    class (CalibrationRowRead) -- a deterministic, LLM-free fixup is the
+    reliable answer for this mechanically-detectable bug shape."""
+    files = _base_project()
+    files["backend/app/schemas.py"] = (
+        "from pydantic import BaseModel\n\n"
+        "class ExistingThing(BaseModel):\n"
+        "    id: int\n"
+    )
+    files["backend/app/api/calibration.py"] = (
+        "from app.schemas import CalibrationRowRead\n"
+        "def get_rows() -> list[CalibrationRowRead]:\n"
+        "    return []\n"
+    )
+    before_issues = [i for i in _static_code_quality_report(files) if "CalibrationRowRead" in i]
+    assert before_issues  # confirm the static checker sees this as broken first
+
+    result = _ensure_missing_schema_classes(dict(files))
+    assert "class CalibrationRowRead(BaseModel):" in result["backend/app/schemas.py"]
+    assert "class ExistingThing" in result["backend/app/schemas.py"]  # untouched, not rewritten
+    after_issues = [i for i in _static_code_quality_report(result) if "CalibrationRowRead" in i]
+    assert after_issues == []
+
+    # idempotent -- re-running doesn't double-append the stub
+    twice = _ensure_missing_schema_classes(dict(result))
+    assert twice["backend/app/schemas.py"].count("class CalibrationRowRead(BaseModel):") == 1
+
+
+def test_ensure_missing_schema_classes_handles_multiple_missing_names_in_one_import():
+    files = _base_project()
+    files["backend/app/schemas.py"] = "from pydantic import BaseModel\n"
+    files["backend/app/api/feedback.py"] = (
+        "from app.schemas import FeedbackRequestCreate, FeedbackRequestRead\n"
+    )
+    result = _ensure_missing_schema_classes(dict(files))
+    assert "class FeedbackRequestCreate(BaseModel):" in result["backend/app/schemas.py"]
+    assert "class FeedbackRequestRead(BaseModel):" in result["backend/app/schemas.py"]
+
+
+def test_ensure_missing_schema_classes_noop_when_nothing_missing():
+    files = _base_project()
+    files["backend/app/schemas.py"] = (
+        "from pydantic import BaseModel\n\n"
+        "class Thing(BaseModel):\n"
+        "    id: int\n"
+    )
+    files["backend/app/api/things.py"] = "from app.schemas import Thing\n"
+    original = files["backend/app/schemas.py"]
+    result = _ensure_missing_schema_classes(dict(files))
+    assert result["backend/app/schemas.py"] == original
 
 
 def test_detects_duplicate_entrypoint():

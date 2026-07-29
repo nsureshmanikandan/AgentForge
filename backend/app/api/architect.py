@@ -4863,6 +4863,78 @@ _REQUIRED_SETTINGS_DEFAULTS: dict[str, str] = {
 }
 
 
+def _ensure_missing_schema_classes(all_files: dict) -> dict:
+    """
+    Deterministic counterpart to the "BROKEN IMPORTS" reviewer-prompt
+    category, for the specific and common case of `from app.schemas import
+    X` where X doesn't exist in schemas.py.
+
+    Found live: this exact bug shape is *reliably detected* but not
+    *reliably fixed* by the LLM reviewer -- reproducing it directly against
+    a real broken download (Performance Review Assistant, missing
+    CalibrationRowRead) showed the reviewer's own iteration-1 fix pass
+    actually regressed the codebase from 4 issues to 9 by rewriting the
+    whole schemas.py file and accidentally dropping classes other files
+    still depended on (it only had partial visibility into schemas.py's
+    full usage across the codebase). Three iterations later, one single
+    missing class was STILL never added. An LLM asked to "fix schemas.py"
+    naturally wants to rewrite the file wholesale; a class this mechanical
+    doesn't need an LLM at all -- append a safe, permissive stub
+    deterministically instead, the same philosophy as
+    _ensure_jwt_settings' safe-default backfill.
+
+    The stub uses `class Config: extra = "allow"` rather than guessing at
+    real fields: it can't reliably infer the intended shape from an import
+    statement alone, but a permissive model at least lets the app run
+    end-to-end (matching how FastAPI/Pydantic already treats unvalidated
+    dict-like data) instead of crashing with ImportError on the very first
+    request that touches it.
+    """
+    import re as _re
+    import ast as _ast
+
+    schemas_path = next((p for p in all_files if p.endswith("schemas.py") and "backend" in p), None)
+    if schemas_path is None:
+        return all_files
+    schemas_src = all_files[schemas_path]
+
+    try:
+        tree = _ast.parse(schemas_src)
+    except SyntaxError:
+        return all_files
+    existing = {node.name for node in tree.body if isinstance(node, _ast.ClassDef)}
+
+    imported: set[str] = set()
+    for path, content in all_files.items():
+        if not (path.endswith(".py") and "backend" in path.replace("\\", "/")) or path == schemas_path:
+            continue
+        for m in _re.finditer(r'from\s+app\.schemas\s+import\s+([^\n]+)', content):
+            names_src = m.group(1)
+            # Handle both `import A, B, C` and parenthesized multi-line forms.
+            names_src = names_src.split("#", 1)[0].strip().strip("()")
+            for raw in names_src.split(","):
+                name = raw.strip().split(" as ")[0].strip()
+                if name and name[0].isupper():
+                    imported.add(name)
+
+    missing = sorted(imported - existing)
+    if not missing:
+        return all_files
+
+    stubs = "".join(
+        f'\n\nclass {name}(BaseModel):\n'
+        f'    """Auto-generated permissive stub -- referenced elsewhere but never defined; '
+        f'accepts any fields rather than crashing the app with ImportError."""\n'
+        f'    class Config:\n'
+        f'        extra = "allow"\n'
+        for name in missing
+    )
+    if "from pydantic import" not in schemas_src:
+        schemas_src = "from pydantic import BaseModel\n" + schemas_src
+    all_files[schemas_path] = schemas_src + stubs
+    return all_files
+
+
 def _ensure_jwt_settings(all_files: dict) -> dict:
     """
     Observed bug: generated code references settings.X fields (JWT_SECRET/
@@ -6628,6 +6700,7 @@ def _rerun_deterministic_fixups(all_files: dict, app_name: str, summary: str) ->
     all_files = _fix_env_asyncpg_driver(all_files)
     all_files = _fix_database_url_scheme_drift(all_files)
     all_files = _fix_slowapi_import_path(all_files)
+    all_files = _ensure_missing_schema_classes(all_files)
     all_files = _ensure_jwt_settings(all_files)
     all_files = _fix_dockerfile_entrypoint(all_files)
     all_files = _fix_dockerfile_expose_port(all_files)
