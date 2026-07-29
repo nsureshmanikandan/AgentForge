@@ -106,7 +106,7 @@ export function KBAnswerCard({
                         Score: {src.score.toFixed(2)}
                       </span>
                       <a
-                        href={`/knowledge-bases`}
+                        href={`/knowledge-bases?doc=${src.doc_id}`}
                         className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
                         target="_blank" rel="noreferrer"
                       >
