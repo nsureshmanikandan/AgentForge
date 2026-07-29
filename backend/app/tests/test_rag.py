@@ -65,7 +65,7 @@ class TestRAGEngineRetrieval:
         engine = RAGEngine(kb_id="test-kb")
         with patch.object(engine, "retrieve", new_callable=AsyncMock) as mock_retrieve, \
              patch.object(engine._llm, "chat", new_callable=AsyncMock) as mock_chat:
-            mock_retrieve.return_value = ["Azure is a cloud platform by Microsoft."]
+            mock_retrieve.return_value = [("Azure is a cloud platform by Microsoft.", 0.9, "doc-1", "azure.pdf")]
             mock_chat.return_value = "Azure is Microsoft's cloud platform."
             db = AsyncMock()
             result = await engine.query("What is Azure?", db)
@@ -80,15 +80,32 @@ class TestRAGEngineRetrieval:
         fake_index.search.return_value = ([[0.05]], [[0]])  # below SIMILARITY_CUTOFF
         engine._index = fake_index
 
-        chunk_row = MagicMock(faiss_id=0, text="marginal match")
+        chunk_row = MagicMock(faiss_id=0, text="marginal match", document_id="doc-1")
+        doc_row = MagicMock(id="doc-1", filename="test.pdf")
+
+        call_count = 0
+
+        async def fake_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalars.return_value.all.return_value = [chunk_row]
+            else:
+                result.scalars.return_value.all.return_value = [doc_row]
+            return result
+
         db = AsyncMock()
-        db.execute.return_value = MagicMock(scalars=lambda: MagicMock(all=lambda: [chunk_row]))
+        db.execute.side_effect = fake_execute
 
         with patch.object(engine._embedder, "embed", new_callable=AsyncMock) as mock_embed:
             mock_embed.return_value = [[0.1] * 1536]
             sources = await engine.retrieve("question", db, enforce_cutoff=False)
 
-        assert sources == ["marginal match"]
+        # sources is now list[tuple[str, float, str, str]]
+        assert len(sources) == 1
+        assert sources[0][0] == "marginal match"   # text
+        assert sources[0][3] == "test.pdf"         # filename
 
     async def test_ensure_loaded_rebuilds_index_from_chunk_rows(self):
         engine = RAGEngine(kb_id="test-kb-rebuild")

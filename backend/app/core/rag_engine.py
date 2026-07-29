@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.azure_openai import AzureOpenAIClient
 from app.core.telemetry import get_tracer
-from app.models.rag import Chunk
+from app.models.rag import Chunk, Document
 
 try:
     from langchain_community.document_loaders import PyPDFLoader, TextLoader
@@ -220,14 +220,17 @@ class RAGEngine:
             span.set_attribute("rag.chunk_count", len(chunk_units))
             return len(chunk_units), full_text
 
-    async def retrieve(self, question: str, db: AsyncSession, top_k: int = TOP_K, enforce_cutoff: bool = True) -> list[str]:
-        """Retrieval-only: embed the question, FAISS search, apply the
-        similarity cutoff (unless disabled), and resolve matched faiss ids
-        back to chunk text. No LLM call -- callers (the query() endpoint
-        and the agent orchestrator) each decide what to do with the result."""
+    async def retrieve(
+        self,
+        question: str,
+        db: AsyncSession,
+        top_k: int = TOP_K,
+        enforce_cutoff: bool = True,
+    ) -> list[tuple[str, float, str, str]]:
+        """Return list of (text, score, doc_id, filename) tuples."""
         await self.ensure_loaded(db)
         index = self._index
-        if index.ntotal == 0:
+        if index is None or index.ntotal == 0:
             return []
 
         q_vec = await self._embedder.embed([question])
@@ -238,30 +241,61 @@ class RAGEngine:
         if not kept:
             return []
 
-        result = await db.execute(
-            select(Chunk).where(Chunk.kb_id == self.kb_id, Chunk.faiss_id.in_([i for i, _ in kept]))
+        faiss_ids = [i for i, _ in kept]
+        score_map = {i: s for i, s in kept}
+
+        chunk_result = await db.execute(
+            select(Chunk).where(Chunk.kb_id == self.kb_id, Chunk.faiss_id.in_(faiss_ids))
         )
-        by_id = {c.faiss_id: c.text for c in result.scalars().all()}
-        return [by_id[i] for i, _ in kept if i in by_id]
+        chunks = chunk_result.scalars().all()
+
+        # Fetch document metadata for filenames
+        doc_ids = list({c.document_id for c in chunks})
+        doc_result = await db.execute(
+            select(Document).where(Document.id.in_(doc_ids))
+        )
+        doc_map = {d.id: d.filename for d in doc_result.scalars().all()}
+
+        return [
+            (c.text, score_map.get(c.faiss_id, 0.0), c.document_id, doc_map.get(c.document_id, "unknown"))
+            for c in sorted(chunks, key=lambda c: score_map.get(c.faiss_id, 0.0), reverse=True)
+            if c.faiss_id in score_map
+        ]
 
     async def query(self, question: str, db: AsyncSession, top_k: int = TOP_K, enforce_cutoff: bool = True) -> dict:
         tracer = get_tracer()
         with tracer.start_as_current_span("rag.query") as span:
             span.set_attribute("rag.question_length", len(question))
 
-            sources = await self.retrieve(question, db, top_k, enforce_cutoff)
-            span.set_attribute("rag.sources_found", len(sources))
+            results = await self.retrieve(question, db, top_k, enforce_cutoff)
+            span.set_attribute("rag.sources_found", len(results))
 
-            if not sources and enforce_cutoff:
+            if not results and enforce_cutoff:
                 return {
                     "answer": "I don't have enough information in the available documents to answer this.",
                     "sources": [],
+                    "graph_entities": None,
+                    "related_questions": [],
+                    "grounding_score": None,
                 }
 
-            context = "\n\n".join(sources) if sources else "No relevant context found."
+            sources_out = [
+                {"filename": filename, "snippet": text[:200], "score": round(score, 3), "doc_id": doc_id}
+                for text, score, doc_id, filename in results
+            ]
+            context = "\n\n".join(text for text, _, _, _ in results) if results else "No relevant context found."
             messages = [
                 {"role": "system", "content": "Answer using only the provided context."},
                 {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"},
             ]
             answer = await self._llm.chat(messages, temperature=0.1)
-            return {"answer": answer, "sources": sources}
+
+            grounding_score = round(sum(s for _, s, _, _ in results) / len(results), 3) if results else None
+
+            return {
+                "answer": answer,
+                "sources": sources_out,
+                "graph_entities": None,
+                "related_questions": [],    # filled by rag.py router
+                "grounding_score": grounding_score,
+            }

@@ -51,7 +51,8 @@ class AgentOrchestrator:
 
                 hallucination_enabled = self.config.get("guardrails", {}).get("hallucination", True)
                 engine = RAGEngine(kb_id=kb_id)
-                kb_sources = await engine.retrieve(safe_input, self.db, enforce_cutoff=hallucination_enabled)
+                kb_result = await engine.retrieve(safe_input, self.db, enforce_cutoff=hallucination_enabled)
+                kb_sources = [text for text, _, _, _ in kb_result]   # unpack tuples → plain strings
                 span.set_attribute("agent.kb_sources_found", len(kb_sources))
                 if kb_sources:
                     context = "\n\n".join(kb_sources)

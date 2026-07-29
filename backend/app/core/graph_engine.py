@@ -205,7 +205,8 @@ class GraphEngine:
                             lines.append(f"    Context: {r.context}")
 
         try:
-            rag_sources = await self._get_rag().retrieve(question, db, top_k=3, enforce_cutoff=False)
+            rag_result = await self._get_rag().retrieve(question, db, top_k=3, enforce_cutoff=False)
+            rag_sources = [text for text, _, _, _ in rag_result]
             if rag_sources:
                 lines.append("\nDOCUMENT EXCERPTS:")
                 for s in rag_sources[:3]:
