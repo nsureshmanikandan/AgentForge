@@ -47,7 +47,7 @@ const TOUR_STEPS = [
 
 const MODELS = [
   { value: "local", label: "Local Model" },
-  { value: "azure", label: "Azure GPT-5.4-mini" },
+  { value: "azure", label: "Azure GPT-5-mini" },
   { value: "gemini", label: "Gemini Flash-Lite" },
 ];
 

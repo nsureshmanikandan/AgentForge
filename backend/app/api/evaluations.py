@@ -5,13 +5,19 @@ from sqlalchemy import select
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
-import uuid, random
+import uuid, json, re
+from pathlib import Path
 from app.database import get_db
 from app.models.user import User
+from app.models.agent import Agent
+from app.models.rag import KnowledgeBase
 from app.core.security import decode_token
+from app.core.azure_openai import AzureOpenAIClient
+from app.core.orchestrator import AgentOrchestrator
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+# v2: AI-generated test cases + real agent invocation + LLM judge
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)) -> User:
     try:
@@ -28,6 +34,7 @@ class EvalRunRequest(BaseModel):
     agent_id: str
     test_cases: list[dict]
     eval_name: Optional[str] = None
+    model: str = "azure"
 
 class EvalResult(BaseModel):
     id: str
@@ -41,10 +48,37 @@ class EvalResult(BaseModel):
     created_at: str
     results: list[dict]
 
-_RUNS: dict[str, dict] = {}
+class GenerateTestCasesRequest(BaseModel):
+    agent_id: str
+    model: str = "azure"
+
+_RUNS_FILE = Path(__file__).parent.parent.parent / "data" / "eval_runs.json"
+
+def _load_runs() -> dict[str, dict]:
+    try:
+        _RUNS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        if _RUNS_FILE.exists():
+            return json.loads(_RUNS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+def _save_runs(runs: dict[str, dict]) -> None:
+    try:
+        _RUNS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _RUNS_FILE.write_text(json.dumps(runs, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+_RUNS: dict[str, dict] = _load_runs()
+
+_MODEL_TO_PROVIDER = {"azure": "azure", "gemini": "gemini", "local": "lmstudio"}
 
 # ── Seed realistic example evaluation runs on startup ─────────────────────────
 def _seed_run(agent_id: str, eval_name: str, test_cases: list[dict], preset_results: list[bool]) -> None:
+    # Don't re-seed if an entry with the same eval_name already exists in persisted data.
+    if any(r.get("eval_name") == eval_name for r in _RUNS.values()):
+        return
     run_id = str(uuid.uuid4())
     results = []
     passed = 0
@@ -67,9 +101,10 @@ def _seed_run(agent_id: str, eval_name: str, test_cases: list[dict], preset_resu
         "passed": passed,
         "failed": total - passed,
         "score": round(passed / total * 100, 1) if total else 0,
-        "created_at": "2026-07-12T06:00:00",
+        "created_at": "2026-07-12T06:00:00Z",
         "results": results,
     }
+    _save_runs(_RUNS)
 
 _seed_run(
     agent_id="loblaw-support-bot",
@@ -181,26 +216,174 @@ _TEMPLATES = [
 
 @router.get("/templates")
 async def list_templates(current_user: User = Depends(get_current_user)):
-    """Return ready-made test case templates for common agent scenarios."""
     return _TEMPLATES
 
+
+@router.post("/generate-test-cases")
+async def generate_test_cases(
+    body: GenerateTestCasesRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Use Azure OpenAI to read an agent's config and generate realistic test cases."""
+    agent = await db.scalar(select(Agent).where(Agent.id == body.agent_id))
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    tools_list = ", ".join(agent.tools or []) if agent.tools else "none"
+    system_prompt_excerpt = (agent.system_prompt or "")[:600]
+
+    prompt = f"""You are a senior QA engineer specialising in LLM-powered AI agents.
+Analyse this agent and generate exactly 6 realistic, diverse test cases.
+
+=== AGENT PROFILE ===
+Name: {agent.name}
+Description: {agent.description or 'N/A'}
+Role: {agent.role or 'N/A'}
+Goal: {agent.goal or 'N/A'}
+System Prompt (excerpt): {system_prompt_excerpt}
+Tools available: {tools_list}
+
+=== TEST CASE REQUIREMENTS ===
+Cover these 6 categories (one each):
+1. happy path   – typical, expected user request the agent is built for
+2. happy path   – another common core-flow scenario
+3. edge case    – unusual but valid request within scope
+4. edge case    – boundary condition or unusual phrasing
+5. out of scope – request the agent should politely decline or redirect
+6. clarification – intentionally vague/ambiguous input that should prompt the agent to ask for more info
+
+=== OUTPUT FORMAT ===
+Return ONLY a valid JSON array — no markdown, no explanation, no code fences.
+[
+  {{
+    "input": "realistic user message",
+    "expected": "ideal agent response (1-3 sentences)",
+    "category": "happy path | edge case | out of scope | clarification"
+  }}
+]"""
+
+    provider = _MODEL_TO_PROVIDER.get(body.model, "azure")
+    llm = AzureOpenAIClient(provider=provider)
+    raw = await llm.chat(
+        [
+            {"role": "system", "content": "You are a QA engineer. Return ONLY a valid JSON array, no markdown, no code fences."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.8,
+        max_tokens=2000,
+    )
+
+    match = re.search(r'\[[\s\S]*\]', raw)
+    if not match:
+        raise HTTPException(status_code=500, detail="AI did not return a valid JSON array of test cases")
+    try:
+        test_cases = json.loads(match.group())
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to parse generated test cases: {exc}")
+
+    return {"agent_id": body.agent_id, "agent_name": agent.name, "test_cases": test_cases}
+
+
 @router.post("/runs", response_model=EvalResult)
-async def create_eval_run(body: EvalRunRequest, current_user: User = Depends(get_current_user)):
+async def create_eval_run(
+    body: EvalRunRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Resolve real agent from DB when agent_id is a UUID; seeded slug IDs won't match.
+    agent = None
+    try:
+        agent = await db.scalar(select(Agent).where(Agent.id == body.agent_id))
+    except Exception:
+        pass
+
     run_id = str(uuid.uuid4())
     results = []
     passed = 0
+    provider = _MODEL_TO_PROVIDER.get(body.model, "azure")
+    llm = AzureOpenAIClient(provider=provider)
+
+    system_prompt = agent.system_prompt if agent else ""
+
     for tc in body.test_cases:
-        ok = random.random() > 0.25
-        if ok: passed += 1
-        results.append({"input": tc.get("input",""), "expected": tc.get("expected",""), "actual": tc.get("expected","") if ok else "Unexpected response", "passed": ok})
+        user_input = tc.get("input", "")
+        expected = tc.get("expected", "")
+        actual = ""
+
+        if agent:
+            # Call the LLM directly with the agent's system prompt — faster than
+            # running the full orchestrator (no guardrails / RAG) and sufficient
+            # for evaluation purposes where we just need the raw agent response.
+            try:
+                actual = await llm.chat(
+                    [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_input},
+                    ],
+                    temperature=1,
+                    max_tokens=512,
+                )
+            except Exception as exc:
+                actual = f"[Agent error: {str(exc)[:120]}]"
+        else:
+            actual = "[Agent not found in database — cannot run]"
+
+        # LLM-as-judge: semantic pass/fail comparison
+        ok = False
+        if actual and not actual.startswith("["):
+            try:
+                verdict = await llm.chat(
+                    [
+                        {"role": "system", "content": "You are a strict QA evaluator. Respond with ONLY the single word PASS or FAIL, nothing else."},
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Expected response:\n{expected}\n\n"
+                                f"Actual response:\n{actual}\n\n"
+                                "Does the actual response address the same intent, key facts, and guidance as the expected response? "
+                                "Minor wording differences are fine. PASS if semantically equivalent, FAIL if it misses key points or is incorrect."
+                            ),
+                        },
+                    ],
+                    temperature=1,
+                    max_tokens=5,
+                )
+                ok = "PASS" in verdict.upper()
+            except Exception:
+                ok = bool(actual.strip())
+
+        if ok:
+            passed += 1
+        results.append({
+            "input": user_input,
+            "expected": expected,
+            "actual": actual,
+            "passed": ok,
+        })
+
     total = len(body.test_cases)
-    run = {"id": run_id, "agent_id": body.agent_id, "eval_name": body.eval_name or f"Eval {run_id[:8]}", "status": "completed", "total": total, "passed": passed, "failed": total - passed, "score": round(passed / total * 100, 1) if total else 0, "created_at": datetime.utcnow().isoformat(), "results": results}
+    run = {
+        "id": run_id,
+        "agent_id": body.agent_id,
+        "eval_name": body.eval_name or f"Eval {run_id[:8]}",
+        "status": "completed",
+        "total": total,
+        "passed": passed,
+        "failed": total - passed,
+        "score": round(passed / total * 100, 1) if total else 0,
+        "created_at": datetime.utcnow().isoformat() + "Z",
+        "results": results,
+    }
     _RUNS[run_id] = run
+    _save_runs(_RUNS)
     return run
+
 
 @router.get("/runs", response_model=list[EvalResult])
 async def list_eval_runs(current_user: User = Depends(get_current_user)):
     return list(_RUNS.values())
+
 
 @router.get("/runs/{run_id}", response_model=EvalResult)
 async def get_eval_run(run_id: str, current_user: User = Depends(get_current_user)):

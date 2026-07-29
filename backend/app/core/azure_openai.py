@@ -141,12 +141,24 @@ class AzureOpenAIClient:
                 # roles are supported!"). Fold any system message into the first
                 # user turn instead so callers don't need per-model workarounds.
                 send_messages = self._fold_system_messages(messages) if self.provider == "lmstudio" else messages
-                response = await self._client.chat.completions.create(
-                    model=self.deployment,
-                    messages=send_messages,
-                    temperature=temperature,
-                    **token_kwarg,
-                )
+                try:
+                    response = await self._client.chat.completions.create(
+                        model=self.deployment,
+                        messages=send_messages,
+                        temperature=temperature,
+                        **token_kwarg,
+                    )
+                except Exception as temp_err:
+                    # Reasoning models (gpt-5-mini, o-series) reject temperature != 1.
+                    # Retry without it so callers don't need per-model workarounds.
+                    if "temperature" in str(temp_err) and "unsupported" in str(temp_err).lower():
+                        response = await self._client.chat.completions.create(
+                            model=self.deployment,
+                            messages=send_messages,
+                            **token_kwarg,
+                        )
+                    else:
+                        raise
                 result = response.choices[0].message.content
                 span.set_attribute("llm.prompt_messages", len(messages))
                 span.set_attribute("llm.response_length", len(result))

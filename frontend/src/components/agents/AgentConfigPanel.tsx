@@ -305,7 +305,7 @@ export default function AgentConfigPanel({ nodeId, nodeData, onUpdate, onSave, o
             onChange={(e) => setModel(e.target.value)}
           >
             <option value="local">Local Model</option>
-            <option value="azure">Azure GPT-5.4-mini</option>
+            <option value="azure">Azure GPT-5-mini</option>
             <option value="gemini">Gemini Flash-Lite</option>
           </select>
         </div>
