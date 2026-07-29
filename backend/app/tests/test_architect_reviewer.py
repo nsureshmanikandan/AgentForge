@@ -339,6 +339,42 @@ async def test_review_and_fix_embeds_known_issues_in_prompt():
     assert "Document" in sent_prompt
 
 
+async def test_review_and_fix_prioritizes_all_api_route_files_over_misc_files():
+    """Reproduces a real bug found via live gpt-5-mini testing: an
+    unwired-agent-method issue named roadmap.py/progress.py as the files
+    needing a new call added, but the reviewer's file-selection budget only
+    prioritized a few specifically-named files (chat.py, documents.py, ...)
+    -- any other /api/ route file sorted after generic misc files and could
+    get truncated out of the prompt entirely, making the bug unfixable
+    (the reviewer can't edit a file it was never shown). Any /api/ route
+    file must now outrank non-route files regardless of its literal name."""
+    files = _base_project()
+    files["backend/app/agents/CareerCoachingAgent.py"] = (
+        "class CareerCoachingAgent:\n"
+        "    def generate_roadmap(self, p, m): return {}\n"
+    )
+    # A large misc (non-route, non-priority-named) file that would consume
+    # most of the budget if the priority ordering didn't rank api/ files first.
+    files["backend/app/misc_notes.py"] = "# padding\n" + ("x = 1\n" * 4000)
+    files["backend/app/api/roadmap.py"] = (
+        "from app.agents.CareerCoachingAgent import CareerCoachingAgent\n"
+        "def get_roadmap(profile_id): return {}\n"  # doesn't call generate_roadmap yet
+    )
+
+    mock_client = AsyncMock()
+    mock_response = AsyncMock()
+    mock_response.choices = [AsyncMock(message=AsyncMock(content='{"files": {}}'))]
+
+    with patch("asyncio.to_thread", new=AsyncMock(return_value=mock_response)) as mock_thread:
+        await _review_and_fix_generated_code(
+            files, mock_client, "gpt-4o", "max_tokens",
+            known_issues=["Agent method CareerCoachingAgent.generate_roadmap is defined but never called"],
+        )
+
+    sent_prompt = mock_thread.call_args.kwargs["messages"][0]["content"]
+    assert "app/api/roadmap.py" in sent_prompt or "backend/app/api/roadmap.py" in sent_prompt
+
+
 async def test_review_and_fix_survives_llm_failure_unchanged():
     files = _base_project()
     with patch("asyncio.to_thread", side_effect=RuntimeError("network blip")):
@@ -573,6 +609,30 @@ def test_fix_database_url_scheme_drift_makes_env_example_match_config():
     assert result["backend/.env.example"].startswith("DATABASE_URL=postgresql+asyncpg://")
     # idempotent -- re-running on already-fixed output changes nothing further
     assert _fix_database_url_scheme_drift(result) == result
+
+
+def test_database_url_scheme_drift_targets_backend_env_example_not_root():
+    """Reproduces a real bug found via live gpt-5-mini testing: generated
+    projects commonly ship BOTH a root .env.example and backend/.env.example
+    -- `next(p for p in all_files if p.endswith(".env.example"))` matched
+    whichever came first regardless of which one actually pairs with
+    config.py, so a drifting root file kept getting reported/left unfixed
+    forever while the correct backend/.env.example (already matching
+    config.py) was silently ignored."""
+    files = _base_project()
+    files["backend/app/config.py"] = CONFIG_PY.replace(
+        "sqlite:///./app.db", "postgresql+asyncpg://postgres:postgres@localhost:5432/app"
+    )
+    # Root file has drift (irrelevant to config.py); backend/.env.example
+    # already correctly matches -- the check/fix must key off the latter.
+    files[".env.example"] = "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/app\n"
+    files["backend/.env.example"] = "DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/app\n"
+
+    issues = _static_code_quality_report(files)
+    assert not any("DATABASE_URL default uses" in i for i in issues)
+
+    result = _fix_database_url_scheme_drift(dict(files))
+    assert result["backend/.env.example"] == files["backend/.env.example"]  # already correct, untouched
 
 
 def test_no_database_url_drift_reports_nothing():

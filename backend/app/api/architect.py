@@ -4229,6 +4229,27 @@ def _normalize_vite_proxy_port(all_files: dict, backend_port: int = 8002) -> dic
     return all_files
 
 
+def _find_backend_env_example(all_files: dict) -> str | None:
+    """
+    Generated projects commonly ship TWO `.env.example` files -- a root one
+    (for docker-compose/frontend-facing vars) and `backend/.env.example`
+    (the one that actually pairs with `backend/config.py`'s Settings
+    class). `next(p for p in all_files if p.endswith(".env.example"))`
+    matches whichever one happens to come first in dict order -- if that's
+    the root file, every DATABASE_URL-scheme check silently validates (or
+    "fixes") the wrong file while the one config.py actually reads from
+    goes unchecked. Confirmed live: root .env.example had a bare
+    `postgresql://` DATABASE_URL while backend/.env.example already
+    correctly had `+asyncpg`, and the drift check kept reporting the issue
+    because it was checking the root file, which nothing else in the
+    pipeline ever fixes.
+    """
+    return (
+        next((p for p in all_files if p.endswith("backend/.env.example")), None)
+        or next((p for p in all_files if p.endswith(".env.example")), None)
+    )
+
+
 def _resolve_primary_main_py(all_files: dict) -> str | None:
     """
     Find the one true backend FastAPI entrypoint, and delete any stray
@@ -4465,7 +4486,7 @@ def _fix_env_asyncpg_driver(all_files: dict) -> dict:
     import re as _re
 
     config_path = next((p for p in all_files if p.endswith("config.py") and "backend" in p), None)
-    env_path = next((p for p in all_files if p.endswith(".env.example")), None)
+    env_path = _find_backend_env_example(all_files)
     if config_path is None or env_path is None:
         return all_files
 
@@ -4498,7 +4519,7 @@ def _fix_database_url_scheme_drift(all_files: dict) -> dict:
     import re as _re
 
     config_path = next((p for p in all_files if p.endswith("config.py") and "backend" in p), None)
-    env_path = next((p for p in all_files if p.endswith(".env.example")), None)
+    env_path = _find_backend_env_example(all_files)
     if config_path is None or env_path is None:
         return all_files
 
@@ -5340,7 +5361,7 @@ def _static_code_quality_report(all_files: dict, expected_agents: Optional[List[
                 )
 
         config_path = next((p for p in all_files if p.endswith("config.py") and "backend" in p), None)
-        env_path = next((p for p in all_files if p.endswith(".env.example")), None)
+        env_path = _find_backend_env_example(all_files)
         if config_path and env_path:
             config_scheme_match = _re.search(r'DATABASE_URL:\s*str\s*=\s*["\'](\w+(?:\+\w+)?)://', all_files[config_path])
             env_scheme_match = _re.search(r'^DATABASE_URL=(\w+(?:\+\w+)?)://', all_files[env_path], _re.MULTILINE)
@@ -6437,12 +6458,26 @@ async def _review_and_fix_generated_code(
 
     # Prioritize files most likely to contain the known bug patterns within
     # the token budget: models/config/security/documents/chat/agents first,
-    # then App.tsx, then anything else.
+    # then App.tsx, then any other API route file, then anything else.
+    #
+    # Observed live: an "agent method never called from any API route" known
+    # issue is unfixable if the route file it needs wiring into (e.g.
+    # roadmap.py, progress.py) never made it into the reviewer's prompt at
+    # all -- this priority list only named specific files by literal
+    # filename, so any route file whose name didn't happen to match sorted
+    # after the 40k budget cutoff and was silently dropped. The reviewer
+    # can't fix a bug in a file it was never shown.
     priority = ("models.py", "config.py", "security.py", "documents.py", "chat.py", "Agent.py", "App.tsx")
-    ordered_paths = sorted(
-        review_targets,
-        key=lambda p: next((i for i, kw in enumerate(priority) if kw in p), len(priority)),
-    )
+
+    def _priority_rank(p: str) -> int:
+        for i, kw in enumerate(priority):
+            if kw in p:
+                return i
+        if "/api/" in p.replace("\\", "/"):
+            return len(priority)  # any other API route file -- still ahead of misc files
+        return len(priority) + 1
+
+    ordered_paths = sorted(review_targets, key=_priority_rank)
 
     files_content = ""
     budget = 40_000
