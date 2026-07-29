@@ -4611,8 +4611,14 @@ def _fix_json_response_format_missing_keyword(all_files: dict) -> dict:
         changed = False
         # Match each chat.completions.create(...) call and check whether its
         # own messages argument (not the whole file) already mentions "json".
-        for start, end in list(_find_calls(content)):
-            call_src = content[start:end]
+        # Spans are computed once against this original snapshot -- `content`
+        # gets reassigned (and shifts in length) after every fix applied
+        # below, so re-slicing by the original (start, end) against the
+        # mutated string would silently grab the wrong text for every call
+        # after the first one in a file with multiple matches.
+        original_content = content
+        for start, end in list(_find_calls(original_content)):
+            call_src = original_content[start:end]
             if 'response_format' not in call_src or 'json_object' not in call_src:
                 continue
             # The call text always contains the literal "json_object" from its
@@ -4620,11 +4626,24 @@ def _fix_json_response_format_missing_keyword(all_files: dict) -> dict:
             # checking for "json", or this check would never fire (every
             # matching call would trivially "already mention json").
             messages_src = _re.sub(r'response_format\s*=\s*\{[^}]*\}', '', call_src)
+            # Also strip module-level references like json.dumps(/json.loads(
+            # -- OpenAI's requirement is that the literal word "json" appear
+            # in the actual message TEXT sent to the model, not that the word
+            # merely appears somewhere in the Python source. A user-content
+            # arg built as `json.dumps(profile)` contains "json" in source
+            # but serializes to plain data with no such word in it at
+            # runtime, so it must not count as "already compliant".
+            messages_src = _re.sub(r'\bjson\.(dumps|loads)\s*\(', '', messages_src, flags=_re.IGNORECASE)
             if _re.search(r'json', messages_src, _re.IGNORECASE):
                 continue
-            # Append the reminder to the first system-role content string in this call.
+            # Append the reminder right after the first quote that opens the
+            # system message's content string. Generated agents build that
+            # content two different ways -- a literal string ("content":"X")
+            # or a concatenation ("content": self.SYSTEM_PROMPT + "X") -- so
+            # match up to the first `"` after "content": rather than assuming
+            # it's a literal string immediately following the colon.
             new_call_src = _re.sub(
-                r'("role"\s*:\s*"system"\s*,\s*"content"\s*:\s*")',
+                r'("role"\s*:\s*"system"\s*,\s*"content"\s*:\s*[^"]*?")',
                 r'\1Return your answer as JSON. ',
                 call_src,
                 count=1,

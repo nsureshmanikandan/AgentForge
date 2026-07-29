@@ -603,3 +603,58 @@ def test_fix_json_response_format_leaves_compliant_prompts_alone():
     files["backend/app/agents/ReportAgent.py"] = original
     result = _fix_json_response_format_missing_keyword(files)
     assert result["backend/app/agents/ReportAgent.py"] == original
+
+
+def test_fix_json_response_format_handles_concatenated_content():
+    """Generated agents often build the system message as `SYSTEM_PROMPT +
+    "some literal"` instead of a single literal string -- the reminder must
+    still land right before the literal text, not be silently skipped
+    because "content" isn't immediately followed by an opening quote."""
+    files = _base_project()
+    original = (
+        'class ReportAgent:\n'
+        '    SYSTEM_PROMPT = "You are an expert."\n'
+        '    def generate(self, ctx):\n'
+        '        r = self.client.chat.completions.create(model="x", messages=[{"role": "system", "content": self.SYSTEM_PROMPT + " Summarize."}], response_format={"type": "json_object"})\n'
+    )
+    files["backend/app/agents/ReportAgent.py"] = original
+    result = _fix_json_response_format_missing_keyword(files)
+    fixed = result["backend/app/agents/ReportAgent.py"]
+    assert fixed != original
+    assert "Return your answer as JSON." in fixed
+
+
+def test_fix_json_response_format_fixes_every_call_in_a_file():
+    """A file with multiple non-compliant calls must get every one fixed, not
+    just the first -- fixing the first call shifts string offsets for every
+    call after it if spans aren't re-derived from the original text."""
+    files = _base_project()
+    original = (
+        'class ReportAgent:\n'
+        '    def first(self, ctx):\n'
+        '        r = self.client.chat.completions.create(model="x", messages=[{"role": "system", "content": "You are a report generator."}], response_format={"type": "json_object"})\n'
+        '    def second(self, ctx):\n'
+        '        r = self.client.chat.completions.create(model="x", messages=[{"role": "system", "content": "You are a scoring expert."}], response_format={"type": "json_object"})\n'
+    )
+    files["backend/app/agents/ReportAgent.py"] = original
+    result = _fix_json_response_format_missing_keyword(files)
+    fixed = result["backend/app/agents/ReportAgent.py"]
+    assert fixed.count("Return your answer as JSON.") == 2
+
+
+def test_fix_json_response_format_ignores_json_dumps_as_false_compliance():
+    """`json.dumps(...)` in a user-content argument contains the literal
+    substring "json" in source, but serializes to plain data with no such
+    word in the actual runtime message -- it must not count as already
+    satisfying OpenAI's "messages must contain the word json" requirement."""
+    files = _base_project()
+    original = (
+        'class ReportAgent:\n'
+        '    def generate(self, profile, market):\n'
+        '        r = self.client.chat.completions.create(model="x", messages=[{"role": "system", "content": "You are a planner."}, {"role": "user", "content": json.dumps({"profile": profile, "market": market})}], response_format={"type": "json_object"})\n'
+    )
+    files["backend/app/agents/ReportAgent.py"] = original
+    result = _fix_json_response_format_missing_keyword(files)
+    fixed = result["backend/app/agents/ReportAgent.py"]
+    assert fixed != original
+    assert "Return your answer as JSON." in fixed
