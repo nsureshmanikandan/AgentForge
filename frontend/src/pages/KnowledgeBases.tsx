@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
 import dagre from "@dagrejs/dagre";
 import {
   ReactFlow,
@@ -14,6 +13,7 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import { ragApi } from "../api/client";
+import { KBAnswerCard, type SourceChunk } from "../components/KBAnswerCard";
 
 // ── Entity colour palette ─────────────────────────────────────────────────────
 const ENTITY_PALETTE: Record<string, { bg: string; border: string; text: string; dot: string }> = {
@@ -288,6 +288,10 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
   const [question, setQuestion] = useState("");
   const [askedQuestion, setAskedQuestion] = useState("");
   const [answer, setAnswer] = useState("");
+  const [sources, setSources] = useState<SourceChunk[]>([]);
+  const [graphEntities, setGraphEntities] = useState<{ name: string; type: string }[] | undefined>(undefined);
+  const [relatedQuestions, setRelatedQuestions] = useState<string[]>([]);
+  const [groundingScore, setGroundingScore] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -308,11 +312,24 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
 
   async function runQuery(q: string) {
     if (!q.trim()) return;
-    setLoading(true); setAnswer(""); setError(""); setAskedQuestion(q.trim());
+    setLoading(true);
+    setAnswer(""); setSources([]); setGraphEntities(undefined);
+    setRelatedQuestions([]); setGroundingScore(null);
+    setError(""); setAskedQuestion(q.trim());
     try {
       const res = await ragApi.query(kb.id, q.trim());
-      const data = res.data as { answer: string };
+      const data = res.data as {
+        answer: string;
+        sources: SourceChunk[];
+        graph_entities?: { name: string; type: string }[];
+        related_questions: string[];
+        grounding_score: number | null;
+      };
       setAnswer(data.answer);
+      setSources(data.sources ?? []);
+      setGraphEntities(data.graph_entities ?? undefined);
+      setRelatedQuestions(data.related_questions ?? []);
+      setGroundingScore(data.grounding_score ?? null);
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       setError(msg || "Query failed. Please try again.");
@@ -322,7 +339,9 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
   }
 
   function clearQuery() {
-    setQuestion(""); setAskedQuestion(""); setAnswer(""); setError("");
+    setQuestion(""); setAskedQuestion(""); setAnswer("");
+    setSources([]); setGraphEntities(undefined);
+    setRelatedQuestions([]); setGroundingScore(null); setError("");
   }
 
   function handleQuestionChange(value: string) {
@@ -334,7 +353,7 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0">
@@ -406,27 +425,31 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
           )}
         </div>
 
-        {(loading || answer) && (
-          <div className="mt-4 mx-6 mb-6 flex-1 min-h-0 flex flex-col bg-indigo-50 border border-indigo-100 rounded-xl overflow-hidden">
-            <div className="px-4 pt-4 pb-2 flex-shrink-0 border-b border-indigo-100/70">
-              {askedQuestion && <p className="text-xs text-indigo-400 mb-1.5 italic truncate">"{askedQuestion}"</p>}
-              <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wider">Answer</p>
-            </div>
-            <div className="px-4 py-3 overflow-y-auto">
-              {loading ? (
-                <div className="flex items-center gap-2 text-sm text-indigo-400">
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                  </svg>
-                  Thinking…
-                </div>
-              ) : (
-                <div className="prose prose-sm prose-slate max-w-none prose-p:my-2 prose-ol:my-2 prose-ul:my-2">
-                  <ReactMarkdown>{answer}</ReactMarkdown>
-                </div>
-              )}
-            </div>
+        {loading && (
+          <div className="mt-4 mx-6 mb-4 flex items-center gap-2 text-sm text-indigo-400">
+            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+            Thinking…
+          </div>
+        )}
+
+        {answer && !loading && (
+          <div className="mt-4 mx-6 mb-6">
+            {askedQuestion && (
+              <p className="text-xs text-slate-400 italic mb-2">"{askedQuestion}"</p>
+            )}
+            <KBAnswerCard
+              kbId={kb.id}
+              question={askedQuestion}
+              answer={answer}
+              sources={sources}
+              graphEntities={graphEntities}
+              relatedQuestions={relatedQuestions}
+              groundingScore={groundingScore}
+              onRelatedClick={(q) => { setQuestion(q); runQuery(q); }}
+            />
           </div>
         )}
       </div>
