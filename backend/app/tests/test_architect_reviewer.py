@@ -621,6 +621,87 @@ def test_no_tablename_collision_reports_nothing():
     assert not any("different model classes" in i for i in issues)
 
 
+# ── read-only tables: queried but never written to ──────────────────────────
+
+def test_detects_model_read_but_never_written():
+    """Reproduces the confirmed Employee Onboarding Buddy bug: a dashboard
+    route queries PolicyQuestion history per new hire, but the chat
+    endpoint that actually answers policy questions never persists a
+    single PolicyQuestion row anywhere -- the dashboard will always show
+    an empty history despite the AI logic itself running correctly."""
+    files = _base_project()
+    files["backend/app/models.py"] += (
+        "\nclass PolicyQuestion(Base):\n"
+        "    __tablename__ = \"policy_questions\"\n"
+        "    id: Mapped[int] = mapped_column(Integer, primary_key=True)\n"
+        "    new_hire_id: Mapped[int] = mapped_column(Integer)\n"
+    )
+    files["backend/app/api/onboarding.py"] = (
+        "from sqlalchemy import select\n"
+        "from app.models import PolicyQuestion\n"
+        "async def get_dashboard(new_hire_id, db):\n"
+        "    result = await db.execute(select(PolicyQuestion).where(PolicyQuestion.new_hire_id == new_hire_id))\n"
+        "    return result.scalars().all()\n"
+    )
+    files["backend/app/api/chat.py"] = (
+        "from app.agents.OnboardingBuddyAgent import OnboardingBuddyAgent\n"
+        "async def chat(req):\n"
+        "    agent = OnboardingBuddyAgent()\n"
+        "    return agent.answer_question(req.question)\n"  # never persists a PolicyQuestion row
+    )
+    issues = _static_code_quality_report(files)
+    assert any(
+        "PolicyQuestion" in i and "no code anywhere ever constructs" in i
+        for i in issues
+    )
+
+
+def test_does_not_flag_model_that_is_both_read_and_written():
+    files = _base_project()
+    files["backend/app/models.py"] += (
+        "\nclass PolicyQuestion(Base):\n"
+        "    __tablename__ = \"policy_questions\"\n"
+        "    id: Mapped[int] = mapped_column(Integer, primary_key=True)\n"
+        "    new_hire_id: Mapped[int] = mapped_column(Integer)\n"
+    )
+    files["backend/app/api/onboarding.py"] = (
+        "from sqlalchemy import select\n"
+        "from app.models import PolicyQuestion\n"
+        "async def get_dashboard(new_hire_id, db):\n"
+        "    result = await db.execute(select(PolicyQuestion).where(PolicyQuestion.new_hire_id == new_hire_id))\n"
+        "    return result.scalars().all()\n"
+    )
+    files["backend/app/api/chat.py"] = (
+        "from app.models import PolicyQuestion\n"
+        "async def chat(req, db):\n"
+        "    q = PolicyQuestion(new_hire_id=req.new_hire_id)\n"
+        "    db.add(q)\n"
+        "    await db.commit()\n"
+    )
+    issues = _static_code_quality_report(files)
+    assert not any("PolicyQuestion" in i and "no code anywhere ever constructs" in i for i in issues)
+
+
+def test_does_not_flag_model_that_is_written_but_never_queried():
+    """A write-only table (e.g. an audit log nothing reads back yet) is not
+    the bug this check targets -- only flag models a route actually depends
+    on reading from."""
+    files = _base_project()
+    files["backend/app/models.py"] += (
+        "\nclass AuditLog(Base):\n"
+        "    __tablename__ = \"audit_logs\"\n"
+        "    id: Mapped[int] = mapped_column(Integer, primary_key=True)\n"
+    )
+    files["backend/app/api/chat.py"] = (
+        "from app.models import AuditLog\n"
+        "async def chat(req, db):\n"
+        "    db.add(AuditLog())\n"
+        "    await db.commit()\n"
+    )
+    issues = _static_code_quality_report(files)
+    assert not any("AuditLog" in i for i in issues)
+
+
 def test_detects_database_url_scheme_drift():
     files = _base_project()
     files["backend/app/config.py"] = CONFIG_PY.replace(

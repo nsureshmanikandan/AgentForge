@@ -5360,6 +5360,37 @@ def _static_code_quality_report(all_files: dict, expected_agents: Optional[List[
                     f"'Table already defined for this MetaData instance'."
                 )
 
+        # -- read-only tables: a route queries a model nothing ever writes to
+        # Confirmed live: Employee Onboarding Buddy's dashboard route did
+        # `select(PolicyQuestion).where(...)` to show per-new-hire policy
+        # Q&A history, but the chat endpoint that actually answers policy
+        # questions never persisted a single PolicyQuestion row anywhere --
+        # the plan's own "persist policy Q&A history" requirement silently
+        # never happened. The existing agent-pipeline-completeness check
+        # above can't catch this: the agent's LOGIC did run (via the shared
+        # answer_question chat entrypoint), it just never got saved to the
+        # specific table another route depends on reading from.
+        model_classes = {cls for classes in table_to_classes.values() for cls in classes}
+        if model_classes:
+            all_backend_src = "\n".join(
+                content for path, content in all_files.items()
+                if path.endswith(".py") and "backend" in path.replace("\\", "/")
+            )
+            for cls in sorted(model_classes):
+                is_queried = bool(_re.search(rf'select\(\s*{_re.escape(cls)}\b', all_backend_src))
+                if not is_queried:
+                    continue
+                # Strip the class's own `class Foo(Base):` definition line so
+                # it doesn't count as a false "write" of itself.
+                without_def = _re.sub(rf'^\s*class\s+{_re.escape(cls)}\b.*$', '', all_backend_src, flags=_re.MULTILINE)
+                is_written = bool(_re.search(rf'\b{_re.escape(cls)}\(', without_def))
+                if not is_written:
+                    issues.append(
+                        f"Model '{cls}' is read via select({cls}) somewhere but no code anywhere "
+                        f"ever constructs a {cls}(...) instance -- whatever route queries it will "
+                        f"always see empty results because nothing ever writes to that table."
+                    )
+
         config_path = next((p for p in all_files if p.endswith("config.py") and "backend" in p), None)
         env_path = _find_backend_env_example(all_files)
         if config_path and env_path:
