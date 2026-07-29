@@ -6411,6 +6411,17 @@ REVIEWER_PROMPT = """You are reviewing a generated FastAPI + React project for c
    "package.json" appears above and is missing "@azure/msal-browser"/"@azure/msal-react" from
    its dependencies, include a corrected "package.json" in your output too.
 
+7. AGENT METHOD NEVER CALLED: if a known issue above says an agent method "is defined but never
+   called from any API route", you MUST wire it in -- do not just leave it defined. Find the
+   existing API route file whose purpose most closely matches the method's name/docstring (e.g.
+   a `prospecting_agent` method belongs in the route that creates/lists the thing it prospects
+   for, a `personalization_agent` method belongs right before whatever route sends/sequences the
+   output it personalizes). Add a call to `agent.<method_name>(...)` inside that route handler,
+   using its return value in the response or a persisted row exactly like the other agent calls
+   in that same file already do. If genuinely no existing route fits, add a new endpoint whose
+   only job is to call that method. Do not skip this or leave a "TODO" -- an unresolved case here
+   means a whole piece of the app's advertised functionality silently never runs.
+
 Return ONLY valid JSON: {{"files": {{"path": "corrected or newly-created full file content"}}}}
 containing ONLY the files you changed or created. If you find no issues, return {{"files": {{}}}}.
 
@@ -6595,7 +6606,13 @@ async def _run_verified_review_loop(
     tok_kwarg: str,
     app_name: str,
     summary: str,
-    max_iterations: int = 2,
+    # Bumped from 2: live testing across 5 real prompts showed one real case
+    # (Sales Outreach Specialist -- 2 unwired agent methods) still unresolved
+    # after 2 iterations. Each extra iteration only costs an LLM call in the
+    # rare case issues remain -- the loop already exits early the moment
+    # `_static_code_quality_report` comes back clean, so this doesn't add
+    # any cost to the common (already-clean-after-1-pass) case.
+    max_iterations: int = 3,
     expected_agents: Optional[List[dict]] = None,
     plan_phases: Optional[List[dict]] = None,
 ) -> dict:
