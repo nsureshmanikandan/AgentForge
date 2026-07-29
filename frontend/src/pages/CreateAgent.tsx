@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { agentsApi, ragApi } from "../api/client";
 import type { PromptVersion, PromptChangeType } from "../components/PromptEvolution";
 import { PromptEvolutionSection, buildRepairEntry } from "../components/PromptEvolution";
+import { KBTestPanel } from "../components/KBAnswerCard";
 
 const CA_HISTORY_KEY = "agentforge_create_agent_history";
 
@@ -493,6 +494,12 @@ export default function CreateAgent() {
   // Knowledge base files
   const [kbFiles, setKbFiles] = useState<{name: string; size: string; status: "uploading"|"done"|"error"; kbId?: string}[]>([]);
   const [kbId, setKbId] = useState<string | null>(null);
+  const [availableKBs, setAvailableKBs] = useState<
+    { id: string; name: string; kb_type: string; document_count: number }[]
+  >([]);
+  const [selectedKbId, setSelectedKbId] = useState<string | null>(null);
+  const [kbTestOpen, setKbTestOpen] = useState(false);
+  const [kbPickerMode, setKbPickerMode] = useState<"picker" | "upload">("picker");
 
   // Tools
   const [selectedTools, setSelectedTools] = useState<string[]>([]);
@@ -513,6 +520,14 @@ export default function CreateAgent() {
     try { localStorage.setItem(CA_HISTORY_KEY, JSON.stringify(promptHistory)); } catch { /* full */ }
   }, [promptHistory]);
 
+  // Fetch available knowledge bases on mount
+  useEffect(() => {
+    ragApi.list().then((res) => {
+      const data = res.data as { id: string; name: string; kb_type: string; document_count: number }[];
+      setAvailableKBs(data);
+    }).catch(() => {});
+  }, []);
+
   // Load existing agent when in edit mode
   useEffect(() => {
     if (!editId) return;
@@ -522,7 +537,11 @@ export default function CreateAgent() {
       if (agent.model) setModel(agent.model);
       if (agent.tools) setSelectedTools(agent.tools);
       if (agent.temperature != null) setTemperature(agent.temperature);
-      if (agent.knowledge_base_id) setKbId(agent.knowledge_base_id);
+      if (agent.knowledge_base_id) {
+        setKbId(agent.knowledge_base_id);
+        setSelectedKbId(agent.knowledge_base_id);
+        setKbPickerMode("picker");
+      }
       if (agent.is_voice_agent != null) setIsVoiceAgent(!!agent.is_voice_agent);
       if (agent.voice_config) setVoiceAgentConfig((prev) => ({ ...prev, ...(agent.voice_config as object) }));
 
@@ -706,12 +725,12 @@ export default function CreateAgent() {
       };
 
       if (editId) {
-        await agentsApi.update(editId, { ...payload, knowledge_base_id: kbId ?? undefined });
+        await agentsApi.update(editId, { ...payload, knowledge_base_id: kbPickerMode === "picker" ? (selectedKbId ?? undefined) : (kbId ?? undefined) });
         navigate(`/studio?id=${editId}`);
       } else {
         await agentsApi.create({
           ...payload,
-          knowledge_base_id: kbId ?? undefined,
+          knowledge_base_id: kbPickerMode === "picker" ? (selectedKbId ?? undefined) : (kbId ?? undefined),
           memory_config: enabledFeatures.includes("memory") ? memoryConfig : undefined,
           schedule: scheduleConfig.enabled ? scheduleConfig : undefined,
         });
@@ -1142,45 +1161,124 @@ export default function CreateAgent() {
               <span className="text-gray-400 text-lg">{knowledgeOpen ? "−" : "+"}</span>
             </button>
             {knowledgeOpen && (
-              <div className="px-4 pb-4 space-y-2">
-                {kbFiles.map((f, i) => (
-                  <div key={i} className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
-                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-gray-700 truncate">{f.name}</p>
-                      <p className="text-xs text-gray-400">{f.size}</p>
-                    </div>
-                    {f.status === "uploading" && <div className="w-3 h-3 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />}
-                    {f.status === "done" && <span className="text-xs text-emerald-500">✓</span>}
-                    {f.status === "error" && <span className="text-xs text-red-400">✗</span>}
-                    <button onClick={() => setKbFiles(prev => prev.filter((_, j) => j !== i))} className="text-gray-300 hover:text-red-400 text-xs ml-1">✕</button>
-                  </div>
-                ))}
-                <label className="block w-full border border-dashed border-gray-300 rounded-xl py-3 px-4 text-sm text-gray-500 hover:border-teal-400 hover:text-teal-600 transition-colors cursor-pointer text-center">
-                  <input type="file" accept=".pdf,.docx,.txt,.md,.csv" multiple className="hidden"
-                    onChange={async (e) => {
-                      const files = Array.from(e.target.files ?? []);
-                      e.target.value = "";
-                      for (const file of files) {
-                        const entry = { name: file.name, size: (file.size / 1024).toFixed(0) + " KB", status: "uploading" as const };
-                        setKbFiles(prev => [...prev, entry]);
-                        try {
-                          let activeKbId = kbId;
-                          if (!activeKbId) {
-                            const res = await ragApi.createKB(agentName || "Agent KB", `Knowledge base for ${agentName}`);
-                            activeKbId = res.data.id;
-                            setKbId(activeKbId);
-                          }
-                          await ragApi.upload(activeKbId!, file);
-                          setKbFiles(prev => prev.map(f => f.name === file.name ? {...f, status: "done" as const} : f));
-                        } catch {
-                          setKbFiles(prev => prev.map(f => f.name === file.name ? {...f, status: "error" as const} : f));
-                        }
-                      }
-                    }} />
-                  + Upload document (PDF, DOCX, TXT, CSV)
+              <div className="px-6 pb-4 pt-2 space-y-3">
+                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  Attach Knowledge Base
                 </label>
-                <button className="w-full border border-gray-200 rounded-xl py-2 text-xs text-teal-600 hover:bg-teal-50">🔗 Connect Knowledge Base URL</button>
+
+                {kbPickerMode === "picker" && (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={selectedKbId ?? ""}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === "__upload__") {
+                            setKbPickerMode("upload");
+                            setSelectedKbId(null);
+                          } else {
+                            setSelectedKbId(val || null);
+                            setKbTestOpen(false);
+                          }
+                        }}
+                        className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      >
+                        <option value="">— None (agent uses LLM knowledge only) —</option>
+                        {availableKBs.map((kb) => (
+                          <option key={kb.id} value={kb.id}>
+                            {kb.name}  ·  {kb.kb_type}  ·  {kb.document_count} docs
+                          </option>
+                        ))}
+                        <option value="__upload__">➕  Upload files to create a new KB...</option>
+                      </select>
+                      <a href="/knowledge-bases" className="text-xs text-indigo-500 hover:text-indigo-700 font-medium whitespace-nowrap">
+                        Manage KBs →
+                      </a>
+                    </div>
+
+                    {selectedKbId && (() => {
+                      const kb = availableKBs.find((k) => k.id === selectedKbId);
+                      if (!kb) return null;
+                      return (
+                        <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 flex items-center gap-3">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <span className="text-xs font-semibold text-green-800">{kb.name}</span>
+                              <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">{kb.kb_type}</span>
+                              <span className="text-xs text-green-600">{kb.document_count} docs</span>
+                            </div>
+                            <p className="text-xs text-green-600">✅ Grounding enabled — agent will cite sources from this KB</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setKbTestOpen((v) => !v)}
+                            className="text-xs border border-green-300 text-green-700 bg-white rounded-lg px-2.5 py-1 hover:bg-green-50 transition-colors whitespace-nowrap"
+                          >
+                            {kbTestOpen ? "Close Test" : "🔍 Test KB"}
+                          </button>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Inline KB Test Panel */}
+                    {kbTestOpen && selectedKbId && (
+                      <KBTestPanel kbId={selectedKbId} />
+                    )}
+                  </>
+                )}
+
+                {kbPickerMode === "upload" && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setKbPickerMode("picker")}
+                      className="text-xs text-indigo-500 hover:text-indigo-700 mb-2 flex items-center gap-1"
+                    >
+                      ← Back to picker
+                    </button>
+                    {/* existing upload UI */}
+                    <div className="space-y-2">
+                      {kbFiles.map((f, i) => (
+                        <div key={i} className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+                          <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-gray-700 truncate">{f.name}</p>
+                            <p className="text-xs text-gray-400">{f.size}</p>
+                          </div>
+                          {f.status === "uploading" && <div className="w-3 h-3 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />}
+                          {f.status === "done" && <span className="text-xs text-emerald-500">✓</span>}
+                          {f.status === "error" && <span className="text-xs text-red-400">✗</span>}
+                          <button onClick={() => setKbFiles(prev => prev.filter((_, j) => j !== i))} className="text-gray-300 hover:text-red-400 text-xs ml-1">✕</button>
+                        </div>
+                      ))}
+                      <label className="block w-full border border-dashed border-gray-300 rounded-xl py-3 px-4 text-sm text-gray-500 hover:border-teal-400 hover:text-teal-600 transition-colors cursor-pointer text-center">
+                        <input type="file" accept=".pdf,.docx,.txt,.md,.csv" multiple className="hidden"
+                          onChange={async (e) => {
+                            const files = Array.from(e.target.files ?? []);
+                            e.target.value = "";
+                            for (const file of files) {
+                              const entry = { name: file.name, size: (file.size / 1024).toFixed(0) + " KB", status: "uploading" as const };
+                              setKbFiles(prev => [...prev, entry]);
+                              try {
+                                let activeKbId = kbId;
+                                if (!activeKbId) {
+                                  const res = await ragApi.createKB(agentName || "Agent KB", `Knowledge base for ${agentName}`);
+                                  activeKbId = res.data.id;
+                                  setKbId(activeKbId);
+                                }
+                                await ragApi.upload(activeKbId!, file);
+                                setKbFiles(prev => prev.map(f => f.name === file.name ? {...f, status: "done" as const} : f));
+                              } catch {
+                                setKbFiles(prev => prev.map(f => f.name === file.name ? {...f, status: "error" as const} : f));
+                              }
+                            }
+                          }} />
+                        + Upload document (PDF, DOCX, TXT, CSV)
+                      </label>
+                      <button className="w-full border border-gray-200 rounded-xl py-2 text-xs text-teal-600 hover:bg-teal-50">🔗 Connect Knowledge Base URL</button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

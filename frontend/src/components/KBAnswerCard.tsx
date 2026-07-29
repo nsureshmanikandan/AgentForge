@@ -199,3 +199,8 @@ export function KBAnswerCard({
     </div>
   );
 }
+
+// ── Stub: real implementation comes in Task 11 ──────────────────────────────
+export function KBTestPanel({ kbId: _kbId }: { kbId: string }) {
+  return null;
+}
