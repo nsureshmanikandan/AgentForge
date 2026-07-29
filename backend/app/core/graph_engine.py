@@ -213,6 +213,7 @@ class GraphEngine:
                     lines.append(f"  {s[:300]}")
         except Exception:
             rag_sources = []
+            rag_result = []
 
         messages = [
             {
@@ -229,10 +230,26 @@ class GraphEngine:
         ]
         answer = await self._llm.chat(messages, temperature=0.1)
 
+        sources_out = [
+            {
+                "filename": filename,
+                "snippet": text[:200],
+                "score": round(score, 3),
+                "doc_id": doc_id,
+            }
+            for text, score, doc_id, filename in rag_result
+        ]
+        grounding_score = (
+            round(sum(s for _, s, _, _ in rag_result) / len(rag_result), 3)
+            if rag_result else None
+        )
+
         return {
             "answer": answer,
-            "sources": [r.context for r in relationships if r.context][:3],
+            "sources": sources_out,
             "graph_entities": [{"name": e.name, "type": e.entity_type} for e in relevant[:5]],
+            "related_questions": [],    # filled by rag.py router
+            "grounding_score": grounding_score,
         }
 
     async def get_graph_data(self, db: AsyncSession) -> dict:
