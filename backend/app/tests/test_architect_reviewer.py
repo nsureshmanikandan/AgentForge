@@ -270,15 +270,17 @@ async def test_review_loop_calls_reviewer_with_known_issues_then_reverifies():
     assert _static_code_quality_report(result) == []
 
 
-async def test_review_loop_stops_early_when_no_progress_made():
-    """If an LLM pass doesn't change the outstanding issue set at all,
-    a second identical call is pointless -- stop instead of burning another
-    round-trip on a bug the reviewer already failed to fix once."""
+async def test_review_loop_stops_after_two_consecutive_no_progress_iterations():
+    """A single no-progress iteration is now given a second try (it's
+    indistinguishable from an outright LLM call failure -- rate limit,
+    network blip -- rather than a genuine stuck fix), but two IN A ROW
+    means further identical calls are pointless -- stop instead of burning
+    the rest of max_iterations on a bug the reviewer twice failed to fix."""
     files = _base_project()
     files["backend/app/api/documents.py"] = "from app.models import Document\n"
 
     async def no_op_review(all_files, client, llm_model, tok_kwarg, known_issues=None):
-        return all_files  # reviewer "tries" but changes nothing
+        return all_files  # reviewer "tries" but changes nothing, every time
 
     with patch(
         "app.api.architect._review_and_fix_generated_code", side_effect=no_op_review
@@ -287,8 +289,37 @@ async def test_review_loop_stops_early_when_no_progress_made():
             files, AsyncMock(), "gpt-4o", "max_tokens", "TestApp", "A test app", max_iterations=5,
         )
 
-    mock_review.assert_called_once()  # stopped after iteration 1, not all 5
-    assert len(_static_code_quality_report(result)) == 1
+    assert mock_review.call_count == 2  # stopped after 2 consecutive no-progress iterations, not all 5
+
+
+async def test_review_loop_recovers_from_single_transient_no_progress_iteration():
+    """One no-progress iteration (e.g. a transient LLM call failure) must
+    not burn the whole retry budget -- if the NEXT iteration actually fixes
+    the issue, the loop keeps going and succeeds instead of giving up after
+    the first blip (the old behavior: any single unchanged iteration
+    stopped the loop immediately, indistinguishable from a real crash)."""
+    files = _base_project()
+    files["backend/app/api/documents.py"] = "from app.models import Document\n"
+
+    call_count = 0
+
+    async def flaky_then_fixes(all_files, client, llm_model, tok_kwarg, known_issues=None):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return all_files  # first call: simulated transient failure, no change
+        all_files["backend/app/api/documents.py"] = "from app.models import PolicyDocument\n"
+        return all_files
+
+    with patch(
+        "app.api.architect._review_and_fix_generated_code", side_effect=flaky_then_fixes
+    ) as mock_review:
+        result = await _run_verified_review_loop(
+            files, AsyncMock(), "gpt-4o", "max_tokens", "TestApp", "A test app", max_iterations=5,
+        )
+
+    assert mock_review.call_count == 2  # iter 1: no progress (transient), iter 2: fixed -> clean, stop
+    assert _static_code_quality_report(result) == []
 
 
 async def test_review_loop_runs_for_phase_coverage_even_when_static_check_is_clean():
@@ -377,7 +408,8 @@ async def test_review_and_fix_prioritizes_all_api_route_files_over_misc_files():
 
 async def test_review_and_fix_survives_llm_failure_unchanged():
     files = _base_project()
-    with patch("asyncio.to_thread", side_effect=RuntimeError("network blip")):
+    with patch("asyncio.to_thread", side_effect=RuntimeError("network blip")), \
+         patch("asyncio.sleep", new=AsyncMock()):
         result = await _review_and_fix_generated_code(
             dict(files), AsyncMock(), "gpt-4o", "max_tokens", known_issues=["something"],
         )

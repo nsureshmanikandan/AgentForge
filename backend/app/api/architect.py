@@ -6520,6 +6520,14 @@ async def _review_and_fix_generated_code(
     # nothing in the common success case.
     last_exc: Exception | None = None
     for attempt in range(2):
+        if attempt > 0:
+            # Live testing found the previous zero-delay retry near-useless:
+            # a transient failure (rate limit, network blip) on attempt 1
+            # usually hits the exact same condition on an immediate retry.
+            # A short delay gives it a real chance to clear, mirroring the
+            # backoff pattern already used in every generated agent's own
+            # _call_with_retry helper.
+            await asyncio.sleep(2)
         try:
             response = await asyncio.to_thread(
                 client.chat.completions.create,
@@ -6660,6 +6668,14 @@ async def _run_verified_review_loop(
         logger.info("architect static code-quality check: clean, skipping LLM reviewer pass")
         return all_files
 
+    # Tracks CONSECUTIVE no-progress iterations, not just one. Live testing
+    # found the previous "stop on the very first unchanged iteration" rule
+    # indistinguishable from an outright LLM call failure (rate limit,
+    # network blip, malformed JSON) -- both look identical to this loop as
+    # "issues didn't change". A single crash used to burn the entire
+    # max_iterations budget on iteration 1 with zero real attempts made.
+    # Requiring two in a row still bounds cost, but survives one bad call.
+    consecutive_no_progress = 0
     for iteration in range(1, max_iterations + 1):
         pass_issues = first_pass_issues if iteration == 1 else issues
         logger.info(
@@ -6676,12 +6692,21 @@ async def _run_verified_review_loop(
             logger.info("architect reviewer loop: clean after iteration %d", iteration)
             return all_files
         if new_issues == issues:
-            logger.warning(
-                "architect reviewer loop: no progress after iteration %d -- stopping early. "
-                "%d issue(s) remain unresolved: %s",
-                iteration, len(new_issues), new_issues,
+            consecutive_no_progress += 1
+            if consecutive_no_progress >= 2:
+                logger.warning(
+                    "architect reviewer loop: no progress for %d consecutive iterations -- "
+                    "stopping early after iteration %d. %d issue(s) remain unresolved: %s",
+                    consecutive_no_progress, iteration, len(new_issues), new_issues,
+                )
+                return all_files
+            logger.info(
+                "architect reviewer loop: no progress after iteration %d -- giving it one more "
+                "try in case that was a transient call failure rather than a genuine stuck fix.",
+                iteration,
             )
-            return all_files
+        else:
+            consecutive_no_progress = 0
         issues = new_issues
 
     logger.warning(
