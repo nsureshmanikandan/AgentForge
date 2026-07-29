@@ -1,12 +1,15 @@
 import os
+import json
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from app.database import get_db
-from app.models.rag import KnowledgeBase, Document, Chunk, GraphEntity, GraphRelationship
+from app.models.rag import KnowledgeBase, Document, Chunk, GraphEntity, GraphRelationship, KBFeedback
+from app.schemas.rag import FeedbackRequest
 from app.core.rag_engine import RAGEngine, index_path
 from app.core.graph_engine import GraphEngine
+from app.core.azure_openai import AzureOpenAIClient
 
 router = APIRouter()
 _engines: dict[str, RAGEngine] = {}
@@ -37,6 +40,28 @@ def _leading_question(chunk_text: str) -> str | None:
     if first_line.endswith("?") and 8 <= len(first_line) <= 200:
         return first_line
     return None
+
+
+async def _generate_related_questions(question: str, answer: str) -> list[str]:
+    """Ask the LLM for 3 follow-up questions. Returns [] on any failure."""
+    try:
+        llm = AzureOpenAIClient()
+        prompt = (
+            f"Given this Q&A, generate exactly 3 short follow-up questions a user might ask next.\n"
+            f"Question: {question}\nAnswer: {answer[:500]}\n"
+            f"Return ONLY a JSON array of 3 strings, no other text. Example: [\"Q1?\",\"Q2?\",\"Q3?\"]"
+        )
+        raw = await llm.chat(
+            [{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=200,
+        )
+        parsed = json.loads(raw.strip())
+        if isinstance(parsed, list):
+            return [str(q) for q in parsed[:3]]
+    except Exception:
+        pass
+    return []
 
 
 class KBCreate(BaseModel):
@@ -206,8 +231,35 @@ async def query_kb(kb_id: str, body: QueryRequest, db: AsyncSession = Depends(ge
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
     if kb.kb_type == "graph":
-        return await _get_graph_engine(kb_id).query(body.question, db)
-    return await _get_engine(kb_id).query(body.question, db)
+        result = await _get_graph_engine(kb_id).query(body.question, db)
+    else:
+        result = await _get_engine(kb_id).query(body.question, db)
+    # Generate related questions in parallel-ish (best-effort, never blocks answer)
+    related = await _generate_related_questions(body.question, result.get("answer", ""))
+    result["related_questions"] = related
+    return result
+
+
+@router.post("/knowledge-bases/{kb_id}/feedback", status_code=201)
+async def submit_feedback(
+    kb_id: str,
+    body: FeedbackRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    kb = await db.get(KnowledgeBase, kb_id)
+    if not kb:
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+
+    feedback = KBFeedback(
+        kb_id=kb_id,
+        question=body.question,
+        answer=body.answer,
+        vote=body.vote,
+        comment=body.comment,
+    )
+    db.add(feedback)
+    await db.commit()
+    return {"status": "ok"}
 
 
 @router.get("/knowledge-bases/{kb_id}/graph")
