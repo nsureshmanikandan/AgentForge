@@ -76,6 +76,10 @@ export const ragApi = {
     api.post(`/rag/knowledge-bases/${kbId}/query`, { question }),
   suggestedQuestions: (kbId: string) =>
     api.get(`/rag/knowledge-bases/${kbId}/suggested-questions`),
+  feedback: (
+    kbId: string,
+    body: { question: string; answer: string; vote: "up" | "down"; comment?: string | null }
+  ) => api.post(`/rag/knowledge-bases/${kbId}/feedback`, body),
   getGraph: (kbId: string) => api.get(`/rag/knowledge-bases/${kbId}/graph`),
 };
 
