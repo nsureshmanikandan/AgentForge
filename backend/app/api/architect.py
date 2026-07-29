@@ -6820,6 +6820,171 @@ async def _run_verified_review_loop(
     return all_files
 
 
+def _find_missing_backend_modules(all_files: dict) -> dict[str, str]:
+    """Deterministic (AST-based, no LLM) detection of `from app.X import ...`
+    statements where no file for module X exists anywhere in the generated
+    project, returning {dotted_module: expected_file_path}.
+
+    This is the structural half of the "main.py imports a router module that
+    was never generated" bug: confirmed live regenerating the "Performance
+    Review Assistant" prompt, where main.py imported app.api.review_cycles
+    and app.api.feedback_requests (among 3 others) and file_count was 46 with
+    zero files matching those 5 modules. `_static_code_quality_report`
+    already turns this into a "dangling module reference" issue string for
+    the LLM reviewer, but the reviewer's `new_file_allowlist` (see
+    `_run_verified_review_loop`) only permits it to CREATE two specific
+    frontend SSO files -- any backend file the reviewer emits for a path not
+    already in `all_files` is silently discarded, so a missing whole file can
+    never actually be patched in by that pass. This function is the
+    deterministic detection step for a dedicated generation pass
+    (`_generate_missing_backend_modules` below) that is allowed to create
+    exactly these paths.
+    """
+    import ast as _ast
+
+    missing: dict[str, str] = {}
+    trees = _parse_backend_asts(all_files)
+    if not trees:
+        return missing
+
+    # Every backend tree lives under a ".../backend/..." prefix; anchor new
+    # files under the same prefix as main.py (or, failing that, any existing
+    # backend file) so the generated paths land in the right directory.
+    backend_root = next(
+        (p.rsplit("app/", 1)[0] for p in all_files if p.endswith("app/main.py")),
+        next((p.rsplit("app/", 1)[0] for p in trees if "app/" in p), "backend/"),
+    )
+
+    for tree in trees.values():
+        for node in _ast.walk(tree):
+            if not isinstance(node, _ast.ImportFrom) or not node.module or node.level:
+                continue
+            if not node.module.startswith("app."):
+                continue
+            if node.module in missing:
+                continue
+            if _resolve_app_module_file(all_files, node.module) is not None:
+                continue
+            expected_path = backend_root + node.module.replace(".", "/") + ".py"
+            missing[node.module] = expected_path
+    return missing
+
+
+async def _generate_missing_backend_modules(
+    all_files: dict,
+    client,
+    llm_model: str,
+    tok_kwarg: str,
+    description: str,
+) -> dict:
+    """Deterministically detects backend modules that main.py (or any other
+    generated file) imports but that were never actually emitted as files --
+    the structural gap `_find_missing_backend_modules` finds -- and, if any
+    exist, makes ONE dedicated, narrowly-scoped LLM call asking for exactly
+    those files' full content (not a general "fix bugs" pass competing with
+    everything else for a shared token budget).
+
+    Why a dedicated call instead of relying on the initial generation being
+    given a bigger token budget: the initial backend-generation call already
+    has to emit every model, route, schema, and service file for the whole
+    app inside one fixed `max_completion_tokens` budget (see
+    generate_project's Pass 2), so for a complex multi-agent app (5+ agents,
+    40+ files) the model can run out of budget partway through and simply
+    stop emitting files -- it produces a syntactically valid, complete JSON
+    object (so file_count and the JSON parse both look fine) while some
+    files it referenced from main.py never got written. Raising that shared
+    budget only pushes the same failure mode to a larger app; a follow-up
+    call scoped to just the confirmed-missing files has no competition for
+    its budget and only needs to produce a handful of files, so it's far more
+    reliable regardless of how large the original app was.
+    """
+    missing = _find_missing_backend_modules(all_files)
+    if not missing:
+        return all_files
+
+    main_py = next((c for p, c in all_files.items() if p.endswith("app/main.py")), "")
+    models_py = next((c for p, c in all_files.items() if p.endswith("app/models.py")), "")
+    # One existing api/ route file as a style example, so the new files match
+    # this project's own conventions (router prefix, session dependency,
+    # schema imports) instead of a generic guess.
+    example_route = next(
+        (c for p, c in all_files.items() if "/api/" in p.replace("\\", "/") and p.endswith(".py")),
+        "",
+    )
+
+    files_list = "\n".join(f"- {mod}  ->  create file at path \"{path}\"" for mod, path in missing.items())
+    prompt = f"""You are a senior Python engineer completing an unfinished FastAPI backend.
+
+The application is: {description}
+
+The following modules are IMPORTED by already-generated code (e.g. main.py registers
+their routers) but were NEVER actually generated as files -- this is a confirmed gap,
+not a guess. Generate COMPLETE, WORKING content for exactly these files:
+{files_list}
+
+Existing main.py (for router registration/prefix conventions and to see what each
+missing module is expected to expose):
+```python
+{main_py[:6000]}
+```
+
+Existing models.py (for the SQLAlchemy models these routes should read/write):
+```python
+{models_py[:6000]}
+```
+
+An existing api/ route file in this project, as a style example (imports, session
+dependency, schema usage, error handling conventions) -- match this style exactly:
+```python
+{example_route[:4000]}
+```
+
+Rules:
+1. Return ONLY valid JSON: {{"files": {{"<path>": "<full file content>", ...}}}}
+2. Include EVERY path listed above -- do not omit any, and do not add any other paths.
+3. Each file must be complete, runnable FastAPI route code (imports, APIRouter, endpoint
+   functions with real logic against the models above) -- never a stub, placeholder, or
+   "# TODO" body.
+4. Use the exact same import style, session/dependency pattern, and error handling as
+   the example route file shown above.
+5. Do NOT redefine anything already in models.py -- import from app.models instead.
+"""
+    try:
+        response = await asyncio.to_thread(
+            client.chat.completions.create,
+            model=llm_model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            response_format={"type": "json_object"},
+            **{tok_kwarg: 8000},
+        )
+        data = json.loads(_strip_json_fences(response.choices[0].message.content or "{}"))
+        new_files = data.get("files", {})
+        applied = 0
+        expected_paths = set(missing.values())
+        for path, content in new_files.items():
+            path = path.strip()
+            # Only accept paths that were actually asked for -- anything else
+            # is more likely a hallucinated extra file than an intentional one.
+            if path in expected_paths:
+                all_files[path] = content
+                applied += 1
+        logger.info(
+            "architect missing-module fill: %d module(s) confirmed missing, %d file(s) generated",
+            len(missing), applied,
+        )
+        still_missing = expected_paths - set(new_files.keys())
+        if still_missing:
+            logger.warning(
+                "architect missing-module fill: LLM did not return %d of %d requested file(s): %s",
+                len(still_missing), len(missing), still_missing,
+            )
+    except Exception as e:
+        logger.warning("architect missing-module fill failed (non-fatal): %r", e)
+
+    return all_files
+
+
 # ── Layer 5: Feedback endpoints ───────────────────────────────────────────────
 
 @router.post("/feedback")
@@ -7120,7 +7285,13 @@ RATE LIMITING REQUIRED:
         # ── Pass 2: Backend ─────────────────────────────────────────────────
         with _tracer.start_as_current_span("architect.generate_backend") as be_span:
             be_span.set_attribute("llm.model", _llm_model)
-            be_span.set_attribute("llm.max_tokens", 14000)
+            # Bumped from 14000: a complex multi-agent app (5+ agents, 40+
+            # files) can exhaust 14000 output tokens partway through backend
+            # generation, silently dropping whatever files the model hadn't
+            # emitted yet while still closing valid JSON (see
+            # _generate_missing_backend_modules for the deterministic
+            # follow-up fix that catches whatever this bump doesn't).
+            be_span.set_attribute("llm.max_tokens", 16000)
             backend_prompt = (
                 PROJECT_BACKEND_PROMPT
                 .replace("{description}", description)
@@ -7135,7 +7306,7 @@ RATE LIMITING REQUIRED:
                     messages=[{"role": "user", "content": backend_prompt}],
                     temperature=0.2,
                     **({"response_format": {"type": "json_object"}} if _supports_json else {}),
-                    **{_tok_kwarg: 14000},
+                    **{_tok_kwarg: 16000},
                 )
                 be_data = json.loads(_strip_json_fences(be_response.choices[0].message.content or "{}"))
                 # Normalize whitespace-mangled paths, same as the frontend
@@ -7268,6 +7439,9 @@ RATE LIMITING REQUIRED:
             all_files["README.md"] = all_files["README.md"] + _setup_note
 
         _ensure_scaffold_files(all_files)
+        all_files = await _generate_missing_backend_modules(
+            all_files, client, _llm_model, _tok_kwarg, description,
+        )
         all_files = await _run_verified_review_loop(
             all_files, client, _llm_model, _tok_kwarg, req.app_name, req.summary,
             expected_agents=req.agents, plan_phases=req.phases,
