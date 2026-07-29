@@ -578,16 +578,19 @@ def test_docker_compose_matching_scheme_reports_nothing():
 
 def test_fix_json_response_format_missing_keyword_appends_reminder():
     files = _base_project()
-    files["backend/app/agents/ReportAgent.py"] = (
+    original = (
         'class ReportAgent:\n'
         '    def generate(self, ctx):\n'
         '        r = self.client.chat.completions.create(model="x", messages=[{"role": "system", "content": "You are a report generator."}], response_format={"type": "json_object"})\n'
     )
+    files["backend/app/agents/ReportAgent.py"] = original
     result = _fix_json_response_format_missing_keyword(files)
-    assert "json" in result["backend/app/agents/ReportAgent.py"].lower()
+    fixed = result["backend/app/agents/ReportAgent.py"]
+    assert fixed != original
+    assert "Return your answer as JSON." in fixed
     # Second call is idempotent -- doesn't double-append
     twice = _fix_json_response_format_missing_keyword(result)
-    assert twice["backend/app/agents/ReportAgent.py"] == result["backend/app/agents/ReportAgent.py"]
+    assert twice["backend/app/agents/ReportAgent.py"] == fixed
 
 
 def test_fix_json_response_format_leaves_compliant_prompts_alone():

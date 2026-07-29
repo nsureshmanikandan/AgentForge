@@ -4588,17 +4588,39 @@ def _fix_json_response_format_missing_keyword(all_files: dict) -> dict:
     """
     import re as _re
 
+    def _find_calls(text: str):
+        """Yield the (start, end) span of each `.chat.completions.create(...)`
+        call's argument list, matching parens by depth so it works whether or
+        not the call happens to be wrapped in `_call_with_retry(lambda: ...)`
+        (a literal `))`-ending regex would miss unwrapped calls entirely)."""
+        for m in _re.finditer(r'\.chat\.completions\.create\(', text):
+            depth = 1
+            i = m.end()
+            while i < len(text) and depth > 0:
+                if text[i] == '(':
+                    depth += 1
+                elif text[i] == ')':
+                    depth -= 1
+                i += 1
+            if depth == 0:
+                yield m.end(), i - 1
+
     for path, content in list(all_files.items()):
         if not (path.endswith(".py") and "agents" in path):
             continue
         changed = False
         # Match each chat.completions.create(...) call and check whether its
         # own messages argument (not the whole file) already mentions "json".
-        for call_match in _re.finditer(r'\.chat\.completions\.create\(([\s\S]*?)\)\)', content):
-            call_src = call_match.group(1)
+        for start, end in list(_find_calls(content)):
+            call_src = content[start:end]
             if 'response_format' not in call_src or 'json_object' not in call_src:
                 continue
-            if _re.search(r'json', call_src, _re.IGNORECASE):
+            # The call text always contains the literal "json_object" from its
+            # own response_format argument -- strip that argument out before
+            # checking for "json", or this check would never fire (every
+            # matching call would trivially "already mention json").
+            messages_src = _re.sub(r'response_format\s*=\s*\{[^}]*\}', '', call_src)
+            if _re.search(r'json', messages_src, _re.IGNORECASE):
                 continue
             # Append the reminder to the first system-role content string in this call.
             new_call_src = _re.sub(
