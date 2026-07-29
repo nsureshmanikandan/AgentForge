@@ -200,7 +200,84 @@ export function KBAnswerCard({
   );
 }
 
-// ── Stub: real implementation comes in Task 11 ──────────────────────────────
-export function KBTestPanel({ kbId: _kbId }: { kbId: string }) {
-  return null;
+interface KBTestPanelProps {
+  kbId: string;
+}
+
+export function KBTestPanel({ kbId }: KBTestPanelProps) {
+  const [question, setQuestion] = useState("");
+  const [result, setResult] = useState<{
+    answer: string;
+    sources: SourceChunk[];
+    graphEntities?: { name: string; type: string }[];
+    relatedQuestions: string[];
+    groundingScore: number | null;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [asked, setAsked] = useState("");
+
+  async function runTest(q: string) {
+    if (!q.trim()) return;
+    setLoading(true); setResult(null); setAsked(q.trim());
+    try {
+      const res = await ragApi.query(kbId, q.trim());
+      const d = res.data as {
+        answer: string;
+        sources: SourceChunk[];
+        graph_entities?: { name: string; type: string }[];
+        related_questions: string[];
+        grounding_score: number | null;
+      };
+      setResult({
+        answer: d.answer,
+        sources: d.sources ?? [],
+        graphEntities: d.graph_entities,
+        relatedQuestions: d.related_questions ?? [],
+        groundingScore: d.grounding_score ?? null,
+      });
+    } catch {
+      setResult({ answer: "Query failed.", sources: [], relatedQuestions: [], groundingScore: null });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="mt-2 border border-indigo-100 rounded-xl overflow-hidden bg-white">
+      <div className="bg-indigo-50 px-3 py-2 border-b border-indigo-100">
+        <p className="text-xs font-semibold text-indigo-600">Test KB — ask a question</p>
+      </div>
+      <div className="px-3 py-3 flex gap-2">
+        <input
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && runTest(question)}
+          placeholder="Ask the KB a test question..."
+          className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+        />
+        <button
+          type="button"
+          onClick={() => runTest(question)}
+          disabled={loading || !question.trim()}
+          className="text-xs bg-indigo-600 text-white rounded-lg px-3 py-1.5 hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+        >
+          {loading ? "…" : "Ask"}
+        </button>
+      </div>
+      {result && (
+        <div className="px-3 pb-3">
+          <KBAnswerCard
+            kbId={kbId}
+            question={asked}
+            answer={result.answer}
+            sources={result.sources}
+            graphEntities={result.graphEntities}
+            relatedQuestions={result.relatedQuestions}
+            groundingScore={result.groundingScore}
+            onRelatedClick={(q) => { setQuestion(q); runTest(q); }}
+          />
+        </div>
+      )}
+    </div>
+  );
 }
