@@ -5419,10 +5419,21 @@ export default function Architect() {
       // Always use session documents — they persist across all chat turns
       const sessionDocs = inlineDocs ?? sessions.find((s) => s.id === sid)?.documents;
 
+      // Confirmed live: plain .includes() substring matching false-positived
+      // on "support" (matches inside "supports export and email delivery")
+      // and "rag" (matches inside "storage" -- sto-RAG-e) for a document-
+      // processing app (ResumeJDMatch) with zero actual chatbot/RAG intent,
+      // silently classifying it as app_type="chatbot" and contaminating its
+      // sandbox with a "Top Questions" panel the reviewer prompt's own
+      // self-check explicitly targets for deletion on non-chatbot types --
+      // but that self-check never got a chance to run against the WRONG
+      // type in the first place. Word-boundary matching requires "support"/
+      // "rag" to appear as their own whole word, not merely as a substring
+      // of an unrelated word.
       const summaryLow = p.summary.toLowerCase();
-      const appType = summaryLow.includes("chatbot") || summaryLow.includes("support") || summaryLow.includes("rag")
+      const appType = /\b(chatbot|support|rag)\b/.test(summaryLow)
         ? "chatbot"
-        : summaryLow.includes("dashboard") || summaryLow.includes("analytics")
+        : /\b(dashboard|analytics)\b/.test(summaryLow)
         ? "dashboard"
         : "web app";
 
