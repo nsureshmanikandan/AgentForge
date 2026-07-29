@@ -6,7 +6,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 from fastapi import APIRouter, UploadFile, File
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Union
 from openai import AzureOpenAI, OpenAI
 from app.config import settings
 from opentelemetry.trace import Status as _OtelStatus, StatusCode as _OtelStatusCode
@@ -1022,7 +1022,9 @@ IMMEDIATELY after the user responds to your clarifying questions, generate a com
     ],
     "features": ["Feature 1 description", "Feature 2 description"],
     "api_endpoints": ["POST /api/endpoint -- description", "GET /api/endpoint -- description"],
-    "database_schema": "Tables and their key fields as a text description",
+    "database_schema": [
+      { "table": "TableName", "description": "One sentence: what real-world thing this table stores and why", "columns": ["id", "field1", "field2", "created_at"] }
+    ],
     "deployment": "Deployment strategy and infrastructure notes",
     "phases": [
       { "phase": 1, "name": "Phase name", "tasks": ["Task 1", "Task 2", "Task 3"] }
@@ -3522,10 +3524,57 @@ class GenerateProjectRequest(BaseModel):
     features: List[str]
     agents: Optional[List[dict]] = None
     api_endpoints: Optional[List[str]] = None
-    database_schema: Optional[str] = None
+    # Accepts both shapes: the old flat string (already-saved plans/sessions
+    # predating the structured-schema change) and the new structured array
+    # of {table, description, columns} -- _format_database_schema_for_prompt
+    # normalizes either into the text form the code-gen prompts expect.
+    database_schema: Optional[Union[str, List[dict]]] = None
     tech_stack: Optional[dict] = None
     documents: Optional[List[DocContent]] = None  # real uploaded/sample file content
     sandbox_html: Optional[str] = None  # the already-generated sandbox preview HTML, if any
+    # New (plan-completeness): plan.phases, so the reviewer LLM pass can
+    # check phase-task coverage in the generated code alongside agent
+    # completeness. Optional and additive -- absent for older callers.
+    phases: Optional[List[dict]] = None
+
+
+def _format_phase_coverage_instruction(plan_phases: Optional[List[dict]]) -> Optional[str]:
+    """Phase tasks are free text ("Set up auth", "Build profile intake
+    page") -- not named symbols like agent methods -- so there's no AST fact
+    to statically check the way agent-method wiring is. This builds a single
+    reviewer-prompt instruction listing every phase and its tasks, handed to
+    the LLM reviewer as extra context on its first pass so it can confirm
+    coverage and fill in anything genuinely missing, reusing the existing
+    verify-fix-reverify loop instead of inventing a new brittle heuristic."""
+    if not plan_phases:
+        return None
+    lines = ["Verify every build phase below is reflected in the generated code; add anything genuinely missing:"]
+    for ph in plan_phases:
+        name = ph.get("name", f"Phase {ph.get('phase', '?')}")
+        tasks = ph.get("tasks") or []
+        lines.append(f"- Phase {ph.get('phase', '?')} ({name}): " + "; ".join(tasks))
+    return "\n".join(lines)
+
+
+def _format_database_schema_for_prompt(schema) -> str:
+    """Normalize database_schema into the flat text every code-generation
+    prompt already expects, regardless of which shape it arrived in --
+    the old flat string (already-saved plans/sessions predating the
+    structured-schema change) or the new structured array of
+    {table, description, columns}."""
+    if not schema:
+        return "Design appropriate tables for the application"
+    if isinstance(schema, str):
+        return schema
+    lines = []
+    for t in schema:
+        if not isinstance(t, dict):
+            continue
+        table = t.get("table", "UnknownTable")
+        desc = t.get("description", "")
+        cols = ", ".join(t.get("columns") or [])
+        lines.append(f"{table}: {cols}" + (f" -- {desc}" if desc else ""))
+    return "\n".join(lines) or "Design appropriate tables for the application"
 
 
 def _fix_python_file(path: str, content: str, app_name: str = "") -> str:
@@ -4972,7 +5021,7 @@ def _resolve_app_module_file(all_files: dict, dotted_module: str) -> str | None:
     return next((p for p in all_files if p.endswith(suffix) and "backend" in p), None)
 
 
-def _static_code_quality_report(all_files: dict) -> list[str]:
+def _static_code_quality_report(all_files: dict, expected_agents: Optional[List[dict]] = None) -> list[str]:
     """
     Deterministic, ast-based cross-file consistency check across every
     generated backend .py file. Returns a list of plain-English, concrete
@@ -5247,6 +5296,27 @@ def _static_code_quality_report(all_files: dict) -> list[str]:
                         f"Agent method {class_name}.{method_name} in {short} is defined but never "
                         f"called from any API route -- this declared agent's logic never runs."
                     )
+
+        # -- plan-completeness: agent count vs. what the plan promised -------
+        # The check above catches methods that exist but aren't wired; this
+        # catches methods that never got written in the first place. Found
+        # live: a plan promising 5 agents (Profile Analysis, Market Research,
+        # Roadmap Generation, Mock Interview, Progress Tracking) shipped a
+        # generated agent class with only 4 domain methods -- nothing here
+        # flagged the download as incomplete before this check existed.
+        if expected_agents:
+            domain_method_count = len({
+                (short, method_name)
+                for short, _class_name, method_name in agent_methods
+            })
+            expected_count = len(expected_agents)
+            if domain_method_count < expected_count:
+                planned_names = ", ".join(a.get("name", "unnamed") for a in expected_agents)
+                issues.append(
+                    f"Plan promised {expected_count} agent(s) ({planned_names}) but the generated "
+                    f"agent class only implements {domain_method_count} domain method(s) -- "
+                    f"{expected_count - domain_method_count} agent(s) worth of logic is missing."
+                )
 
         # -- v3: DB init / first-run correctness -----------------------------
         table_to_classes: dict[str, set[str]] = {}
@@ -6491,6 +6561,8 @@ async def _run_verified_review_loop(
     app_name: str,
     summary: str,
     max_iterations: int = 2,
+    expected_agents: Optional[List[dict]] = None,
+    plan_phases: Optional[List[dict]] = None,
 ) -> dict:
     """
     Replaces the original single-shot "call the reviewer once and hope"
@@ -6519,21 +6591,34 @@ async def _run_verified_review_loop(
     the loop are logged (so they're visible instead of silently shipping)
     and the best-effort `all_files` is returned regardless.
     """
-    issues = _static_code_quality_report(all_files)
-    if not issues:
+    issues = _static_code_quality_report(all_files, expected_agents=expected_agents)
+
+    # Phase-task coverage can't be checked statically -- phase tasks are free
+    # text ("Set up auth", "Build profile intake page"), not named symbols
+    # like agent methods, so there's no AST fact to grep for. Instead this
+    # is handed to the LLM reviewer as extra context on its first pass only:
+    # a synthetic issue string that forces the loop to run even when the
+    # static checker alone found nothing, without ever being treated as a
+    # confirmed bug the loop tracks for convergence (only the recomputed
+    # _static_code_quality_report issues drive that).
+    phase_note = _format_phase_coverage_instruction(plan_phases)
+    first_pass_issues = issues + ([phase_note] if phase_note else [])
+
+    if not first_pass_issues:
         logger.info("architect static code-quality check: clean, skipping LLM reviewer pass")
         return all_files
 
     for iteration in range(1, max_iterations + 1):
+        pass_issues = first_pass_issues if iteration == 1 else issues
         logger.info(
             "architect reviewer loop iteration %d/%d: %d known issue(s): %s",
-            iteration, max_iterations, len(issues), issues,
+            iteration, max_iterations, len(pass_issues), pass_issues,
         )
         all_files = await _review_and_fix_generated_code(
-            all_files, client, llm_model, tok_kwarg, known_issues=issues
+            all_files, client, llm_model, tok_kwarg, known_issues=pass_issues
         )
         all_files = _rerun_deterministic_fixups(all_files, app_name, summary)
-        new_issues = _static_code_quality_report(all_files)
+        new_issues = _static_code_quality_report(all_files, expected_agents=expected_agents)
 
         if not new_issues:
             logger.info("architect reviewer loop: clean after iteration %d", iteration)
@@ -6789,7 +6874,7 @@ RATE LIMITING REQUIRED:
 
         agents_text = json.dumps(req.agents or [], indent=2)
         endpoints_text = "\n".join(req.api_endpoints or [])
-        db_text = req.database_schema or "Design appropriate tables for the application"
+        db_text = _format_database_schema_for_prompt(req.database_schema)
         stack = req.tech_stack or {}
 
         all_files: dict = {}
@@ -7003,10 +7088,11 @@ RATE LIMITING REQUIRED:
 
         _ensure_scaffold_files(all_files)
         all_files = await _run_verified_review_loop(
-            all_files, client, _llm_model, _tok_kwarg, req.app_name, req.summary
+            all_files, client, _llm_model, _tok_kwarg, req.app_name, req.summary,
+            expected_agents=req.agents, plan_phases=req.phases,
         )
 
-        remaining_issues = _static_code_quality_report(all_files)
+        remaining_issues = _static_code_quality_report(all_files, expected_agents=req.agents)
         span.set_attribute("review.remaining_issues", len(remaining_issues))
         if remaining_issues:
             span.set_attribute("review.remaining_issues_detail", json.dumps(remaining_issues))

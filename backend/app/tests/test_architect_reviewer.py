@@ -20,6 +20,8 @@ from app.api.architect import (
     _fix_dockerfile_expose_port,
     _fix_json_response_format_missing_keyword,
     _fix_missing_logging_config,
+    _format_database_schema_for_prompt,
+    _format_phase_coverage_instruction,
     _resolve_primary_main_py,
     _review_and_fix_generated_code,
     _run_verified_review_loop,
@@ -289,6 +291,35 @@ async def test_review_loop_stops_early_when_no_progress_made():
     assert len(_static_code_quality_report(result)) == 1
 
 
+async def test_review_loop_runs_for_phase_coverage_even_when_static_check_is_clean():
+    """Phase tasks are free text, so there's no static AST fact to check --
+    but plan_phases must still trigger one reviewer pass (skipped entirely
+    when neither expected_agents nor plan_phases is given, per the
+    already-clean-project test above)."""
+    plan_phases = [{"phase": 1, "name": "Foundation", "tasks": ["Set up auth", "Create Users table"]}]
+
+    async def fake_review(all_files, client, llm_model, tok_kwarg, known_issues=None):
+        assert known_issues and any("Foundation" in i for i in known_issues)
+        assert any("Set up auth" in i for i in known_issues)
+        return all_files  # LLM reviewer itself makes no changes
+
+    with patch(
+        "app.api.architect._review_and_fix_generated_code", side_effect=fake_review
+    ) as mock_review:
+        result = await _run_verified_review_loop(
+            _base_project(), AsyncMock(), "gpt-4o", "max_tokens", "TestApp", "A test app",
+            plan_phases=plan_phases,
+        )
+
+    # The one required assertion here is that the phase note alone (with no
+    # static issues at all) was enough to trigger a reviewer pass -- not that
+    # the files end up byte-identical, since _rerun_deterministic_fixups
+    # (e.g. injecting a health-check route) always runs once per iteration
+    # regardless of what the mocked LLM reviewer itself did.
+    mock_review.assert_called_once()
+    assert _static_code_quality_report(result) == []
+
+
 # ── _review_and_fix_generated_code known_issues wiring ──────────────────────
 
 async def test_review_and_fix_embeds_known_issues_in_prompt():
@@ -421,6 +452,73 @@ def test_pipeline_completeness_ignores_plain_chat_app():
     )
     issues = _static_code_quality_report(files)
     assert not any("never called from any API route" in i for i in issues)
+
+
+# ── plan-completeness: agent count vs. plan.agents ───────────────────────────
+
+def test_flags_fewer_agent_methods_than_plan_promised():
+    """Reproduces a real live-tested bug: plan.agents lists 5 agents, but the
+    generated agent class only got 3 domain methods written -- nothing in
+    the pre-existing pipeline-wiring check catches methods that were never
+    generated at all (as opposed to generated-but-unwired)."""
+    files = _base_project()
+    files["backend/app/agents/CareerAdvisorAgent.py"] = (
+        "class CareerAdvisorAgent:\n"
+        "    def analyze_profile(self, text): return {}\n"
+        "    def research_market(self, role): return {}\n"
+        "    def generate_roadmap(self, profile, market): return {}\n"
+        "    def answer_question(self, question, history=None): return {}\n"
+    )
+    files["backend/app/api/profile.py"] = (
+        "from app.agents.CareerAdvisorAgent import CareerAdvisorAgent\n"
+        "def analyze(text):\n    agent = CareerAdvisorAgent()\n    return agent.analyze_profile(text)\n"
+    )
+    files["backend/app/api/market.py"] = (
+        "from app.agents.CareerAdvisorAgent import CareerAdvisorAgent\n"
+        "def research(role):\n    agent = CareerAdvisorAgent()\n    return agent.research_market(role)\n"
+    )
+    files["backend/app/api/roadmap.py"] = (
+        "from app.agents.CareerAdvisorAgent import CareerAdvisorAgent\n"
+        "def build(p, m):\n    agent = CareerAdvisorAgent()\n    return agent.generate_roadmap(p, m)\n"
+    )
+    plan_agents = [
+        {"name": "Profile Analysis Agent"},
+        {"name": "Market Research Agent"},
+        {"name": "Roadmap Generation Agent"},
+        {"name": "Mock Interview Agent"},
+        {"name": "Progress Tracking Agent"},
+    ]
+    issues = _static_code_quality_report(files, expected_agents=plan_agents)
+    completeness = [i for i in issues if "Plan promised" in i]
+    assert len(completeness) == 1
+    assert "5 agent(s)" in completeness[0]
+    assert "3 domain method(s)" in completeness[0]
+    assert "Mock Interview Agent" in completeness[0]
+
+
+def test_does_not_flag_when_agent_count_matches_plan():
+    files = _base_project()
+    files["backend/app/agents/SoloAgent.py"] = (
+        "class SoloAgent:\n    def do_thing(self, x): return {}\n"
+    )
+    files["backend/app/api/things.py"] = (
+        "from app.agents.SoloAgent import SoloAgent\n"
+        "def run(x):\n    agent = SoloAgent()\n    return agent.do_thing(x)\n"
+    )
+    plan_agents = [{"name": "Solo Agent"}]
+    issues = _static_code_quality_report(files, expected_agents=plan_agents)
+    assert not any("Plan promised" in i for i in issues)
+
+
+def test_agent_count_check_is_a_noop_without_expected_agents():
+    """Existing callers that don't pass expected_agents (e.g. every call site
+    predating this feature) must see identical behavior to before."""
+    files = _base_project()
+    files["backend/app/agents/SoloAgent.py"] = (
+        "class SoloAgent:\n    def do_thing(self, x): return {}\n"
+    )
+    issues = _static_code_quality_report(files)
+    assert not any("Plan promised" in i for i in issues)
 
 
 # ── v3: DB init / first-run correctness ──────────────────────────────────────
@@ -658,3 +756,41 @@ def test_fix_json_response_format_ignores_json_dumps_as_false_compliance():
     fixed = result["backend/app/agents/ReportAgent.py"]
     assert fixed != original
     assert "Return your answer as JSON." in fixed
+
+
+# ── _format_database_schema_for_prompt / _format_phase_coverage_instruction ──
+
+def test_format_database_schema_handles_structured_array():
+    schema = [
+        {"table": "Users", "description": "Registered accounts", "columns": ["id", "email"]},
+        {"table": "Roadmaps", "description": "Generated career roadmaps", "columns": ["id", "user_id"]},
+    ]
+    text = _format_database_schema_for_prompt(schema)
+    assert "Users: id, email -- Registered accounts" in text
+    assert "Roadmaps: id, user_id -- Generated career roadmaps" in text
+
+
+def test_format_database_schema_handles_legacy_string():
+    """Already-saved plans/sessions predating the structured-schema change
+    still pass a flat string -- must pass through unchanged, not crash."""
+    assert _format_database_schema_for_prompt("Users table: id, email") == "Users table: id, email"
+
+
+def test_format_database_schema_handles_empty_input():
+    assert _format_database_schema_for_prompt(None) == "Design appropriate tables for the application"
+    assert _format_database_schema_for_prompt([]) == "Design appropriate tables for the application"
+
+
+def test_format_phase_coverage_instruction_lists_every_phase_and_task():
+    plan_phases = [
+        {"phase": 1, "name": "Foundation", "tasks": ["Set up auth", "Create Users table"]},
+        {"phase": 2, "name": "Core Features", "tasks": ["Build roadmap generator"]},
+    ]
+    text = _format_phase_coverage_instruction(plan_phases)
+    assert "Phase 1 (Foundation): Set up auth; Create Users table" in text
+    assert "Phase 2 (Core Features): Build roadmap generator" in text
+
+
+def test_format_phase_coverage_instruction_returns_none_when_absent():
+    assert _format_phase_coverage_instruction(None) is None
+    assert _format_phase_coverage_instruction([]) is None
