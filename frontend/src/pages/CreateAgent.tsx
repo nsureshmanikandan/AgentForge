@@ -808,10 +808,12 @@ export default function CreateAgent() {
         {/* Left Panel */}
         <div className="flex-1 flex flex-col border-r border-gray-100 overflow-y-auto">
           <div className="px-6 pt-5 pb-2">
+            <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1.5">Agent Name</label>
             <input
-              className="text-lg font-semibold text-gray-900 outline-none border-b border-transparent hover:border-gray-200 focus:border-teal-500 pb-0.5 w-full"
+              className="text-lg font-semibold text-gray-900 outline-none border border-gray-200 rounded-lg px-3 py-1.5 hover:border-gray-300 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 w-full"
               value={agentName}
               onChange={(e) => setAgentName(e.target.value)}
+              placeholder="e.g., TravelBot Support"
             />
           </div>
 

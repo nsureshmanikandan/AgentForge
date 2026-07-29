@@ -157,22 +157,35 @@ def _build_ssml(text: str, voice: str, speaking_rate: float, pitch: float) -> st
 # ── Core synthesizer ──────────────────────────────────────────────────────────
 
 def _synthesize_sync(text: str, voice: str, speaking_rate: float = 1.0, pitch: float = 0.0) -> bytes:
+    if AZURE_SPEECH_ENDPOINT:
+        # Custom domain: use REST API directly — the Speech SDK upgrades to WebSocket
+        # using a path that 404s on custom-domain Cognitive Services resources.
+        import httpx
+        import html as _html
+        ssml = _build_ssml(_html.escape(text), voice, speaking_rate, pitch)
+        url = AZURE_SPEECH_ENDPOINT.rstrip("/") + "/tts/cognitiveservices/v1"
+        headers = {
+            "Ocp-Apim-Subscription-Key": AZURE_SPEECH_KEY,
+            "Content-Type": "application/ssml+xml",
+            "X-Microsoft-OutputFormat": "audio-16khz-32kbitrate-mono-mp3",
+        }
+        resp = httpx.post(url, content=ssml.encode("utf-8"), headers=headers, timeout=30)
+        if resp.status_code == 200:
+            return resp.content
+        raise RuntimeError(f"TTS REST API {resp.status_code}: {resp.text[:300]}")
+
+    # Standard region: use the Speech SDK
     try:
         import azure.cognitiveservices.speech as speechsdk
     except ImportError:
         raise RuntimeError("azure-cognitiveservices-speech not installed. Run: pip install azure-cognitiveservices-speech")
 
-    if AZURE_SPEECH_ENDPOINT:
-        tts_endpoint = AZURE_SPEECH_ENDPOINT.rstrip("/") + "/tts/cognitiveservices/v1"
-        speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, endpoint=tts_endpoint)
-    else:
-        speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_SPEECH_REGION)
+    speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_SPEECH_REGION)
     speech_config.set_speech_synthesis_output_format(
         speechsdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitRateMonoMp3
     )
     synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=None)
 
-    # Use SSML when rate/pitch differ from defaults
     if abs(speaking_rate - 1.0) > 0.01 or abs(pitch) > 0.5:
         ssml = _build_ssml(text, voice, speaking_rate, pitch)
         result = synthesizer.speak_ssml_async(ssml).get()

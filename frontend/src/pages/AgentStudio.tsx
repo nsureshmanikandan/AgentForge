@@ -14,6 +14,7 @@ interface Agent {
   current_version: number;
   tools: string[];
   agent_type?: string;
+  is_voice_agent?: boolean;
 }
 
 const AVATAR_COLORS = [
@@ -356,7 +357,7 @@ export default function AgentStudio() {
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deployAgent, setDeployAgent] = useState<Agent | null>(null);
-  const [typeFilter, setTypeFilter] = useState<"all" | "agent" | "managerial" | "superflow">("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | "agent" | "managerial" | "superflow" | "voice">("all");
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const highlightId = searchParams.get("id");
@@ -556,21 +557,28 @@ export default function AgentStudio() {
       ) : (
         <>
         {/* Type filter tabs */}
-        <div className="mb-5 flex items-center gap-2">
-          {(["all", "agent", "managerial", "superflow"] as const).map((t) => {
-            const count = t === "all" ? agents.length : agents.filter(a => (a.agent_type ?? "agent") === t).length;
+        <div className="mb-5 flex items-center gap-2 flex-wrap">
+          {(["all", "agent", "managerial", "superflow", "voice"] as const).map((t) => {
+            const count = t === "all" ? agents.length
+              : t === "voice" ? agents.filter(a => a.is_voice_agent).length
+              : agents.filter(a => (a.agent_type ?? "agent") === t).length;
             return (
               <button
                 key={t}
                 onClick={() => setTypeFilter(t)}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors capitalize ${
+                className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
                   typeFilter === t
-                    ? "bg-indigo-600 text-white shadow-sm"
+                    ? t === "voice" ? "bg-violet-600 text-white shadow-sm" : "bg-indigo-600 text-white shadow-sm"
                     : "bg-gray-100 text-gray-600 hover:bg-gray-200"
                 }`}
               >
-                {t === "all" ? "All" : t.charAt(0).toUpperCase() + t.slice(1)}
-                <span className={`ml-1.5 text-xs ${typeFilter === t ? "text-indigo-200" : "text-gray-400"}`}>
+                {t === "voice" && (
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                  </svg>
+                )}
+                {t === "all" ? "All" : t === "voice" ? "Voice Agents" : t.charAt(0).toUpperCase() + t.slice(1)}
+                <span className={`ml-0.5 text-xs ${typeFilter === t ? "opacity-70" : "text-gray-400"}`}>
                   {count}
                 </span>
               </button>
@@ -578,7 +586,9 @@ export default function AgentStudio() {
           })}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {(typeFilter === "all" ? agents : agents.filter(a => (a.agent_type ?? "agent") === typeFilter)).map((agent) => (
+          {(typeFilter === "all" ? agents
+            : typeFilter === "voice" ? agents.filter(a => a.is_voice_agent)
+            : agents.filter(a => (a.agent_type ?? "agent") === typeFilter)).map((agent) => (
             <div
               key={agent.id}
               ref={agent.id === highlightId ? highlightRef : null}
@@ -612,8 +622,16 @@ export default function AgentStudio() {
                   </div>
                 </div>
 
-                <div className="mb-3">
+                <div className="mb-3 flex items-center gap-1.5 flex-wrap">
                   <ModelBadge model={agent.model} />
+                  {agent.is_voice_agent && (
+                    <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-violet-100 text-violet-700 border border-violet-200">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                      </svg>
+                      Voice
+                    </span>
+                  )}
                 </div>
 
                 {agent.description && (
@@ -656,7 +674,7 @@ export default function AgentStudio() {
                     History
                   </button>
                 </div>
-                <div className="flex gap-2 mb-2">
+                <div className="flex gap-2 mb-2 flex-wrap">
                   <button
                     onClick={() => setDeployAgent(agent)}
                     className="flex items-center gap-1.5 px-3 py-1.5 border border-emerald-200 text-emerald-600 rounded-lg text-xs font-medium hover:bg-emerald-50 transition-colors"
@@ -666,6 +684,17 @@ export default function AgentStudio() {
                     </svg>
                     Deploy
                   </button>
+                  {agent.is_voice_agent && (
+                    <button
+                      onClick={() => navigate("/voice")}
+                      className="flex items-center gap-1.5 px-3 py-1.5 border border-violet-200 text-violet-600 rounded-lg text-xs font-medium hover:bg-violet-50 transition-colors"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                      </svg>
+                      Start Call
+                    </button>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <input

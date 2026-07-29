@@ -233,6 +233,7 @@ export default function VoiceAgents() {
   async function playText(text: string) {
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     setPlaying(true);
+    setError(null);
     try {
       const res = await api.post(
         "/voice/synthesize",
@@ -243,10 +244,26 @@ export default function VoiceAgents() {
       const audio = new Audio(url);
       audioRef.current = audio;
       audio.onended = () => { setPlaying(false); URL.revokeObjectURL(url); };
-      audio.onerror = () => setPlaying(false);
-      await audio.play();
-    } catch {
+      audio.onerror = () => { setPlaying(false); setError("Audio failed to load — check browser console for details."); };
+      audio.play().catch((e: unknown) => {
+        setPlaying(false);
+        const name = (e as DOMException)?.name;
+        if (name === "NotAllowedError") {
+          setError("Audio autoplay blocked by browser. Click the ▶ button on the agent's message to hear it.");
+        } else {
+          setError(`TTS playback error: ${(e as Error)?.message ?? "unknown"}`);
+        }
+      });
+    } catch (e: unknown) {
       setPlaying(false);
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      if (status === 503) {
+        setError("Azure Speech not configured — add AZURE_SPEECH_KEY to .env and restart the backend.");
+      } else if (status === 401) {
+        setError("Session expired. Please log in again.");
+      } else {
+        setError("TTS synthesis failed — check Azure Speech key and endpoint in .env.");
+      }
     }
   }
 
@@ -591,9 +608,10 @@ export default function VoiceAgents() {
                     <div className="flex gap-1.5 mt-auto">
                       <button
                         onClick={(e) => { e.stopPropagation(); setConfig((c) => ({ ...c, tts_voice: voice.id })); playText(`Hello, I'm ${voice.name}. How can I help you today?`); }}
-                        className="flex-1 text-xs font-medium py-1.5 rounded-lg bg-gray-100 text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
+                        disabled={playing}
+                        className={`flex-1 text-xs font-medium py-1.5 rounded-lg transition-colors ${playing ? "bg-gray-50 text-slate-300 cursor-not-allowed" : "bg-gray-100 text-slate-600 hover:bg-indigo-50 hover:text-indigo-700"}`}
                       >
-                        Preview
+                        {playing ? "Playing…" : "Preview"}
                       </button>
                       {config.tts_voice === voice.id && (
                         <span className="flex items-center text-xs text-indigo-600 font-medium px-2">Selected</span>
@@ -712,10 +730,15 @@ export default function VoiceAgents() {
                           {msg.role === "assistant" && (
                             <button
                               onClick={() => playText(msg.text)}
-                              className="text-slate-400 hover:text-indigo-600 transition-colors"
-                              title="Replay"
+                              disabled={playing}
+                              className={`transition-colors ${playing ? "text-slate-300 cursor-not-allowed" : "text-slate-400 hover:text-indigo-600"}`}
+                              title={playing ? "Audio playing…" : "Replay"}
                             >
-                              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                              {playing ? (
+                                <svg className="w-3.5 h-3.5 animate-pulse" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="4" height="12"/><rect x="14" y="6" width="4" height="12"/></svg>
+                              ) : (
+                                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                              )}
                             </button>
                           )}
                         </div>
