@@ -51,6 +51,36 @@ const MODELS = [
   { value: "gemini", label: "Gemini Flash-Lite" },
 ];
 
+const VOICE_PICKER = [
+  { id: "en-US-JennyNeural",    label: "Jenny — English US (F)" },
+  { id: "en-US-GuyNeural",      label: "Guy — English US (M)" },
+  { id: "en-US-AriaNeural",     label: "Aria — English US (F)" },
+  { id: "en-US-DavisNeural",    label: "Davis — English US (M)" },
+  { id: "en-US-AmberNeural",    label: "Amber — English US (F)" },
+  { id: "en-GB-SoniaNeural",    label: "Sonia — English UK (F)" },
+  { id: "en-GB-RyanNeural",     label: "Ryan — English UK (M)" },
+  { id: "en-IN-NeerjaNeural",   label: "Neerja — English India (F)" },
+  { id: "en-IN-PrabhatNeural",  label: "Prabhat — English India (M)" },
+  { id: "hi-IN-SwaraNeural",    label: "Swara — Hindi (F)" },
+  { id: "fr-FR-DeniseNeural",   label: "Denise — French (F)" },
+  { id: "de-DE-KatjaNeural",    label: "Katja — German (F)" },
+  { id: "ja-JP-NanamiNeural",   label: "Nanami — Japanese (F)" },
+  { id: "zh-CN-XiaoxiaoNeural", label: "Xiaoxiao — Chinese (F)" },
+];
+
+const STT_LANG_PICKER = [
+  { code: "en-US", label: "English (US)" },
+  { code: "en-GB", label: "English (UK)" },
+  { code: "en-IN", label: "English (India)" },
+  { code: "hi-IN", label: "Hindi" },
+  { code: "fr-FR", label: "French" },
+  { code: "de-DE", label: "German" },
+  { code: "es-ES", label: "Spanish" },
+  { code: "ja-JP", label: "Japanese" },
+  { code: "zh-CN", label: "Chinese (Mandarin)" },
+  { code: "ar-SA", label: "Arabic" },
+];
+
 // ─── Memory providers ───────────────────────────────────────────────────────
 const MEMORY_PROVIDERS = [
   { id: "langmem",    label: "LangMem",             tag: "Default",  tagColor: "bg-emerald-100 text-emerald-700", desc: "LangGraph-native long-term memory with semantic search" },
@@ -441,6 +471,19 @@ export default function CreateAgent() {
     }).catch(() => setAvailableAgents([]));
   }, [managerialModalOpen, editId]);
 
+  // Voice agent
+  const [isVoiceAgent, setIsVoiceAgent] = useState(false);
+  const [voiceAgentConfig, setVoiceAgentConfig] = useState({
+    who_speaks_first: "human",
+    engine_mode: "pipeline",
+    voice_name: "en-US-JennyNeural",
+    voice_language: "en-US",
+    call_recording: false,
+    persona: "friendly",
+    speaking_rate: 1.0,
+    pitch: 0.0,
+  });
+
   // Automation
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [triggerModalOpen, setTriggerModalOpen] = useState(false);
@@ -480,6 +523,8 @@ export default function CreateAgent() {
       if (agent.tools) setSelectedTools(agent.tools);
       if (agent.temperature != null) setTemperature(agent.temperature);
       if (agent.knowledge_base_id) setKbId(agent.knowledge_base_id);
+      if (agent.is_voice_agent != null) setIsVoiceAgent(!!agent.is_voice_agent);
+      if (agent.voice_config) setVoiceAgentConfig((prev) => ({ ...prev, ...(agent.voice_config as object) }));
 
       // Prefer the real role/goal columns (saved directly, not derived) --
       // only fall back to regex-parsing system_prompt for agents saved before
@@ -653,6 +698,8 @@ export default function CreateAgent() {
         },
         temperature,
         top_p: topP,
+        is_voice_agent: isVoiceAgent,
+        voice_config: isVoiceAgent ? voiceAgentConfig : null,
         ...(managerialAgents.length > 0
           ? { agent_type: "managerial", worker_agent_ids: managerialAgents.map((a) => a.id) }
           : {}),
@@ -1249,6 +1296,139 @@ export default function CreateAgent() {
                     <button onClick={() => setTriggerConfig(c => ({...c, enabled: false}))} className="text-purple-400 hover:text-red-400 text-xs">✕</button>
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+
+          {/* Voice Agent */}
+          <div className="border-b border-gray-100">
+            <div className="flex items-center justify-between p-4">
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                </svg>
+                <span className="text-sm font-semibold text-gray-800">Voice Agent</span>
+                {isVoiceAgent && (
+                  <span className="text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-medium">Enabled</span>
+                )}
+              </div>
+              <button
+                onClick={() => setIsVoiceAgent(!isVoiceAgent)}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${isVoiceAgent ? "bg-indigo-500" : "bg-gray-300"}`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${isVoiceAgent ? "translate-x-4" : "translate-x-0.5"}`} />
+              </button>
+            </div>
+
+            {isVoiceAgent && (
+              <div className="px-4 pb-4 space-y-4">
+                {/* Who Speaks First */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2">Who Speaks First</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: "human", icon: "👤", label: "Human",  desc: "Caller starts first" },
+                      { id: "ai",    icon: "🤖", label: "AI",     desc: "Agent opens with intro" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        onClick={() => setVoiceAgentConfig((c) => ({ ...c, who_speaks_first: opt.id }))}
+                        className={`flex flex-col items-start p-3 rounded-xl border text-left transition-colors ${
+                          voiceAgentConfig.who_speaks_first === opt.id
+                            ? "border-indigo-400 bg-indigo-50"
+                            : "border-gray-200 hover:border-gray-300"
+                        }`}
+                      >
+                        <span className="text-base mb-0.5">{opt.icon}</span>
+                        <span className="text-xs font-semibold text-gray-800">{opt.label}</span>
+                        <span className="text-xs text-gray-400">{opt.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Engine Mode */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2">Engine Mode</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: "pipeline", label: "Pipeline", desc: "STT → LLM → TTS",    tag: "Stable",       tagColor: "bg-gray-100 text-gray-500" },
+                      { id: "realtime", label: "Realtime", desc: "Unified model",        tag: "Low latency",  tagColor: "bg-green-100 text-green-700" },
+                    ].map((e) => (
+                      <button
+                        key={e.id}
+                        onClick={() => setVoiceAgentConfig((c) => ({ ...c, engine_mode: e.id }))}
+                        className={`flex flex-col items-start p-3 rounded-xl border text-left transition-colors ${
+                          voiceAgentConfig.engine_mode === e.id
+                            ? "border-indigo-400 bg-indigo-50"
+                            : "border-gray-200 hover:border-gray-300"
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <span className="text-xs font-semibold text-gray-800">{e.label}</span>
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${e.tagColor}`}>{e.tag}</span>
+                        </div>
+                        <span className="text-xs text-gray-400">{e.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Voice */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">Voice</label>
+                  <select
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                    value={voiceAgentConfig.voice_name}
+                    onChange={(e) => setVoiceAgentConfig((c) => ({ ...c, voice_name: e.target.value }))}
+                  >
+                    {VOICE_PICKER.map((v) => (
+                      <option key={v.id} value={v.id}>{v.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* STT Language */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">STT Language</label>
+                  <select
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                    value={voiceAgentConfig.voice_language}
+                    onChange={(e) => setVoiceAgentConfig((c) => ({ ...c, voice_language: e.target.value }))}
+                  >
+                    {STT_LANG_PICKER.map((l) => (
+                      <option key={l.code} value={l.code}>{l.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Persona */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">Persona</label>
+                  <select
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                    value={voiceAgentConfig.persona}
+                    onChange={(e) => setVoiceAgentConfig((c) => ({ ...c, persona: e.target.value }))}
+                  >
+                    {["formal", "professional", "friendly", "casual"].map((p) => (
+                      <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Call Recording */}
+                <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium text-gray-700">Call Recording</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Log full transcript for compliance.</p>
+                  </div>
+                  <button
+                    onClick={() => setVoiceAgentConfig((c) => ({ ...c, call_recording: !c.call_recording }))}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${voiceAgentConfig.call_recording ? "bg-indigo-500" : "bg-gray-300"}`}
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${voiceAgentConfig.call_recording ? "translate-x-4" : "translate-x-0.5"}`} />
+                  </button>
+                </div>
               </div>
             )}
           </div>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "../api/client";
 
 interface Voice {
@@ -14,6 +15,24 @@ interface Voice {
 interface SttLanguage {
   code: string;
   label: string;
+}
+
+interface VoiceAgent {
+  id: string;
+  name: string;
+  description: string;
+  role: string | null;
+  goal: string | null;
+  voice_config: {
+    who_speaks_first?: string;
+    engine_mode?: string;
+    voice_name?: string;
+    voice_language?: string;
+    call_recording?: boolean;
+    persona?: string;
+    speaking_rate?: number;
+    pitch?: number;
+  };
 }
 
 interface VoiceConfig {
@@ -81,13 +100,26 @@ const PERSONAS = [
   { id: "casual",       label: "Casual",        desc: "Relaxed, like a knowledgeable friend" },
 ];
 
-type Tab = "gallery" | "chat" | "config" | "logs";
+type Tab = "agents" | "gallery" | "chat" | "config" | "logs";
+
+const TAB_LABELS: Record<Tab, string> = {
+  agents: "Voice Agents",
+  gallery: "Gallery",
+  chat: "Voice Chat",
+  config: "Configuration",
+  logs: "Call Logs",
+};
 
 export default function VoiceAgents() {
-  const [tab, setTab] = useState<Tab>("gallery");
+  const navigate = useNavigate();
+  const [tab, setTab] = useState<Tab>("agents");
   const [voices, setVoices] = useState<Voice[]>([]);
   const [sttLanguages, setSttLanguages] = useState<SttLanguage[]>([]);
   const [loadingVoices, setLoadingVoices] = useState(true);
+  const [voiceAgents, setVoiceAgents] = useState<VoiceAgent[]>([]);
+  const [voiceAgentsLoading, setVoiceAgentsLoading] = useState(true);
+  const [activeVoiceAgent, setActiveVoiceAgent] = useState<VoiceAgent | null>(null);
+  const [aiIntroNeeded, setAiIntroNeeded] = useState(false);
   const [config, setConfig] = useState<VoiceConfig>(DEFAULT_CONFIG);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -123,13 +155,15 @@ export default function VoiceAgents() {
     Promise.all([
       api.get("/voice/voices"),
       api.get("/voice/stt-languages"),
+      api.get("/voice/agents"),
     ])
-      .then(([vr, lr]) => {
+      .then(([vr, lr, ar]) => {
         setVoices(vr.data);
         setSttLanguages(lr.data);
+        setVoiceAgents(ar.data);
       })
       .catch(() => setError("Failed to load voice data."))
-      .finally(() => setLoadingVoices(false));
+      .finally(() => { setLoadingVoices(false); setVoiceAgentsLoading(false); });
   }, []);
 
   useEffect(() => {
@@ -221,6 +255,34 @@ export default function VoiceAgents() {
     setPlaying(false);
   }
 
+  // ── Start a call from a voice agent card ─────────────────────────────────────
+  function startCall(agent: VoiceAgent) {
+    setActiveVoiceAgent(agent);
+    setChatHistory([]);
+    const vc = agent.voice_config ?? {};
+    setConfig((prev) => ({
+      ...prev,
+      tts_voice:    vc.voice_name     ?? prev.tts_voice,
+      stt_language: vc.voice_language ?? prev.stt_language,
+      persona:      vc.persona        ?? prev.persona,
+      speaking_rate: vc.speaking_rate  ?? prev.speaking_rate,
+      pitch:         vc.pitch          ?? prev.pitch,
+    }));
+    setTab("chat");
+    if ((vc.who_speaks_first ?? "human") === "ai") {
+      setAiIntroNeeded(true);
+    }
+  }
+
+  // Trigger AI greeting when entering chat tab for an AI-first agent
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (aiIntroNeeded && tab === "chat" && !chatLoading) {
+      setAiIntroNeeded(false);
+      sendChat("Hello, please introduce yourself briefly.");
+    }
+  }, [tab, aiIntroNeeded]);
+
   // ── Voice chat send ───────────────────────────────────────────────────────────
   async function sendChat(text?: string) {
     const msg = (text ?? chatInput).trim();
@@ -235,7 +297,7 @@ export default function VoiceAgents() {
     try {
       const res = await api.post("/voice/chat-text", {
         message: msg,
-        agent_id: "default",
+        agent_id: activeVoiceAgent?.id ?? "default",
         session_id: sessionId,
         persona: config.persona,
         history: chatHistory.slice(-10).map((m) => ({ role: m.role, content: m.text })),
@@ -323,23 +385,151 @@ export default function VoiceAgents() {
 
         {/* Tabs */}
         <div className="flex gap-1 mt-4 border-b border-gray-200">
-          {(["gallery", "chat", "config", "logs"] as Tab[]).map((t) => (
+          {(["agents", "gallery", "chat", "config", "logs"] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-4 py-2.5 text-sm font-medium capitalize transition-colors border-b-2 -mb-px ${
+              className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px whitespace-nowrap ${
                 tab === t
                   ? "border-indigo-600 text-indigo-600"
                   : "border-transparent text-slate-500 hover:text-slate-700"
               }`}
             >
-              {t === "gallery" ? "Voice Gallery" : t === "chat" ? "Voice Chat" : t === "config" ? "Configuration" : "Call Logs"}
+              {TAB_LABELS[t]}
             </button>
           ))}
         </div>
       </div>
 
       <div className="flex-1 overflow-auto px-6 py-5">
+
+        {/* ── TAB: VOICE AGENTS ────────────────────────────────────────────────── */}
+        {tab === "agents" && (
+          <div>
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Your Voice Agents</h2>
+                <p className="text-sm text-slate-500 mt-0.5">Agents with voice capabilities enabled — click Start Call to begin a session.</p>
+              </div>
+              <button
+                onClick={() => navigate("/studio/create")}
+                className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                New Voice Agent
+              </button>
+            </div>
+
+            {voiceAgentsLoading ? (
+              <div className="flex items-center justify-center py-20">
+                <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : voiceAgents.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <div className="w-20 h-20 rounded-full bg-indigo-50 flex items-center justify-center mb-5">
+                  <svg className="w-10 h-10 text-indigo-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                  </svg>
+                </div>
+                <h3 className="text-base font-semibold text-slate-700 mb-1">No voice agents yet</h3>
+                <p className="text-sm text-slate-400 mb-6 max-w-xs">Create an agent in Agent Studio and enable the Voice Agent toggle to have it appear here.</p>
+                <button
+                  onClick={() => navigate("/studio/create")}
+                  className="px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors"
+                >
+                  Create Voice Agent
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {voiceAgents.map((agent) => {
+                  const vc = agent.voice_config ?? {};
+                  const engineMode  = vc.engine_mode    ?? "pipeline";
+                  const whoFirst    = vc.who_speaks_first ?? "human";
+                  const voiceName   = vc.voice_name      ?? "en-US-JennyNeural";
+                  const isActive    = activeVoiceAgent?.id === agent.id;
+
+                  return (
+                    <div
+                      key={agent.id}
+                      className={`relative bg-white border rounded-2xl p-5 shadow-sm hover:shadow-md transition-all ${
+                        isActive ? "border-indigo-400 ring-2 ring-indigo-100" : "border-gray-200"
+                      }`}
+                    >
+                      {isActive && (
+                        <span className="absolute top-3 right-3 text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium">Active</span>
+                      )}
+
+                      {/* Icon + name */}
+                      <div className="flex items-start gap-3 mb-3">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center flex-shrink-0">
+                          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                          </svg>
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="font-semibold text-slate-900 truncate">{agent.name}</h3>
+                          <p className="text-xs text-slate-400 truncate mt-0.5">{agent.role ?? agent.description ?? "Voice agent"}</p>
+                        </div>
+                      </div>
+
+                      {/* Badges */}
+                      <div className="flex flex-wrap gap-1.5 mb-4">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                          engineMode === "realtime"
+                            ? "bg-green-100 text-green-700"
+                            : "bg-gray-100 text-gray-600"
+                        }`}>
+                          {engineMode === "realtime" ? "⚡ Realtime" : "Pipeline"}
+                        </span>
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-violet-100 text-violet-700">
+                          {whoFirst === "ai" ? "🤖 AI speaks first" : "👤 Human speaks first"}
+                        </span>
+                        {vc.call_recording && (
+                          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700">
+                            ⏺ Recording
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Voice */}
+                      <p className="text-xs text-slate-400 mb-4">
+                        Voice: <span className="font-medium text-slate-600">{voiceName.split("-").slice(2).join("-")}</span>
+                        {vc.persona && (
+                          <> · Persona: <span className="font-medium text-slate-600 capitalize">{vc.persona}</span></>
+                        )}
+                      </p>
+
+                      {/* Actions */}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => startCall(agent)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl transition-colors"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                          </svg>
+                          Start Call
+                        </button>
+                        <button
+                          onClick={() => navigate(`/studio/create?id=${agent.id}`)}
+                          className="px-3 py-2 border border-gray-200 text-gray-500 hover:text-gray-700 hover:border-gray-300 text-sm rounded-xl transition-colors"
+                          title="Edit agent"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── TAB: GALLERY ─────────────────────────────────────────────────────── */}
         {tab === "gallery" && (
@@ -447,6 +637,28 @@ export default function VoiceAgents() {
         {/* ── TAB: VOICE CHAT ───────────────────────────────────────────────────── */}
         {tab === "chat" && (
           <div className="flex flex-col h-full" style={{ minHeight: "520px" }}>
+            {/* Active agent banner */}
+            {activeVoiceAgent && (
+              <div className="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2.5 mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
+                    <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                    </svg>
+                  </div>
+                  <span className="text-sm font-medium text-indigo-800">{activeVoiceAgent.name}</span>
+                  {activeVoiceAgent.voice_config?.engine_mode === "realtime" && (
+                    <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">⚡ Realtime</span>
+                  )}
+                </div>
+                <button
+                  onClick={() => { setActiveVoiceAgent(null); setChatHistory([]); }}
+                  className="text-xs text-indigo-400 hover:text-indigo-700"
+                >
+                  End session
+                </button>
+              </div>
+            )}
             {/* Persona + voice bar */}
             <div className="flex items-center gap-3 mb-4 flex-wrap">
               <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Persona</span>

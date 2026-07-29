@@ -23,6 +23,8 @@ class AgentCreate(BaseModel):
     # KB per agent), so this is popped off and applied separately by the
     # create/update endpoints rather than passed straight into Agent(**data).
     knowledge_base_id: str | None = None
+    is_voice_agent: bool = False
+    voice_config: dict | None = None
 
 
 class AgentOut(BaseModel):
@@ -44,6 +46,8 @@ class AgentOut(BaseModel):
     # Populated by the API layer (queried from KnowledgeBase.agent_id) since
     # it isn't a real column on Agent -- see knowledge_base_id on AgentCreate.
     knowledge_base_id: str | None = None
+    is_voice_agent: bool = False
+    voice_config: dict | None = None
 
     class Config:
         from_attributes = True

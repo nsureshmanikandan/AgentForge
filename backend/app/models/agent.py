@@ -1,6 +1,6 @@
 ﻿import uuid
 from datetime import datetime
-from sqlalchemy import String, DateTime, JSON, Integer, ForeignKey
+from sqlalchemy import String, DateTime, JSON, Integer, ForeignKey, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
@@ -29,6 +29,8 @@ class Agent(Base):
     current_version: Mapped[int] = mapped_column(Integer, default=1)
     agent_type: Mapped[str] = mapped_column(String, default="agent", server_default="agent")
     worker_agent_ids: Mapped[list] = mapped_column(JSON, default=list, server_default="[]")
+    is_voice_agent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=True, server_default="false")
+    voice_config: Mapped[dict | None] = mapped_column(JSON, default=None, nullable=True)
     versions: Mapped[list["AgentVersion"]] = relationship("AgentVersion", back_populates="agent")
 
     def __init__(self, **kwargs):

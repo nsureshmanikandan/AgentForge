@@ -34,8 +34,9 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
         raise HTTPException(status_code=401, detail="User not found")
     return user
 
-AZURE_SPEECH_KEY    = settings.azure_speech_key
-AZURE_SPEECH_REGION = settings.azure_speech_region
+AZURE_SPEECH_KEY      = settings.azure_speech_key
+AZURE_SPEECH_REGION   = settings.azure_speech_region
+AZURE_SPEECH_ENDPOINT = settings.azure_speech_endpoint
 
 # ── Models ────────────────────────────────────────────────────────────────────
 
@@ -161,7 +162,11 @@ def _synthesize_sync(text: str, voice: str, speaking_rate: float = 1.0, pitch: f
     except ImportError:
         raise RuntimeError("azure-cognitiveservices-speech not installed. Run: pip install azure-cognitiveservices-speech")
 
-    speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_SPEECH_REGION)
+    if AZURE_SPEECH_ENDPOINT:
+        tts_endpoint = AZURE_SPEECH_ENDPOINT.rstrip("/") + "/tts/cognitiveservices/v1"
+        speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, endpoint=tts_endpoint)
+    else:
+        speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_SPEECH_REGION)
     speech_config.set_speech_synthesis_output_format(
         speechsdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitRateMonoMp3
     )
@@ -204,9 +209,33 @@ async def get_config(agent_id: str, current_user: User = Depends(get_current_use
     return cfg
 
 @router.put("/configs/{agent_id}")
-async def upsert_config(agent_id: str, body: VoiceConfig, current_user: User = Depends(get_current_user)):
+async def upsert_config(agent_id: str, body: VoiceConfig, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     _CONFIGS[agent_id] = body.model_dump()
+    from app.models.agent import Agent as AgentModel
+    agent = await db.get(AgentModel, agent_id)
+    if agent:
+        agent.voice_config = body.model_dump()
+        await db.commit()
     return _CONFIGS[agent_id]
+
+
+@router.get("/agents")
+async def list_voice_agents(db: AsyncSession = Depends(get_db)):
+    from app.models.agent import Agent as AgentModel
+    from sqlalchemy import select as sa_select
+    result = await db.execute(sa_select(AgentModel).where(AgentModel.is_voice_agent == True))
+    agents = result.scalars().all()
+    return [
+        {
+            "id": a.id,
+            "name": a.name,
+            "description": a.description,
+            "role": a.role,
+            "goal": a.goal,
+            "voice_config": a.voice_config or {},
+        }
+        for a in agents
+    ]
 
 @router.post("/synthesize")
 async def synthesize(body: SynthesizeRequest, current_user: User = Depends(get_current_user)):

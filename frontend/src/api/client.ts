@@ -100,10 +100,11 @@ export const architectApi = {
     features: string[];
     agents?: object[];
     api_endpoints?: string[];
-    database_schema?: string;
+    database_schema?: string | object[];
     tech_stack?: object;
     documents?: { name: string; text: string }[];
     sandbox_html?: string;
+    phases?: object[];
   }) => api.post<{ files: Record<string, string>; file_count: number }>("/architect/generate-project", payload),
   extractDocText: (file: File) => {
     const form = new FormData();
@@ -148,6 +149,22 @@ export const apiKeysApi = {
   list: () => api.get("/api-keys/"),
   create: (name: string) => api.post("/api-keys/", { name }),
   delete: (id: string) => api.delete(`/api-keys/${id}`),
+};
+
+export const voiceApi = {
+  listAgents: () => api.get("/voice/agents"),
+  status: () => api.get("/voice/status"),
+  voices: () => api.get("/voice/voices"),
+  sttLanguages: () => api.get("/voice/stt-languages"),
+  synthesize: (body: object) =>
+    api.post("/voice/synthesize", body, { responseType: "blob" }),
+  chatText: (body: object) => api.post("/voice/chat-text", body),
+  getConfig: (agentId: string) => api.get(`/voice/configs/${agentId}`),
+  saveConfig: (agentId: string, config: object) =>
+    api.put(`/voice/configs/${agentId}`, config),
+  logs: (params?: object) => api.get("/voice/logs", { params }),
+  traces: () => api.get("/voice/traces"),
+  clearLogs: () => api.delete("/voice/logs"),
 };
 
 export const teamApi = {
