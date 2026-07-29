@@ -4827,7 +4827,16 @@ async def get_history(session_id: str, db: AsyncSession = Depends(get_db)):
   }
   zip.file("backend/requirements.txt", finalRequirements);
   zip.file("backend/.env.example", envExample);
-  zip.file("backend/Dockerfile", backendDockerfile);
+  // Prefer the AI/backend-returned Dockerfile when present -- this static
+  // template hardcodes `CMD ["uvicorn", "main:app", ...]`, which is wrong
+  // for this project's actual layout (backend/app/main.py, importable only
+  // as `app.main` from the container's /app WORKDIR). The backend's own
+  // _fix_dockerfile_entrypoint fixup already corrects this server-side;
+  // unconditionally overwriting it here discarded that fix on every
+  // download, confirmed live: a real download's container crashed with
+  // ModuleNotFoundError on `docker-compose up` because of exactly this.
+  // Same merge pattern as backend/app/config.py above.
+  zip.file("backend/Dockerfile", (aiFiles["backend/Dockerfile"] as string) || backendDockerfile);
   zip.file("backend/app/__init__.py", initPy);
   // Prefer the AI/backend-returned config.py when present -- the backend's
   // own reviewer loop backfills settings fields actually referenced in the
