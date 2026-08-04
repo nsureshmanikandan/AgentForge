@@ -7664,6 +7664,16 @@ async def architect_chat(req: ArchitectChatRequest):
     # explicit reminder above instead.
     _use_schema = _architect_provider() == "lmstudio" and not _already_asked_questions
 
+    # Reasoning models (e.g. gpt-5-mini) spend part of max_completion_tokens on
+    # hidden reasoning before emitting any visible output -- confirmed live:
+    # a 3000-token cap came back with response.choices[0].message.content
+    # completely empty on the plan-generation turn, which this endpoint then
+    # (correctly, but unhelpfully) surfaced as {"type": "message", "message": ""}
+    # instead of a plan. The full plan schema (summary, architecture, tech_stack,
+    # agents, pages, database) is also a much larger payload than the short
+    # questions-phase JSON, so give it a lot more headroom.
+    _max_tokens = 16000 if _already_asked_questions else 4000
+
     async def _call_and_parse(msgs: list[dict]) -> dict:
         resp = await asyncio.to_thread(
             _create_chat_completion,
@@ -7675,7 +7685,7 @@ async def architect_chat(req: ArchitectChatRequest):
                 {"response_format": {"type": "json_object"}} if _supports_json
                 else ({"response_format": _ARCHITECT_CHAT_SCHEMA} if _use_schema else {})
             ),
-            **{_tok_kwarg: 3000},
+            **{_tok_kwarg: _max_tokens},
         )
         raw_text = _strip_json_fences((resp.choices[0].message.content or "").strip())
         try:
