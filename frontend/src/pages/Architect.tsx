@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import axios from "axios";
 import JSZip from "jszip";
 import { architectApi, projectsApi } from "../api/client";
@@ -3364,7 +3364,7 @@ ${featurePageComponents}
 
 // ─── Source ZIP builder — calls GPT-4o via /api/architect/generate-project ───
 
-async function buildSourceZip(html: string, plan: Plan, documents?: { name: string; text: string }[]): Promise<Blob> {
+async function buildSourceZip(html: string | undefined, plan: Plan, documents?: { name: string; text: string }[]): Promise<Blob> {
   const zip = new JSZip();
   const appTitle = extractAppTitle(plan.summary);
   const appName = (plan.summary.split(" ").slice(0, 4).join("-") || "agentforge-app").toLowerCase().replace(/[^a-z0-9-]/g, "-");
@@ -3484,7 +3484,7 @@ ${marker}`;
   const sandboxHtml = `<!--
   AgentForge Architect sandbox preview — open directly in a browser (no build needed)
   Generated: ${new Date().toISOString()}
--->\n${fixSandboxHtml(html)}`;
+-->\n${fixSandboxHtml(html || "")}`;
   zip.file("sandbox.html", sandboxHtml);
 
   // ── Step 4: Inject App.tsx — RAG plan uses ragAppTsx template; non-RAG uses plan-specific dynamic UI ────
@@ -4661,14 +4661,6 @@ Open \`sandbox.html\` directly in any browser for a fully working UI demo — no
     // Derive module name from file path: backend/app/agents/support_agent.py → support_agent
     const moduleName = agentPath.replace(/^.*\/agents\//, "").replace(/\.py$/, "");
     const hasAnswerQuestion = /def answer_question\s*\(/.test(agentSrc as string);
-    // Find the agent's main public method name (not __init__, not _private, not answer_question itself)
-    const mainMethodMatch = (agentSrc as string).match(/def\s+([a-z][a-z_0-9]+)\s*\(self/g);
-    const mainMethod = mainMethodMatch
-      ?.map(m => m.replace(/def\s+/, "").replace(/\s*\(self.*/, ""))
-      .find(m => !m.startsWith("_") && m !== "answer_question") ?? "run";
-    const agentCall = hasAnswerQuestion
-      ? `agent.answer_question(req.question, req.history)`
-      : `agent.answer_question(req.question, req.history)`;
 
     const fallbackCall = hasAnswerQuestion
       ? ""
@@ -5287,7 +5279,6 @@ const REFINE_TRIGGERS = /\b(add|change|update|fix|improve|make|show|display|incl
 
 export default function Architect() {
   const location = useLocation();
-  const navigate = useNavigate();
   const processedLocationKey = useRef<string | null>(null);
   const [sessions, setSessions] = useState<Session[]>(() => loadSessions());
   const [activeSid, setActiveSid] = useState<string | null>(
@@ -5347,6 +5338,7 @@ export default function Architect() {
           app_type: isRag ? "rag" : "custom_code",
         });
         projectId = res.data.id;
+        if (!projectId) throw new Error("Project creation did not return an id");
         setSessions((prev) => prev.map((s) => (s.id === active.id ? { ...s, projectId } : s)));
       }
       await projectsApi.setVisibility(projectId, "published");
@@ -5526,7 +5518,7 @@ export default function Architect() {
       projectsApi.get(openProjectId).then((res) => {
         const p = res.data;
         const id = crypto.randomUUID();
-        let activateId = id;
+        let activateId: string = id;
         setSessions((prev) => {
           // Guard against a duplicate if this project was opened again while the fetch was in flight
           const already = prev.find((s) => s.projectId === openProjectId);
