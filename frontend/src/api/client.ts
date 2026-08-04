@@ -110,8 +110,8 @@ export const controlPlaneApi = {
 };
 
 export const architectApi = {
-  chat: (messages: { role: string; content: string }[]) =>
-    api.post("/architect/chat", { messages }),
+  chat: (messages: { role: string; content: string }[], hasPlan?: boolean) =>
+    api.post("/architect/chat", { messages, has_plan: !!hasPlan }),
   generateProject: (payload: {
     app_name: string;
     summary: string;

@@ -2794,6 +2794,12 @@ class ChatMessage(BaseModel):
 class ArchitectChatRequest(BaseModel):
     messages: List[ChatMessage]
     tech_stack_override: Optional[dict] = None
+    has_plan: bool = False  # frontend sets this once session.plan exists -- lets
+                             # architect_chat tell "just answered clarifying
+                             # questions, plan not delivered yet" apart from
+                             # "plan already delivered, this is a later
+                             # refinement/add-features follow-up" (see
+                             # _already_asked_questions below)
 
 
 def _extract_docx_text(raw: bytes) -> str:
@@ -7731,7 +7737,16 @@ async def architect_chat(req: ArchitectChatRequest):
     # can't string-match for "questions". But Phase 1 (clarifying questions) is
     # always the model's first response per SYSTEM_PROMPT, so ANY prior
     # assistant turn already existing means Phase 1 has happened.
-    _already_asked_questions = any(m.role == "assistant" for m in req.messages)
+    #
+    # Confirmed live: this must ALSO require `not req.has_plan`, not just "any
+    # assistant turn exists" -- once true, that condition stays true forever
+    # (assistant turns only accumulate), so without the has_plan check, the
+    # "you already asked questions, respond with type: plan NOW" reminder
+    # below fired on every single later message too, including Add Features/
+    # Suggest refinement requests sent long after a plan was already
+    # delivered. That forced a fresh full plan (and a full sandbox rebuild)
+    # on every follow-up instead of a normal incremental refinement turn.
+    _already_asked_questions = any(m.role == "assistant" for m in req.messages) and not req.has_plan
 
     conversation = [{"role": "system", "content": SYSTEM_PROMPT}]
     for m in req.messages:

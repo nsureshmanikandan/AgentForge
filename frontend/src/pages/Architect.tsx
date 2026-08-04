@@ -5067,10 +5067,20 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
           <div className="flex-1 bg-white border border-gray-200 rounded-lg px-3 py-1 text-xs text-gray-500 font-mono truncate">
             sandbox://preview/{plan.tech_stack.frontend.toLowerCase().replace(/\s+/g, "-")}
           </div>
-          <span className="flex items-center gap-1.5 text-xs text-emerald-600 font-medium flex-shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            Live
-          </span>
+          {generatingUI ? (
+            <span className="flex items-center gap-1.5 text-xs text-indigo-600 font-medium flex-shrink-0">
+              <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Updating…
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 text-xs text-emerald-600 font-medium flex-shrink-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Live
+            </span>
+          )}
           {/* RAG Scaffold download — only shown for RAG/doc-based plans */}
           {isRagPlan(plan) && (
           <button
@@ -5794,7 +5804,7 @@ export default function Architect() {
       const apiContent = hasQSuffix ? msgContent + QUESTIONS_SUFFIX : msgContent;
       history.push({ role: "user", content: apiContent });
 
-      const res = await architectApi.chat(history);
+      const res = await architectApi.chat(history, !!session?.plan);
       const data: ArchitectResponse = res.data;
       // Merge messages, plan AND promptHistory in one atomic setSessions call
       // to avoid stale-state bugs from separate batched calls
