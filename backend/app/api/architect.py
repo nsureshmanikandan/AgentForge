@@ -7664,30 +7664,57 @@ async def architect_chat(req: ArchitectChatRequest):
     # explicit reminder above instead.
     _use_schema = _architect_provider() == "lmstudio" and not _already_asked_questions
 
-    response = await asyncio.to_thread(
-        _create_chat_completion,
-        client,
-        model=_llm_model,
-        messages=conversation,
-        temperature=0.7,
-        **(
-            {"response_format": {"type": "json_object"}} if _supports_json
-            else ({"response_format": _ARCHITECT_CHAT_SCHEMA} if _use_schema else {})
-        ),
-        **{_tok_kwarg: 3000},
-    )
-
-    raw = _strip_json_fences((response.choices[0].message.content or "").strip())
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        # GPT-4o with response_format=json_object occasionally emits the JSON
-        # object twice concatenated (or with trailing garbage). Recover by
-        # decoding just the first valid JSON object instead of dumping the
-        # whole raw (possibly duplicated) text as a plain chat message.
+    async def _call_and_parse(msgs: list[dict]) -> dict:
+        resp = await asyncio.to_thread(
+            _create_chat_completion,
+            client,
+            model=_llm_model,
+            messages=msgs,
+            temperature=0.7,
+            **(
+                {"response_format": {"type": "json_object"}} if _supports_json
+                else ({"response_format": _ARCHITECT_CHAT_SCHEMA} if _use_schema else {})
+            ),
+            **{_tok_kwarg: 3000},
+        )
+        raw_text = _strip_json_fences((resp.choices[0].message.content or "").strip())
         try:
-            parsed, _end = json.JSONDecoder().raw_decode(raw)
+            return json.loads(raw_text)
         except json.JSONDecodeError:
-            parsed = {"type": "message", "message": raw}
+            # GPT-4o with response_format=json_object occasionally emits the JSON
+            # object twice concatenated (or with trailing garbage). Recover by
+            # decoding just the first valid JSON object instead of dumping the
+            # whole raw (possibly duplicated) text as a plain chat message.
+            try:
+                decoded, _end = json.JSONDecoder().raw_decode(raw_text)
+                return decoded
+            except json.JSONDecodeError:
+                return {"type": "message", "message": raw_text}
+
+    parsed = await _call_and_parse(conversation)
+
+    # The plain-text reminder above isn't always enough on its own -- gpt-5-mini
+    # has been observed live re-emitting "type": "questions" for the same
+    # clarifying questions round after round even when told not to, since
+    # nothing here enforces it the way a JSON schema constraint would (Azure's
+    # response_format here is loose {"type": "json_object"}, not a strict
+    # schema -- see _use_schema comment above). Reject a non-compliant repeat
+    # and force exactly one hard retry with an explicit correction before
+    # giving up, instead of silently handing the frontend another question
+    # round and leaving the user stuck in a loop.
+    if _already_asked_questions and parsed.get("type") == "questions":
+        conversation.append({"role": "assistant", "content": json.dumps(parsed)})
+        conversation.append({
+            "role": "user",
+            "content": (
+                "Your previous response used \"type\": \"questions\" again -- "
+                "REJECTED. The user already answered the one round of "
+                "clarifying questions you were allowed to ask; you may not "
+                "ask any more. Respond now with \"type\": \"plan\" and the "
+                "full plan schema from the system prompt (summary, "
+                "architecture, tech_stack, agents, pages, database)."
+            ),
+        })
+        parsed = await _call_and_parse(conversation)
 
     return parsed
