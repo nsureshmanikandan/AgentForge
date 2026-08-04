@@ -5957,6 +5957,14 @@ export default function Architect() {
       if (data.type === "questions") {
         setQLocked(false);
         setQAnswers({});
+      } else if (!data.plan) {
+        // The model returned neither a new round of questions nor a plan
+        // (e.g. a plain chat reply instead of the expected structured
+        // output). qLocked was set to true before this request went out, so
+        // without this the "Generate Architecture Plan" button would stay
+        // permanently disabled with no plan and no way to retry. Keep the
+        // user's existing answers and just unlock so they can press it again.
+        setQLocked(false);
       }
     } catch (err) {
       // This catch spans the entire chat round-trip (request, response parsing,
