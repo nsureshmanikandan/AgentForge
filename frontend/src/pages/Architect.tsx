@@ -6021,9 +6021,18 @@ export default function Architect() {
     send(formatted + PLAN_SUFFIX);
   }
 
-  const lastMsg = [...messages].reverse().find((m) => m.role === "assistant");
+  // Must be the last message that actually asked questions -- NOT just the
+  // last assistant message overall. If a later reply came back as neither a
+  // fresh question round nor a plan (see the `!data.plan` unlock branch in
+  // send()), that reply becomes the last assistant message but isn't type
+  // "questions", which permanently zeroed out hasAnswers below even after
+  // qLocked was unlocked, freezing the CTA forever despite qAnswers being
+  // fully filled in and still displayed on-screen from this same round.
+  const lastQMsgForAnswers = [...messages].reverse().find((m) => m.response?.type === "questions");
+  const qTotalForAnswers = lastQMsgForAnswers?.response?.questions?.length ?? 0;
   const hasAnswers =
-    lastMsg?.response?.type === "questions" && !qLocked && Object.keys(qAnswers).length > 0;
+    !!lastQMsgForAnswers && !qLocked && qTotalForAnswers > 0
+    && Object.keys(qAnswers).length >= qTotalForAnswers;
 
   // Progress steps shown while the plan / UI is being generated
   const PLAN_STEPS = [

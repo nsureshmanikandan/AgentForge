@@ -7623,31 +7623,39 @@ async def architect_chat(req: ArchitectChatRequest):
     conversation = [{"role": "system", "content": SYSTEM_PROMPT}]
     for m in req.messages:
         conversation.append({"role": m.role, "content": m.content})
+
+    # This reminder must fire for every provider, not just lmstudio: it was
+    # originally scoped to lmstudio's "weaker local models" case (see comment
+    # above), but the same self-tracking failure -- looping back into asking
+    # the same clarifying questions again instead of ever switching to
+    # "type": "plan" -- was observed live against the Azure gpt-5-mini
+    # deployment too.
+    if _already_asked_questions:
+        conversation.append({
+            "role": "user",
+            "content": (
+                "Reminder: you already asked your one round of clarifying "
+                "questions earlier in this conversation and the user has "
+                "answered them. You are FORBIDDEN from asking questions "
+                "again -- respond with \"type\": \"plan\" now, using the "
+                "full plan schema from the system prompt (summary, "
+                "architecture, tech_stack, agents, pages, database)."
+            ),
+        })
+    elif _architect_provider() == "lmstudio":
+        conversation.append({
+            "role": "user",
+            "content": (
+                "Reminder: if asking clarifying questions, put the actual "
+                "question text and its choices into the questions[].text and "
+                "questions[].options fields as real array entries -- do NOT "
+                "write the questions as prose inside the message field. "
+                "message should just be a short one-sentence intro."
+            ),
+        })
+
     if _architect_provider() == "lmstudio":
         conversation = _fold_system_messages(conversation)
-        if _already_asked_questions:
-            conversation.append({
-                "role": "user",
-                "content": (
-                    "Reminder: you already asked your one round of clarifying "
-                    "questions earlier in this conversation and the user has "
-                    "answered them. You are FORBIDDEN from asking questions "
-                    "again -- respond with \"type\": \"plan\" now, using the "
-                    "full plan schema from the system prompt (summary, "
-                    "architecture, tech_stack, agents, pages, database)."
-                ),
-            })
-        else:
-            conversation.append({
-                "role": "user",
-                "content": (
-                    "Reminder: if asking clarifying questions, put the actual "
-                    "question text and its choices into the questions[].text and "
-                    "questions[].options fields as real array entries -- do NOT "
-                    "write the questions as prose inside the message field. "
-                    "message should just be a short one-sentence intro."
-                ),
-            })
 
     # The strict questions-only schema only fits Phase 1 (type: questions/message).
     # Once questions have already been asked, Phase 2's "plan" shape is a much
