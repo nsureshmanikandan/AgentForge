@@ -162,6 +162,36 @@ def _top_questions_wrongly_included(html: str, detected_type: str) -> bool:
     return bool(_re.search(r'Top\s+(\d+\s+|N\s+)?Questions|Suggested Questions', html, _re.IGNORECASE))
 
 
+def _pos_workflow_incomplete(html: str, detected_type: str) -> list[str]:
+    """POS_APP's core value is the search -> cart -> checkout -> print workflow
+    (see the "If building a POS_APP" content rule in generate_ui's user_prompt)
+    -- confirmed live: without an explicit check, the LLM can ship a bare
+    shell (e.g. a generic DASHBOARD-shaped app with the right domain words in
+    labels) that technically "includes" the features as text but implements
+    none of the actual interaction. Checks for keyword evidence of each
+    required piece; returns the list of missing pieces (empty = complete).
+    Only meaningful for detected_type == "POS_APP" -- callers must gate on that."""
+    if detected_type != "POS_APP":
+        return []
+    lower = html.lower()
+    missing = []
+    if not any(k in lower for k in ("addtocart", "add to cart", "addtobill", "add to bill")):
+        missing.append("an 'Add to Cart'/'Add to Bill' action from product search results")
+    if "cart" not in lower and "billitems" not in lower and "bill items" not in lower:
+        missing.append("a cart/bill line-item panel")
+    if not any(k in lower for k in ("checkout", "complete billing", "completebilling", "complete bill")):
+        missing.append("a 'Complete Billing'/'Checkout' action")
+    if "print" not in lower:
+        missing.append("a print-bill/receipt action")
+    if not any(k in lower for k in ("stock", "inventory")):
+        missing.append("a stock/inventory view")
+    if not any(k in lower for k in ("low stock", "lowstock", "low-stock", "reorder")):
+        missing.append("a low-stock indicator")
+    if not any(k in lower for k in ("revenue", "sales report", "salesreport")):
+        missing.append("a revenue/sales report view")
+    return missing
+
+
 def _duplicate_welcome_broken(html: str) -> bool:
     """A distinct rendering bug observed live: the chatbot's initial greeting
     is seeded as the first entry of the `messages` state array (so it renders
@@ -1729,6 +1759,7 @@ Choose the APP TYPE that best fits:
   WIZARD      -> multi-step onboarding, application form, intake process, step-by-step
   SCHEDULER   -> booking system, appointment manager, calendar, slots
   SEARCH APP  -> knowledge base search, document finder, product catalogue
+  POS / CHECKOUT -> point of sale, billing, supermarket/retail checkout, shopping cart, invoice/receipt printing
   FORM APP    -> data entry form with validation, survey, feedback collector
   PORTAL      -> employee self-service, client portal, project dashboard
   CUSTOM      -> decision intelligence, multi-agent advisor, council/verdict app, recommendation engine, review board
@@ -2745,6 +2776,11 @@ class GenerateUIRequest(BaseModel):
     doc_types: Optional[List[str]] = None
     documents: Optional[List[DocContent]] = None  # actual uploaded doc content
     user_feedback: Optional[str] = None           # refinement instructions from follow-up chat
+    existing_html: Optional[str] = None           # current sandbox HTML, when user_feedback is a
+                                                   # refinement/add-features request -- lets the model
+                                                   # edit/extend what's already there instead of
+                                                   # regenerating the whole app from scratch and
+                                                   # potentially losing prior customizations
     original_prompt: Optional[str] = None         # the user's original detailed request (pre-summarization),
                                                    # used for app-type detection and to preserve exact page/
                                                    # form specs the plan summary paraphrases away
@@ -2903,6 +2939,17 @@ async def generate_ui(req: GenerateUIRequest):
                                           "cold email", "prospect", "close rate", "revenue forecast",
                                           "account executive", "sales rep", "proposal", "quote generator"]):
         detected_type = "SALES_APP"
+
+    # Point-of-sale / billing / retail checkout -- checked before the generic
+    # DASHBOARD fallback below, since these apps virtually always mention
+    # "reports"/"low-stock alerts" (DASHBOARD trigger words) alongside their
+    # actual core requirement, which is a search -> cart -> checkout -> print
+    # workflow that the generic DASHBOARD template has no concept of at all.
+    elif any(k in prompt_lower for k in ["point of sale", "pos system", "pos billing", "billing system",
+                                          "billing app", "supermarket", "retail checkout", "checkout system",
+                                          "shopping cart", "add to cart", "invoice generator", "receipt printing",
+                                          "cashier", "grocery store", "retail store"]):
+        detected_type = "POS_APP"
 
     elif any(k in prompt_lower for k in ["contract review", "nda", "legal assistant", "compliance monitor",
                                           "regulation", "clause", "trademark", "ip watch", "litigation",
@@ -3153,6 +3200,29 @@ If building a DASHBOARD:
   - KPIs and charts must use {domain}-relevant metrics with realistic numbers
   - Table data must be domain-specific records with real-looking names and values
 
+If building a POS_APP (point of sale / billing / retail checkout):
+  - You MUST implement this exact core workflow end to end, not just the surrounding
+    pages -- this is the single most important part of the app and is checked
+    automatically: (1) a product search box (search by name/category/barcode/SKU,
+    with results showing name/stock/price and an "Add" button), (2) an "Add to Cart"
+    action from search results that adds a line item to a visible cart/bill panel
+    (with quantity +/- controls and a remove action per line), (3) the cart panel
+    shows a running subtotal, tax/discount if applicable, and grand total, (4) a
+    prominent "Complete Billing" / "Checkout" button that finalizes the bill,
+    (5) after checkout, a printable/print-styled receipt view (a "Print Bill"
+    button using window.print() with an @media print stylesheet is sufficient)
+    showing store name, bill number, date/time, line items, and total
+  - Implement a Stock/Inventory page: a product list with current stock levels,
+    and a clearly visible low-stock indicator/badge for items below a reorder
+    threshold (a hardcoded threshold like 10 units is fine)
+  - Implement a Reports/Revenue page or panel showing total revenue for
+    Today/This Month/This Year (three distinct numbers or a simple bar/line
+    chart), computed from the same mock sales data the app already uses
+  - A voice-search/voice-billing affordance is a nice-to-have (e.g. a mic
+    button next to search that's wired to the Web Speech API if feasible) but
+    the manual search -> cart -> checkout -> print workflow above is mandatory
+    and must work with mouse/keyboard alone even if voice is omitted
+
 If building a WIZARD or FORM:
   - Field labels, options, and validation messages must be domain-specific
   - Confirmation screen summarises actual entered data
@@ -3162,9 +3232,22 @@ Return ONLY raw HTML starting with <!DOCTYPE html> -- no markdown fences, no exp
 
     # If the user sent feedback/refinement comments after the initial generation,
     # inject them as an additional instruction so the new sandbox incorporates the changes.
+    _has_existing_html = bool(req.existing_html and req.existing_html.strip())
     feedback_block = ""
     if req.user_feedback and req.user_feedback.strip():
-        feedback_block = f"""
+        if _has_existing_html:
+            feedback_block = f"""
+
+USER REFINEMENT REQUEST (apply these changes to the EXISTING app shown as your previous
+response above):
+{req.user_feedback.strip()}
+
+Return the COMPLETE updated HTML document with the requested changes applied. Keep every
+existing feature, page, and piece of working functionality intact -- this is an
+INCREMENTAL ADDITION, not a rewrite. Only change what the refinement request above asks for.
+"""
+        else:
+            feedback_block = f"""
 
 USER REFINEMENT REQUEST (apply these changes to this generation):
 {req.user_feedback.strip()}
@@ -3334,10 +3417,16 @@ Incorporate ALL of the above changes while keeping everything else from the orig
                 + "\n"
             )
 
-        messages_payload = [
-            {"role": "system", "content": UI_GEN_PROMPT},
-            {"role": "user", "content": user_prompt + few_shot_block + feedback_block},
-        ]
+        messages_payload = [{"role": "system", "content": UI_GEN_PROMPT}]
+        if _has_existing_html:
+            # Edit-in-place: show the model what already exists so a refinement
+            # ("Add Features") request extends it instead of regenerating the
+            # whole app from scratch and silently dropping prior customizations
+            # -- confirmed live: generate_ui previously had zero visibility into
+            # the current sandbox on every call, refinement or not.
+            messages_payload.append({"role": "user", "content": "Build the initial version of this app."})
+            messages_payload.append({"role": "assistant", "content": req.existing_html.strip()[:60000]})
+        messages_payload.append({"role": "user", "content": user_prompt + few_shot_block + feedback_block})
 
     _max_tokens_ui = 8000 if detected_type == "CUSTOM" else 16000
     _repair_note = None
@@ -3356,7 +3445,7 @@ Incorporate ALL of the above changes while keeping everything else from the orig
             # re-generates from scratch against the same prompt and often reproduces the
             # same bug.
             _send_messages_ui = _send_messages_ui + [
-                {"role": "assistant", "content": html},
+                {"role": "assistant", "content": html or "(no content was generated)"},
                 {"role": "user", "content": _repair_note},
             ]
         with _tracer.start_as_current_span("architect.generate_ui", attributes={
@@ -3383,11 +3472,35 @@ Incorporate ALL of the above changes while keeping everything else from the orig
         html = response.choices[0].message.content or ""
         html = html.strip()
 
+        # Reasoning models (e.g. gpt-5-mini) can burn their whole completion
+        # budget on hidden reasoning and come back with nothing -- confirmed
+        # live for the architect_chat endpoint's plan-generation turn, same
+        # failure class as here. None of the _*_broken() checks below can
+        # ever flag this (they all early-return False on an empty string), so
+        # an empty first attempt was silently returned to the frontend as-is,
+        # wasting the other 3 of 4 available retries.
+        _is_empty_output = len(html) < 50
+        _pos_missing = _pos_workflow_incomplete(html, detected_type) if not _is_empty_output else []
+
         if _attempt < _max_attempts - 1 and (
-            _sidebar_questions_broken(html) or _nav_items_broken(html) or _duplicate_welcome_broken(html)
-            or _top_questions_wrongly_included(html, detected_type)
+            _is_empty_output or bool(_pos_missing) or _sidebar_questions_broken(html) or _nav_items_broken(html)
+            or _duplicate_welcome_broken(html) or _top_questions_wrongly_included(html, detected_type)
         ):
             _bugs = []
+            if _is_empty_output:
+                _bugs.append(
+                    "EMPTY RESPONSE: your previous response contained no usable HTML output. "
+                    "You MUST actually generate the complete HTML document this time -- do not "
+                    "return an empty or near-empty response."
+                )
+            if _pos_missing:
+                _bugs.append(
+                    "INCOMPLETE POS WORKFLOW: this is a POS_APP and your previous response is "
+                    "missing required core functionality: " + "; ".join(_pos_missing) + ". You MUST "
+                    "add ALL of the missing pieces listed above -- search -> add to cart -> "
+                    "complete billing -> print bill must all actually work end to end, plus the "
+                    "stock/low-stock and revenue report views, per the POS_APP content rule."
+                )
             if _top_questions_wrongly_included(html, detected_type):
                 _bugs.append(
                     f"WRONG APP TYPE PATTERN: this app's type is {detected_type}, not CHATBOT, but "

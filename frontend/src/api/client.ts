@@ -1,6 +1,11 @@
 import axios from "axios";
 
-const api = axios.create({ baseURL: "/api", timeout: 180000 });
+// Architect's plan/UI-generation calls run a reasoning model with a large
+// max_completion_tokens budget, and can trigger an internal server-side
+// retry (see architect.py's empty-output repair loop) that runs the whole
+// generation twice sequentially -- confirmed live to exceed 180s. 300s gives
+// enough headroom for two full attempts plus normal variance.
+const api = axios.create({ baseURL: "/api", timeout: 300000 });
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
@@ -140,6 +145,7 @@ export const architectApi = {
     doc_types?: string[];
     documents?: { name: string; text: string }[];
     user_feedback?: string;
+    existing_html?: string;
     original_prompt?: string;
   }) => api.post("/architect/generate-ui", payload),
 };

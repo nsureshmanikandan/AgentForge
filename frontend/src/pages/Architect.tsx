@@ -5460,6 +5460,12 @@ export default function Architect() {
 
       const appName = extractAppTitle(userPrompt.length > 10 ? userPrompt : p.summary);
 
+      // A refinement (feedbackHint present, e.g. "Add Features") should edit the
+      // CURRENT sandbox rather than regenerating the whole app from scratch and
+      // silently dropping prior customizations -- only meaningful when there's
+      // already something to edit.
+      const existingHtml = feedbackHint ? sessions.find((s) => s.id === sid)?.uiHtml : undefined;
+
       const res = await architectApi.generateUI({
         app_name: appName,
         summary: p.summary,
@@ -5471,6 +5477,7 @@ export default function Architect() {
         doc_types: docTypes,
         documents: sessionDocs?.length ? sessionDocs : undefined,
         user_feedback: feedbackHint ?? undefined,
+        existing_html: existingHtml || undefined,
         original_prompt: userPrompt || undefined,
       });
       const html = res.data.html;
@@ -5904,7 +5911,13 @@ export default function Architect() {
         // No new plan — check if this is a refinement request for the existing sandbox
         const currentSession = sessions.find((s) => s.id === sid);
         const hasExistingSandbox = !!currentSession?.uiHtml;
-        const isRefinement = REFINE_TRIGGERS.test(displayText);
+        // "Add Features" mode is an explicit, unambiguous request to extend the
+        // existing sandbox -- confirmed live: relying on REFINE_TRIGGERS keyword
+        // matching alone meant a message like "implement product search, cart,
+        // checkout and printing" (no matching trigger word) silently did nothing
+        // at all when the LLM's chat reply didn't happen to include a fresh
+        // `plan` object either. The mode itself is sufficient intent here.
+        const isRefinement = mode === "features" || REFINE_TRIGGERS.test(displayText);
         if (hasExistingSandbox && isRefinement && currentSession?.plan) {
           // Append Change entry for UI-only refinements (no plan returned)
           const changeType = detectChangeType(displayText);

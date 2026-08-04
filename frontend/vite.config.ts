@@ -14,15 +14,16 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
-        // Architect's plan-generation call can legitimately run past a
+        // Architect's plan/UI-generation calls can legitimately run past a
         // minute against a reasoning model with a large max_completion_tokens
-        // budget -- Node's default proxy/socket timeout was cutting the
-        // connection with net::ERR_ABORTED well before Azure finished
-        // responding. Both timeout (incoming client socket) and proxyTimeout
-        // (proxy-to-target socket) need raising; the frontend's own axios
-        // timeout (src/api/client.ts) is already 180000ms.
-        timeout: 180000,
-        proxyTimeout: 180000,
+        // budget (and can retry once server-side on an empty response --
+        // see architect.py), which was hitting Node's default proxy/socket
+        // timeout well before Azure finished responding. Must stay >= the
+        // frontend's own axios timeout (src/api/client.ts, currently 300000ms)
+        // or the proxy would cut the connection before axios ever gets the
+        // chance to.
+        timeout: 300000,
+        proxyTimeout: 300000,
       },
     },
   },
