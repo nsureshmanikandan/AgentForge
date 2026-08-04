@@ -5911,13 +5911,16 @@ export default function Architect() {
         // No new plan — check if this is a refinement request for the existing sandbox
         const currentSession = sessions.find((s) => s.id === sid);
         const hasExistingSandbox = !!currentSession?.uiHtml;
-        // "Add Features" mode is an explicit, unambiguous request to extend the
-        // existing sandbox -- confirmed live: relying on REFINE_TRIGGERS keyword
-        // matching alone meant a message like "implement product search, cart,
-        // checkout and printing" (no matching trigger word) silently did nothing
-        // at all when the LLM's chat reply didn't happen to include a fresh
-        // `plan` object either. The mode itself is sufficient intent here.
-        const isRefinement = mode === "features" || REFINE_TRIGGERS.test(displayText);
+        // "Add Features" and "Suggest" modes are both explicit, unambiguous
+        // requests to extend the existing sandbox -- confirmed live: relying on
+        // REFINE_TRIGGERS keyword matching alone meant a message like "implement
+        // product search, cart, checkout and printing" (no matching trigger
+        // word) silently did nothing at all when the LLM's chat reply didn't
+        // happen to include a fresh `plan` object either. The mode itself is
+        // sufficient intent here. Per product decision, "Suggest" mode directly
+        // implements changes exactly like "Add Features" rather than only
+        // proposing ideas.
+        const isRefinement = mode === "features" || mode === "suggest" || REFINE_TRIGGERS.test(displayText);
         if (hasExistingSandbox && isRefinement && currentSession?.plan) {
           // Append Change entry for UI-only refinements (no plan returned)
           const changeType = detectChangeType(displayText);
@@ -5942,11 +5945,25 @@ export default function Architect() {
               changeSummary,
               changeLabel: `Change ${nextVersion - 1} · ${changeType.charAt(0).toUpperCase() + changeType.slice(1)}`,
             };
-            return latestSessions.map((s) =>
-              s.id === capturedSid2
-                ? { ...s, promptHistory: [...prevHistory, newEntry] }
-                : s
-            );
+            return latestSessions.map((s) => {
+              if (s.id !== capturedSid2) return s;
+              // Keep plan.features in sync with sandbox refinements -- the
+              // downloadable "Agentic Code" project's BACKEND generation only
+              // ever reads plan.features (never the sandbox HTML), so without
+              // this, a feature added here would show up in the live preview
+              // and even the downloaded frontend (which IS grounded in the
+              // sandbox HTML) but have no matching backend endpoints/models at
+              // all in a later code download.
+              const existingFeatures = s.plan?.features ?? [];
+              const nextFeatures = existingFeatures.includes(capturedMsg)
+                ? existingFeatures
+                : [...existingFeatures, capturedMsg];
+              return {
+                ...s,
+                promptHistory: [...prevHistory, newEntry],
+                plan: s.plan ? { ...s.plan, features: nextFeatures } : s.plan,
+              };
+            });
           });
           const feedbackMessages = (currentSession.messages ?? [])
             .filter((m) => m.role === "user")
@@ -6592,7 +6609,7 @@ export default function Architect() {
                 mode === "build"
                   ? "Describe what you want to build…"
                   : mode === "suggest"
-                  ? "Describe your current setup for suggestions…"
+                  ? "Describe what to improve — it will be implemented directly…"
                   : "Describe your existing app and what to add…"
               }
               value={input}
