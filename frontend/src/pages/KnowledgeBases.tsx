@@ -82,10 +82,20 @@ interface KB {
   id: string;
   name: string;
   description: string;
-  kb_type: "basic" | "graph";
+  kb_type: "basic" | "graph" | "semantic";
   documentCount: number;
   createdAt: string;
+  schemaTableCount?: number;
+  retrievalStrategy?: "default" | "mmr" | "hyde";
+  retrievalTopK?: number;
+  retrievalThreshold?: number;
 }
+
+const RETRIEVAL_STRATEGY_OPTIONS: { value: "default" | "mmr" | "hyde"; label: string; sub: string }[] = [
+  { value: "default", label: "Default", sub: "Plain top-K similarity search" },
+  { value: "mmr", label: "MMR", sub: "Diverse results, less redundancy between chunks" },
+  { value: "hyde", label: "HyDE", sub: "Better for short or vaguely-worded questions" },
+];
 
 interface KBDocument {
   id: string;
@@ -133,8 +143,8 @@ const KB_TYPE_OPTIONS = [
   {
     key: "semantic" as const,
     label: "Semantic Data Model",
-    sub: "Schema-aware retrieval with database integration",
-    disabled: true,
+    sub: "NL-to-SQL with live database schema discovery",
+    disabled: false,
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -151,25 +161,55 @@ interface CreateModalProps {
 }
 
 function CreateModal({ onClose, onCreate }: CreateModalProps) {
-  const [kbType, setKbType] = useState<"basic" | "graph">("basic");
+  const [kbType, setKbType] = useState<"basic" | "graph" | "semantic">("basic");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [dbHost, setDbHost] = useState("localhost");
+  const [dbPort, setDbPort] = useState("5432");
+  const [dbName, setDbName] = useState("");
+  const [dbUser, setDbUser] = useState("");
+  const [dbPassword, setDbPassword] = useState("");
 
   async function handleCreate() {
     if (!name.trim()) { setError("Name is required."); return; }
+    if (kbType === "semantic" && (!dbName.trim() || !dbUser.trim())) {
+      setError("Database name and username are required for Semantic KB.");
+      return;
+    }
     setLoading(true); setError("");
     try {
       const res = await ragApi.createKB(name.trim(), description.trim(), kbType);
       const data = res.data as { id: string; name: string; description: string; kb_type?: string };
+      let schemaTableCount: number | undefined;
+      if (kbType === "semantic") {
+        try {
+          const connRes = await ragApi.connectSemantic(data.id, {
+            host: dbHost.trim(),
+            port: parseInt(dbPort) || 5432,
+            database: dbName.trim(),
+            username: dbUser.trim(),
+            password: dbPassword,
+          });
+          const connData = connRes.data as { table_count: number };
+          schemaTableCount = connData.table_count;
+        } catch (connErr: unknown) {
+          const msg = (connErr as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+          setError(msg || "KB created but DB connection failed. Connect from the card.");
+        }
+      }
       onCreate({
         id: data.id,
         name: data.name,
         description: data.description,
-        kb_type: (data.kb_type as "basic" | "graph") || "basic",
+        kb_type: (data.kb_type as "basic" | "graph" | "semantic") || "basic",
         documentCount: 0,
         createdAt: new Date().toISOString(),
+        schemaTableCount,
+        retrievalStrategy: "default",
+        retrievalTopK: 6,
+        retrievalThreshold: 0.3,
       });
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
@@ -181,7 +221,7 @@ function CreateModal({ onClose, onCreate }: CreateModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto p-6">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Create Knowledge Base</h2>
@@ -203,7 +243,7 @@ function CreateModal({ onClose, onCreate }: CreateModalProps) {
               return (
                 <button
                   key={t.key}
-                  onClick={() => { if (!t.disabled) setKbType(t.key as "basic" | "graph"); }}
+                  onClick={() => { if (!t.disabled) setKbType(t.key as "basic" | "graph" | "semantic"); }}
                   disabled={t.disabled}
                   className={`relative flex flex-col items-center text-center p-4 rounded-xl border-2 transition-all ${
                     t.disabled
@@ -255,6 +295,51 @@ function CreateModal({ onClose, onCreate }: CreateModalProps) {
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
             />
           </div>
+          {kbType === "semantic" && (
+            <div className="pt-2 border-t border-gray-100">
+              <p className="text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
+                <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                    d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25 4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                </svg>
+                Database Connection
+              </p>
+              <div className="grid grid-cols-3 gap-2 mb-2">
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Host</label>
+                  <input type="text" value={dbHost} onChange={(e) => setDbHost(e.target.value)}
+                    placeholder="localhost"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Port</label>
+                  <input type="text" value={dbPort} onChange={(e) => setDbPort(e.target.value)}
+                    placeholder="5432"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                </div>
+              </div>
+              <div className="mb-2">
+                <label className="block text-xs font-medium text-slate-600 mb-1">Database <span className="text-red-400">*</span></label>
+                <input type="text" value={dbName} onChange={(e) => setDbName(e.target.value)}
+                  placeholder="my_database"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Username <span className="text-red-400">*</span></label>
+                  <input type="text" value={dbUser} onChange={(e) => setDbUser(e.target.value)}
+                    placeholder="postgres"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Password</label>
+                  <input type="password" value={dbPassword} onChange={(e) => setDbPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                </div>
+              </div>
+            </div>
+          )}
           {error && <p className="text-xs text-red-600">{error}</p>}
         </div>
 
@@ -270,7 +355,203 @@ function CreateModal({ onClose, onCreate }: CreateModalProps) {
             disabled={loading}
             className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
           >
-            {loading ? "Creating…" : "Create Knowledge Base"}
+            {loading ? "Creating…" : kbType === "semantic" ? "Create & Connect" : "Create Knowledge Base"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal: Connect Semantic DB ────────────────────────────────────────────────
+interface ConnectModalProps {
+  kb: KB;
+  onClose: () => void;
+  onConnected: (tableCount: number) => void;
+}
+
+function ConnectModal({ kb, onClose, onConnected }: ConnectModalProps) {
+  const [host, setHost] = useState("localhost");
+  const [port, setPort] = useState("5432");
+  const [database, setDatabase] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleConnect() {
+    if (!database.trim() || !username.trim()) { setError("Database and username are required."); return; }
+    setLoading(true); setError("");
+    try {
+      const res = await ragApi.connectSemantic(kb.id, {
+        host: host.trim(), port: parseInt(port) || 5432,
+        database: database.trim(), username: username.trim(), password,
+      });
+      const data = res.data as { table_count: number };
+      onConnected(data.table_count);
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(msg || "Connection failed. Check your credentials.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Connect Database</h2>
+            <p className="text-xs text-gray-400 mt-0.5">{kb.name}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="space-y-3">
+          <div className="grid grid-cols-3 gap-2">
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-slate-600 mb-1">Host</label>
+              <input type="text" value={host} onChange={(e) => setHost(e.target.value)} placeholder="localhost"
+                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Port</label>
+              <input type="text" value={port} onChange={(e) => setPort(e.target.value)} placeholder="5432"
+                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Database <span className="text-red-400">*</span></label>
+            <input type="text" value={database} onChange={(e) => setDatabase(e.target.value)} placeholder="my_database"
+              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Username <span className="text-red-400">*</span></label>
+              <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="postgres"
+                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Password</label>
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••"
+                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+          </div>
+          {error && <p className="text-xs text-red-600">{error}</p>}
+        </div>
+        <div className="flex items-center justify-end gap-3 mt-5">
+          <button onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+            Cancel
+          </button>
+          <button onClick={handleConnect} disabled={loading}
+            className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-60 transition-colors">
+            {loading ? "Connecting…" : "Connect & Discover Schema"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal: Retrieval Settings ────────────────────────────────────────────────
+interface SettingsModalProps {
+  kb: KB;
+  onClose: () => void;
+  onUpdated: (settings: { retrievalStrategy: "default" | "mmr" | "hyde"; retrievalTopK: number; retrievalThreshold: number }) => void;
+}
+
+function SettingsModal({ kb, onClose, onUpdated }: SettingsModalProps) {
+  const [strategy, setStrategy] = useState<"default" | "mmr" | "hyde">(kb.retrievalStrategy || "default");
+  const [topK, setTopK] = useState(String(kb.retrievalTopK ?? 6));
+  const [threshold, setThreshold] = useState(String(kb.retrievalThreshold ?? 0.3));
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSave() {
+    const parsedTopK = parseInt(topK, 10);
+    const parsedThreshold = parseFloat(threshold);
+    if (!Number.isFinite(parsedTopK) || parsedTopK < 1 || parsedTopK > 20) {
+      setError("Top-K must be a number between 1 and 20."); return;
+    }
+    if (!Number.isFinite(parsedThreshold) || parsedThreshold < 0 || parsedThreshold > 1) {
+      setError("Similarity threshold must be between 0.0 and 1.0."); return;
+    }
+    setLoading(true); setError("");
+    try {
+      await ragApi.updateSettings(kb.id, {
+        retrieval_strategy: strategy,
+        retrieval_top_k: parsedTopK,
+        retrieval_threshold: parsedThreshold,
+      });
+      onUpdated({ retrievalStrategy: strategy, retrievalTopK: parsedTopK, retrievalThreshold: parsedThreshold });
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(msg || "Failed to save settings.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Retrieval Settings</h2>
+            <p className="text-xs text-gray-400 mt-0.5">{kb.name}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1.5">Retrieval strategy</label>
+            <div className="space-y-1.5">
+              {RETRIEVAL_STRATEGY_OPTIONS.map((opt) => (
+                <label key={opt.value}
+                  className={`flex items-start gap-2 border rounded-lg px-3 py-2 cursor-pointer transition-colors ${
+                    strategy === opt.value ? "border-indigo-300 bg-indigo-50" : "border-gray-200 hover:bg-gray-50"
+                  }`}>
+                  <input type="radio" name="retrieval-strategy" checked={strategy === opt.value}
+                    onChange={() => setStrategy(opt.value)} className="mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-slate-800">{opt.label}</p>
+                    <p className="text-xs text-gray-500">{opt.sub}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Top-K results</label>
+              <input type="number" min={1} max={20} value={topK} onChange={(e) => setTopK(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Similarity threshold</label>
+              <input type="number" min={0} max={1} step={0.05} value={threshold} onChange={(e) => setThreshold(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+          </div>
+          {error && <p className="text-xs text-red-600">{error}</p>}
+        </div>
+        <div className="flex items-center justify-end gap-3 mt-5">
+          <button onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+            Cancel
+          </button>
+          <button onClick={handleSave} disabled={loading}
+            className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-60 transition-colors">
+            {loading ? "Saving…" : "Save Settings"}
           </button>
         </div>
       </div>
@@ -285,6 +566,7 @@ interface QueryModalProps {
 }
 
 function QueryModal({ kb, onClose }: QueryModalProps) {
+  const isSemantic = kb.kb_type === "semantic";
   const [question, setQuestion] = useState("");
   const [askedQuestion, setAskedQuestion] = useState("");
   const [answer, setAnswer] = useState("");
@@ -292,12 +574,18 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
   const [graphEntities, setGraphEntities] = useState<{ name: string; type: string }[] | undefined>(undefined);
   const [relatedQuestions, setRelatedQuestions] = useState<string[]>([]);
   const [groundingScore, setGroundingScore] = useState<number | null>(null);
+  const [sqlQuery, setSqlQuery] = useState<string | undefined>();
+  const [queryColumns, setQueryColumns] = useState<string[] | undefined>();
+  const [queryRows, setQueryRows] = useState<string[][] | undefined>();
+  const [rowCount, setRowCount] = useState<number | undefined>();
+  const [sqlError, setSqlError] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [suggestionsLoading, setSuggestionsLoading] = useState(true);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(!isSemantic);
 
   useEffect(() => {
+    if (isSemantic) return;
     let cancelled = false;
     ragApi.suggestedQuestions(kb.id)
       .then((res) => {
@@ -308,13 +596,15 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
       .catch(() => { if (!cancelled) setSuggestions([]); })
       .finally(() => { if (!cancelled) setSuggestionsLoading(false); });
     return () => { cancelled = true; };
-  }, [kb.id]);
+  }, [kb.id, isSemantic]);
 
   async function runQuery(q: string) {
     if (!q.trim()) return;
     setLoading(true);
     setAnswer(""); setSources([]); setGraphEntities(undefined);
     setRelatedQuestions([]); setGroundingScore(null);
+    setSqlQuery(undefined); setQueryColumns(undefined); setQueryRows(undefined);
+    setRowCount(undefined); setSqlError(undefined);
     setError(""); setAskedQuestion(q.trim());
     try {
       const res = await ragApi.query(kb.id, q.trim());
@@ -324,12 +614,22 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
         graph_entities?: { name: string; type: string }[];
         related_questions: string[];
         grounding_score: number | null;
+        sql_query?: string;
+        columns?: string[];
+        rows?: string[][];
+        row_count?: number;
+        sql_error?: string;
       };
       setAnswer(data.answer);
       setSources(data.sources ?? []);
       setGraphEntities(data.graph_entities ?? undefined);
       setRelatedQuestions(data.related_questions ?? []);
       setGroundingScore(data.grounding_score ?? null);
+      setSqlQuery(data.sql_query ?? undefined);
+      setQueryColumns(data.columns ?? undefined);
+      setQueryRows(data.rows ?? undefined);
+      setRowCount(data.row_count ?? undefined);
+      setSqlError(data.sql_error ?? undefined);
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       setError(msg || "Query failed. Please try again.");
@@ -342,6 +642,8 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
     setQuestion(""); setAskedQuestion(""); setAnswer("");
     setSources([]); setGraphEntities(undefined);
     setRelatedQuestions([]); setGroundingScore(null); setError("");
+    setSqlQuery(undefined); setQueryColumns(undefined); setQueryRows(undefined);
+    setRowCount(undefined); setSqlError(undefined);
   }
 
   function handleQuestionChange(value: string) {
@@ -410,7 +712,20 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
 
           {error && <p className="text-xs text-red-600 mt-3">{error}</p>}
 
-          {!suggestionsLoading && suggestions.length > 0 && !answer && !loading && (
+          {isSemantic && !answer && !loading && (
+            <div className="mt-4">
+              <p className="text-xs font-medium text-gray-400 mb-2">Example queries</p>
+              <div className="flex flex-wrap gap-2">
+                {["Show all tables", "How many rows are in each table?", "List columns in the largest table"].map((q, i) => (
+                  <button key={i} onClick={() => { setQuestion(q); runQuery(q); }} disabled={loading}
+                    className="text-left text-xs text-slate-600 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-1.5 hover:bg-emerald-100 hover:text-emerald-800 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {!isSemantic && !suggestionsLoading && suggestions.length > 0 && !answer && !loading && (
             <div className="mt-4">
               <p className="text-xs font-medium text-gray-400 mb-2">Suggested questions</p>
               <div className="flex flex-wrap gap-2">
@@ -425,33 +740,40 @@ function QueryModal({ kb, onClose }: QueryModalProps) {
           )}
         </div>
 
-        {loading && (
-          <div className="mt-4 mx-6 mb-4 flex items-center gap-2 text-sm text-indigo-400">
-            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-            </svg>
-            Thinking…
-          </div>
-        )}
+        <div className="flex-1 overflow-y-auto px-6 pb-6">
+          {loading && (
+            <div className="mt-4 flex items-center gap-2 text-sm text-indigo-400">
+              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+              Thinking…
+            </div>
+          )}
 
-        {answer && !loading && (
-          <div className="mt-4 mx-6 mb-6">
-            {askedQuestion && (
-              <p className="text-xs text-slate-400 italic mb-2">"{askedQuestion}"</p>
-            )}
-            <KBAnswerCard
-              kbId={kb.id}
-              question={askedQuestion}
-              answer={answer}
-              sources={sources}
-              graphEntities={graphEntities}
-              relatedQuestions={relatedQuestions}
-              groundingScore={groundingScore}
-              onRelatedClick={(q) => { setQuestion(q); runQuery(q); }}
-            />
-          </div>
-        )}
+          {answer && !loading && (
+            <div className="mt-4">
+              {askedQuestion && (
+                <p className="text-xs text-slate-400 italic mb-2">"{askedQuestion}"</p>
+              )}
+              <KBAnswerCard
+                kbId={kb.id}
+                question={askedQuestion}
+                answer={answer}
+                sources={sources}
+                graphEntities={graphEntities}
+                relatedQuestions={relatedQuestions}
+                groundingScore={groundingScore}
+                sqlQuery={sqlQuery}
+                queryColumns={queryColumns}
+                queryRows={queryRows}
+                rowCount={rowCount}
+                sqlError={sqlError}
+                onRelatedClick={(q) => { setQuestion(q); runQuery(q); }}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -847,9 +1169,11 @@ interface KBCardProps {
   onDelete: (id: string) => void;
   onQuery: (kb: KB) => void;
   onExploreGraph: (kb: KB) => void;
+  onConnect: (kb: KB) => void;
+  onSettings: (kb: KB) => void;
 }
 
-function KBCard({ kb, onDelete, onQuery, onExploreGraph }: KBCardProps) {
+function KBCard({ kb, onDelete, onQuery, onExploreGraph, onConnect, onSettings }: KBCardProps) {
   const [showUpload, setShowUpload] = useState(false);
   const [docs, setDocs] = useState<KBDocument[]>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -857,6 +1181,7 @@ function KBCard({ kb, onDelete, onQuery, onExploreGraph }: KBCardProps) {
   const [refreshTick, setRefreshTick] = useState(0);
 
   const isGraph = kb.kb_type === "graph";
+  const isSemantic = kb.kb_type === "semantic";
 
   useEffect(() => {
     let cancelled = false;
@@ -884,13 +1209,13 @@ function KBCard({ kb, onDelete, onQuery, onExploreGraph }: KBCardProps) {
 
   return (
     <div className={`bg-white border rounded-xl shadow-sm flex flex-col transition-shadow hover:shadow-md ${
-      isGraph ? "border-purple-100" : "border-gray-200"
+      isGraph ? "border-purple-100" : isSemantic ? "border-emerald-100" : "border-gray-200"
     }`}>
       <div className="p-5 flex-1">
         {/* Card header */}
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
-            isGraph ? "bg-purple-50" : "bg-indigo-50"
+            isGraph ? "bg-purple-50" : isSemantic ? "bg-emerald-50" : "bg-indigo-50"
           }`}>
             {isGraph ? (
               <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -898,6 +1223,11 @@ function KBCard({ kb, onDelete, onQuery, onExploreGraph }: KBCardProps) {
                 <circle cx="20" cy="5.5" r="2.5" strokeWidth={1.5} />
                 <circle cx="20" cy="18.5" r="2.5" strokeWidth={1.5} />
                 <path strokeLinecap="round" strokeWidth={1.5} d="M7.5 11.2L17.5 6.8M7.5 12.8L17.5 17.2" />
+              </svg>
+            ) : isSemantic ? (
+              <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25" />
               </svg>
             ) : (
               <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -912,9 +1242,11 @@ function KBCard({ kb, onDelete, onQuery, onExploreGraph }: KBCardProps) {
               <span className={`flex-shrink-0 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
                 isGraph
                   ? "bg-purple-50 text-purple-700 border border-purple-200"
+                  : isSemantic
+                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                   : "bg-indigo-50 text-indigo-700 border border-indigo-100"
               }`}>
-                {isGraph ? "Graph" : "Basic"}
+                {isGraph ? "Graph" : isSemantic ? "Semantic" : "Basic"}
               </span>
             </div>
             <p className="text-xs text-gray-500 line-clamp-2">{kb.description || "No description"}</p>
@@ -923,13 +1255,23 @@ function KBCard({ kb, onDelete, onQuery, onExploreGraph }: KBCardProps) {
 
         {/* Meta */}
         <div className="flex items-center gap-4 text-xs text-gray-400 mb-4">
-          <span className="flex items-center gap-1">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-            </svg>
-            {docs.length} doc{docs.length !== 1 ? "s" : ""}
-          </span>
+          {isSemantic ? (
+            <span className={`flex items-center gap-1 ${kb.schemaTableCount != null ? "text-emerald-600" : "text-gray-400"}`}>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+              </svg>
+              {kb.schemaTableCount != null ? `${kb.schemaTableCount} tables` : "Not connected"}
+            </span>
+          ) : (
+            <span className="flex items-center gap-1">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+              </svg>
+              {docs.length} doc{docs.length !== 1 ? "s" : ""}
+            </span>
+          )}
           <span className="flex items-center gap-1">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -966,16 +1308,29 @@ function KBCard({ kb, onDelete, onQuery, onExploreGraph }: KBCardProps) {
 
       {/* Actions */}
       <div className="px-5 pb-4 pt-0 flex items-center gap-2">
-        <button
-          onClick={() => setShowUpload((v) => !v)}
-          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 border border-indigo-200 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-          </svg>
-          Upload
-        </button>
+        {isSemantic ? (
+          <button
+            onClick={() => onConnect(kb)}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 border border-emerald-200 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+            </svg>
+            {kb.schemaTableCount != null ? "Reconnect" : "Connect DB"}
+          </button>
+        ) : (
+          <button
+            onClick={() => setShowUpload((v) => !v)}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 border border-indigo-200 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+            </svg>
+            Upload
+          </button>
+        )}
 
         {isGraph ? (
           <button
@@ -993,7 +1348,9 @@ function KBCard({ kb, onDelete, onQuery, onExploreGraph }: KBCardProps) {
         ) : (
           <button
             onClick={() => onQuery(kb)}
-            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 border border-gray-200 bg-white rounded-lg hover:bg-gray-50 transition-colors"
+            disabled={isSemantic && kb.schemaTableCount == null}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 border border-gray-200 bg-white rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            title={isSemantic && kb.schemaTableCount == null ? "Connect a database first" : undefined}
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -1012,6 +1369,18 @@ function KBCard({ kb, onDelete, onQuery, onExploreGraph }: KBCardProps) {
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 15.803a7.5 7.5 0 0010.607 0z" />
+            </svg>
+          </button>
+        )}
+
+        {!isGraph && !isSemantic && (
+          <button onClick={() => onSettings(kb)}
+            className="p-1.5 text-gray-400 border border-gray-200 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition-colors"
+            title="Retrieval settings">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.093c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93.398.164.855.142 1.205-.108l.737-.527a1.125 1.125 0 011.45.12l.773.774c.39.389.44 1.002.12 1.45l-.527.737c-.25.35-.272.806-.107 1.204.165.397.505.71.93.78l.893.15c.543.09.94.56.94 1.11v1.093c0 .55-.397 1.02-.94 1.11l-.893.149c-.425.07-.765.383-.93.78-.165.398-.143.854.107 1.204l.527.738c.32.447.269 1.06-.12 1.45l-.774.773a1.125 1.125 0 01-1.449.12l-.738-.527c-.35-.25-.806-.272-1.203-.107-.397.165-.71.505-.781.929l-.149.894c-.09.542-.56.94-1.11.94h-1.094c-.55 0-1.019-.398-1.11-.94l-.148-.894c-.071-.424-.384-.764-.781-.93-.398-.164-.854-.142-1.204.108l-.738.527c-.447.32-1.06.269-1.45-.12l-.773-.774a1.125 1.125 0 01-.12-1.45l.527-.737c.25-.35.273-.806.108-1.204-.165-.397-.506-.71-.93-.78l-.894-.15c-.542-.09-.94-.56-.94-1.11v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.765-.383.93-.78.165-.398.143-.854-.107-1.204l-.527-.738a1.125 1.125 0 01.12-1.45l.773-.773a1.125 1.125 0 011.45-.12l.737.527c.35.25.807.272 1.204.107.397-.165.71-.505.78-.929l.15-.894z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
           </button>
         )}
@@ -1049,20 +1418,27 @@ export default function KnowledgeBases() {
   const [showCreate, setShowCreate] = useState(false);
   const [queryTarget, setQueryTarget] = useState<KB | null>(null);
   const [graphTarget, setGraphTarget] = useState<KB | null>(null);
+  const [connectTarget, setConnectTarget] = useState<KB | null>(null);
+  const [settingsTarget, setSettingsTarget] = useState<KB | null>(null);
 
   useEffect(() => {
     ragApi.list().then((res) => {
       const data = res.data as {
         id: string; name: string; description: string; kb_type?: string;
-        document_count: number; created_at: string;
+        document_count: number; schema_table_count?: number; created_at: string;
+        retrieval_strategy?: string; retrieval_top_k?: number; retrieval_threshold?: number;
       }[];
       setKBs(data.map((d) => ({
         id: d.id,
         name: d.name,
         description: d.description,
-        kb_type: (d.kb_type as "basic" | "graph") || "basic",
+        kb_type: (d.kb_type as "basic" | "graph" | "semantic") || "basic",
         documentCount: d.document_count,
         createdAt: d.created_at,
+        schemaTableCount: d.schema_table_count ?? undefined,
+        retrievalStrategy: (d.retrieval_strategy as "default" | "mmr" | "hyde") || "default",
+        retrievalTopK: d.retrieval_top_k ?? 6,
+        retrievalThreshold: d.retrieval_threshold ?? 0.3,
       })));
     }).catch(() => setKBs([]))
       .finally(() => setLoading(false));
@@ -1070,9 +1446,18 @@ export default function KnowledgeBases() {
 
   function handleCreate(kb: KB) { setKBs((prev) => [...prev, kb]); setShowCreate(false); }
   function handleDelete(id: string) { setKBs((prev) => prev.filter((kb) => kb.id !== id)); }
+  function handleConnected(id: string, tableCount: number) {
+    setKBs((prev) => prev.map((k) => k.id === id ? { ...k, schemaTableCount: tableCount } : k));
+    setConnectTarget(null);
+  }
+  function handleSettingsUpdated(id: string, settings: { retrievalStrategy: "default" | "mmr" | "hyde"; retrievalTopK: number; retrievalThreshold: number }) {
+    setKBs((prev) => prev.map((k) => k.id === id ? { ...k, ...settings } : k));
+    setSettingsTarget(null);
+  }
 
   const graphCount = kbs.filter((k) => k.kb_type === "graph").length;
   const basicCount = kbs.filter((k) => k.kb_type === "basic").length;
+  const semanticCount = kbs.filter((k) => k.kb_type === "semantic").length;
 
   return (
     <div className="p-8 bg-gray-50 min-h-screen">
@@ -1107,6 +1492,11 @@ export default function KnowledgeBases() {
           {graphCount > 0 && (
             <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200">
               {graphCount} Graph
+            </span>
+          )}
+          {semanticCount > 0 && (
+            <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+              {semanticCount} Semantic
             </span>
           )}
         </div>
@@ -1146,6 +1536,8 @@ export default function KnowledgeBases() {
               onDelete={handleDelete}
               onQuery={(k) => setQueryTarget(k)}
               onExploreGraph={(k) => setGraphTarget(k)}
+              onConnect={(k) => setConnectTarget(k)}
+              onSettings={(k) => setSettingsTarget(k)}
             />
           ))}
         </div>
@@ -1155,6 +1547,20 @@ export default function KnowledgeBases() {
       {showCreate && <CreateModal onClose={() => setShowCreate(false)} onCreate={handleCreate} />}
       {queryTarget && <QueryModal kb={queryTarget} onClose={() => setQueryTarget(null)} />}
       {graphTarget && <GraphExplorerModal kb={graphTarget} onClose={() => setGraphTarget(null)} />}
+      {connectTarget && (
+        <ConnectModal
+          kb={connectTarget}
+          onClose={() => setConnectTarget(null)}
+          onConnected={(count) => handleConnected(connectTarget.id, count)}
+        />
+      )}
+      {settingsTarget && (
+        <SettingsModal
+          kb={settingsTarget}
+          onClose={() => setSettingsTarget(null)}
+          onUpdated={(settings) => handleSettingsUpdated(settingsTarget.id, settings)}
+        />
+      )}
     </div>
   );
 }

@@ -1,4 +1,6 @@
 import io
+import numpy as np
+import faiss
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -9,6 +11,7 @@ from app.core.rag_engine import (
     _extract_docx_units,
     _chunk_units,
     MAX_CHUNK_CHARS,
+    EMBED_DIM,
 )
 
 
@@ -165,3 +168,122 @@ class TestRAGEngineRetrieval:
         mock_embed.assert_not_called()
         assert engine._index.ntotal == 0
         mock_save.assert_called_once()
+
+
+def _make_chunk_db_mock(faiss_id_to_text: dict[int, str]) -> AsyncMock:
+    """Mirrors the chunk-then-document two-query sequence retrieve() issues,
+    so tests only need to describe which faiss_ids map to which chunk text."""
+    chunk_rows = [
+        MagicMock(faiss_id=fid, text=text, document_id="doc-1")
+        for fid, text in faiss_id_to_text.items()
+    ]
+    doc_row = MagicMock(id="doc-1", filename="test.pdf")
+    call_count = 0
+
+    async def fake_execute(stmt):
+        nonlocal call_count
+        call_count += 1
+        result = MagicMock()
+        if call_count == 1:
+            result.scalars.return_value.all.return_value = chunk_rows
+        else:
+            result.scalars.return_value.all.return_value = [doc_row]
+        return result
+
+    db = AsyncMock()
+    db.execute.side_effect = fake_execute
+    return db
+
+
+class TestMMRSearch:
+    def test_mmr_prefers_diverse_candidate_over_near_duplicate(self):
+        """v1 is a near-duplicate of v0 (dot ~0.99) and scores higher against
+        the query than the more-diverse v2, so naive top-2-by-score would
+        return {v0, v1}. MMR should pick v2 second instead, since v1 adds
+        almost nothing once v0 is already selected."""
+        engine = RAGEngine(kb_id="test-kb-mmr")
+
+        v0 = np.zeros(EMBED_DIM, dtype="float32"); v0[0] = 1.0
+        v1 = np.zeros(EMBED_DIM, dtype="float32"); v1[0] = 0.99; v1[1] = 0.14
+        v2 = np.zeros(EMBED_DIM, dtype="float32"); v2[0] = 0.5; v2[2] = 0.866
+        q = np.zeros(EMBED_DIM, dtype="float32"); q[0] = 0.9; q[2] = 0.436
+
+        vectors = RAGEngine._normalize([v0.tolist(), v1.tolist(), v2.tolist()])
+        q_norm = RAGEngine._normalize([q.tolist()])[0]
+
+        index = faiss.IndexFlatIP(EMBED_DIM)
+        index.add(vectors)
+
+        # Sanity check the premise: naive top-2 by raw similarity is {0, 1}.
+        scores, ids = index.search(np.array([q_norm]), 3)
+        assert list(ids[0][:2]) == [0, 1]
+
+        result = engine._mmr_search(index, q_norm, top_k=2)
+
+        assert [i for i, _ in result] == [0, 2]
+
+
+@pytest.mark.asyncio
+class TestHydeAndThreshold:
+    async def test_generate_hypothetical_answer_falls_back_on_llm_error(self):
+        engine = RAGEngine(kb_id="test-kb-hyde-fallback")
+        with patch.object(engine._llm, "chat", new_callable=AsyncMock) as mock_chat:
+            mock_chat.side_effect = RuntimeError("LLM unavailable")
+            result = await engine._generate_hypothetical_answer("What is Azure?")
+        assert result == "What is Azure?"
+
+    async def test_retrieve_with_hyde_strategy_embeds_hypothetical_text(self):
+        engine = RAGEngine(kb_id="test-kb-hyde")
+        fake_index = MagicMock()
+        fake_index.ntotal = 1
+        fake_index.search.return_value = ([[0.9]], [[0]])
+        engine._index = fake_index
+
+        db = _make_chunk_db_mock({0: "Azure is a cloud platform."})
+
+        with patch.object(engine, "_generate_hypothetical_answer", new_callable=AsyncMock) as mock_hyde, \
+             patch.object(engine._embedder, "embed", new_callable=AsyncMock) as mock_embed:
+            mock_hyde.return_value = "Azure is Microsoft's cloud computing platform offering..."
+            mock_embed.return_value = [[0.1] * EMBED_DIM]
+
+            await engine.retrieve("What is Azure?", db, strategy="hyde")
+
+        mock_hyde.assert_awaited_once_with("What is Azure?")
+        mock_embed.assert_awaited_once_with(["Azure is Microsoft's cloud computing platform offering..."])
+
+    async def test_retrieve_with_mmr_strategy_uses_mmr_search_not_raw_index_search(self):
+        engine = RAGEngine(kb_id="test-kb-mmr-wiring")
+        fake_index = MagicMock()
+        fake_index.ntotal = 3
+        engine._index = fake_index
+
+        db = _make_chunk_db_mock({0: "chunk zero"})
+
+        with patch.object(engine, "_mmr_search") as mock_mmr, \
+             patch.object(engine._embedder, "embed", new_callable=AsyncMock) as mock_embed:
+            mock_mmr.return_value = [(0, 0.9)]
+            mock_embed.return_value = [[0.1] * EMBED_DIM]
+
+            await engine.retrieve("question", db, top_k=2, strategy="mmr")
+
+        mock_mmr.assert_called_once()
+        fake_index.search.assert_not_called()
+
+    async def test_retrieve_uses_custom_similarity_threshold_not_module_constant(self):
+        """A score of 0.2 is below the module-level SIMILARITY_CUTOFF (0.3)
+        but above a caller-supplied threshold of 0.1 -- results should still
+        come back instead of being filtered out."""
+        engine = RAGEngine(kb_id="test-kb-threshold")
+        fake_index = MagicMock()
+        fake_index.ntotal = 1
+        fake_index.search.return_value = ([[0.2]], [[0]])
+        engine._index = fake_index
+
+        db = _make_chunk_db_mock({0: "marginal match"})
+
+        with patch.object(engine._embedder, "embed", new_callable=AsyncMock) as mock_embed:
+            mock_embed.return_value = [[0.1] * EMBED_DIM]
+            results = await engine.retrieve("question", db, similarity_threshold=0.1)
+
+        assert len(results) == 1
+        assert results[0][0] == "marginal match"

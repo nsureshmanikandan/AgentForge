@@ -133,29 +133,41 @@ class AzureOpenAIClient:
                     span.set_attribute("llm.response_length", len(result))
                     return result
 
-                # LM Studio's OpenAI-compat layer expects the standard "max_tokens"
-                # param; Azure OpenAI's newer models expect "max_completion_tokens".
-                token_kwarg = {"max_tokens": max_tokens} if self.provider == "lmstudio" else {"max_completion_tokens": max_tokens}
-                # Some local models' chat templates (e.g. Mistral-7B-Instruct-v0.3)
-                # reject the "system" role outright ("Only user and assistant
-                # roles are supported!"). Fold any system message into the first
-                # user turn instead so callers don't need per-model workarounds.
                 send_messages = self._fold_system_messages(messages) if self.provider == "lmstudio" else messages
+
+                async def _call(token_kw: dict, include_temp: bool):
+                    kwargs = {"model": self.deployment, "messages": send_messages, **token_kw}
+                    if include_temp:
+                        kwargs["temperature"] = temperature
+                    return await self._client.chat.completions.create(**kwargs)
+
+                # Azure reasoning models need max_completion_tokens; LM Studio and
+                # older Azure models use max_tokens. SDK < 1.47 rejects
+                # max_completion_tokens at the Python level (TypeError), so we try
+                # it first and fall back to max_tokens when the SDK raises.
+                token_kw_primary   = {"max_tokens": max_tokens} if self.provider == "lmstudio" else {"max_completion_tokens": max_tokens}
+                token_kw_fallback  = {"max_tokens": max_tokens}
                 try:
-                    response = await self._client.chat.completions.create(
-                        model=self.deployment,
-                        messages=send_messages,
-                        temperature=temperature,
-                        **token_kwarg,
-                    )
+                    response = await _call(token_kw_primary, include_temp=True)
+                except TypeError:
+                    # SDK too old to know max_completion_tokens — use max_tokens.
+                    response = await _call(token_kw_fallback, include_temp=True)
                 except Exception as temp_err:
-                    # Reasoning models (gpt-5-mini, o-series) reject temperature != 1.
-                    # Retry without it so callers don't need per-model workarounds.
-                    if "temperature" in str(temp_err) and "unsupported" in str(temp_err).lower():
+                    err = str(temp_err)
+                    if "temperature" in err and "unsupported" in err.lower():
+                        # Reasoning model rejects temperature — retry without it.
+                        try:
+                            response = await _call(token_kw_primary, include_temp=False)
+                        except TypeError:
+                            response = await _call(token_kw_fallback, include_temp=False)
+                    elif "max_tokens" in err and "not supported" in err.lower():
+                        # API rejects max_tokens for this model — use max_completion_tokens
+                        # via extra_body to bypass SDK parameter validation.
                         response = await self._client.chat.completions.create(
                             model=self.deployment,
                             messages=send_messages,
-                            **token_kwarg,
+                            temperature=temperature,
+                            extra_body={"max_completion_tokens": max_tokens},
                         )
                     else:
                         raise

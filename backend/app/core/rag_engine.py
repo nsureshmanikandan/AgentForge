@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import re
 import tempfile
@@ -24,10 +25,18 @@ except ImportError:
     _DOCX_AVAILABLE = False
 
 EMBED_DIM = 1536  # text-embedding-3-small
-MAX_CHUNK_CHARS = 800
-CHUNK_OVERLAP = 150
-TOP_K = 4
+MAX_CHUNK_CHARS = 450   # smaller chunks → tighter, higher-scoring retrieval hits
+CHUNK_OVERLAP = 100
+TOP_K = 6               # retrieve more candidates so top matches are not missed
 SIMILARITY_CUTOFF = 0.3
+MMR_LAMBDA = 0.5            # relevance vs. diversity tradeoff for the "mmr" strategy
+MMR_POOL_MULTIPLIER = 4     # candidate pool size = top_k * this, capped at index size
+
+_HYDE_PROMPT = (
+    "Write a short, plausible passage (2-4 sentences) that would answer this "
+    "question, as if it appeared in a reference document. Do not mention that "
+    "this is hypothetical.\n\nQuestion: {question}"
+)
 
 _INDEX_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "kb_indexes")
 
@@ -132,6 +141,53 @@ class RAGEngine:
         norms[norms == 0] = 1
         return arr / norms
 
+    async def _generate_hypothetical_answer(self, question: str) -> str:
+        """HyDE: embed an LLM-written hypothetical answer instead of the raw
+        question, closing the phrasing gap between short/vague questions and
+        document-style prose. Falls back to the question itself on any LLM
+        failure so the "hyde" strategy degrades to default behavior."""
+        try:
+            return await self._llm.chat(
+                [{"role": "user", "content": _HYDE_PROMPT.format(question=question)}],
+                temperature=0.3,
+                max_tokens=200,
+            )
+        except Exception:
+            return question
+
+    def _mmr_search(self, index: faiss.IndexFlatIP, q_vec: np.ndarray, top_k: int) -> list[tuple[int, float]]:
+        """Maximal Marginal Relevance: greedily picks the next candidate that
+        balances relevance to the query against redundancy with what's
+        already selected, so top results aren't near-duplicate chunks of the
+        same fact. Vectors are read back via index.reconstruct() -- since the
+        index already stores L2-normalized vectors, no extra embedding calls
+        are needed to compute pairwise similarity."""
+        pool_size = min(index.ntotal, max(top_k * MMR_POOL_MULTIPLIER, top_k))
+        scores, ids = index.search(np.array([q_vec], dtype="float32"), pool_size)
+        candidate_ids = [int(i) for i in ids[0] if i >= 0]
+        if not candidate_ids:
+            return []
+
+        sim_to_query = {int(i): float(s) for i, s in zip(ids[0], scores[0]) if i >= 0}
+        vectors = {i: index.reconstruct(i) for i in candidate_ids}
+
+        selected: list[int] = []
+        remaining = list(candidate_ids)
+        while remaining and len(selected) < top_k:
+            best_id, best_mmr = None, -float("inf")
+            for cid in remaining:
+                redundancy = max(
+                    (float(np.dot(vectors[cid], vectors[sid])) for sid in selected),
+                    default=0.0,
+                )
+                mmr_score = MMR_LAMBDA * sim_to_query[cid] - (1 - MMR_LAMBDA) * redundancy
+                if mmr_score > best_mmr:
+                    best_mmr, best_id = mmr_score, cid
+            selected.append(best_id)
+            remaining.remove(best_id)
+
+        return [(i, sim_to_query[i]) for i in selected]
+
     async def ensure_loaded(self, db: AsyncSession):
         """Rebuild the FAISS index from persisted Chunk rows if the on-disk
         file is missing (or was never created) -- resilient to losing the
@@ -220,12 +276,44 @@ class RAGEngine:
             span.set_attribute("rag.chunk_count", len(chunk_units))
             return len(chunk_units), full_text
 
+    async def _compute_faithfulness(
+        self, answer: str, context_chunks: list[str]
+    ) -> float | None:
+        """LLM-as-judge faithfulness (RAGAS-style): fraction of answer claims
+        directly supported by the retrieved context. Returns 0.0–1.0."""
+        if not context_chunks or not answer.strip():
+            return None
+        context = "\n\n".join(context_chunks)
+        prompt = (
+            "Given the context and answer, count the factual claims in the answer "
+            "and how many are directly supported by the context.\n\n"
+            f"Context:\n{context}\n\n"
+            f"Answer:\n{answer}\n\n"
+            'Respond ONLY with JSON (no markdown): {"supported": <int>, "total": <int>}'
+        )
+        try:
+            result = await self._llm.chat(
+                [{"role": "user", "content": prompt}], temperature=0.0
+            )
+            match = re.search(r'\{[^{}]+\}', result)
+            if match:
+                data = json.loads(match.group())
+                total = int(data.get("total", 0))
+                supported = int(data.get("supported", 0))
+                if total > 0:
+                    return round(min(supported, total) / total, 2)
+        except Exception:
+            pass
+        return None
+
     async def retrieve(
         self,
         question: str,
         db: AsyncSession,
         top_k: int = TOP_K,
         enforce_cutoff: bool = True,
+        strategy: str = "default",
+        similarity_threshold: float = SIMILARITY_CUTOFF,
     ) -> list[tuple[str, float, str, str]]:
         """Return list of (text, score, doc_id, filename) tuples."""
         await self.ensure_loaded(db)
@@ -233,11 +321,17 @@ class RAGEngine:
         if index is None or index.ntotal == 0:
             return []
 
-        q_vec = await self._embedder.embed([question])
-        k = min(top_k, index.ntotal)
-        scores, ids = index.search(self._normalize(q_vec), k)
-        candidates = [(int(i), float(s)) for i, s in zip(ids[0], scores[0]) if i >= 0]
-        kept = [(i, s) for i, s in candidates if s >= SIMILARITY_CUTOFF] if enforce_cutoff else candidates
+        query_text = await self._generate_hypothetical_answer(question) if strategy == "hyde" else question
+        q_vec = await self._embedder.embed([query_text])
+
+        if strategy == "mmr":
+            candidates = self._mmr_search(index, self._normalize(q_vec)[0], top_k)
+        else:
+            k = min(top_k, index.ntotal)
+            scores, ids = index.search(self._normalize(q_vec), k)
+            candidates = [(int(i), float(s)) for i, s in zip(ids[0], scores[0]) if i >= 0]
+
+        kept = [(i, s) for i, s in candidates if s >= similarity_threshold] if enforce_cutoff else candidates
         if not kept:
             return []
 
@@ -262,12 +356,20 @@ class RAGEngine:
             if c.faiss_id in score_map
         ]
 
-    async def query(self, question: str, db: AsyncSession, top_k: int = TOP_K, enforce_cutoff: bool = True) -> dict:
+    async def query(
+        self,
+        question: str,
+        db: AsyncSession,
+        top_k: int = TOP_K,
+        enforce_cutoff: bool = True,
+        strategy: str = "default",
+        similarity_threshold: float = SIMILARITY_CUTOFF,
+    ) -> dict:
         tracer = get_tracer()
         with tracer.start_as_current_span("rag.query") as span:
             span.set_attribute("rag.question_length", len(question))
 
-            results = await self.retrieve(question, db, top_k, enforce_cutoff)
+            results = await self.retrieve(question, db, top_k, enforce_cutoff, strategy, similarity_threshold)
             span.set_attribute("rag.sources_found", len(results))
 
             if not results and enforce_cutoff:
@@ -290,7 +392,9 @@ class RAGEngine:
             ]
             answer = await self._llm.chat(messages, temperature=0.1)
 
-            grounding_score = round(sum(s for _, s, _, _ in results) / len(results), 3) if results else None
+            grounding_score = await self._compute_faithfulness(
+                answer, [text for text, _, _, _ in results]
+            )
 
             return {
                 "answer": answer,

@@ -81,6 +81,15 @@ export const ragApi = {
     body: { question: string; answer: string; vote: "up" | "down"; comment?: string | null }
   ) => api.post(`/rag/knowledge-bases/${kbId}/feedback`, body),
   getGraph: (kbId: string) => api.get(`/rag/knowledge-bases/${kbId}/graph`),
+  connectSemantic: (
+    kbId: string,
+    body: { db_type?: string; host: string; port?: number; database: string; username: string; password?: string }
+  ) => api.post(`/rag/knowledge-bases/${kbId}/connect`, body),
+  getSchema: (kbId: string) => api.get(`/rag/knowledge-bases/${kbId}/schema`),
+  updateSettings: (
+    kbId: string,
+    body: { retrieval_strategy?: string; retrieval_top_k?: number; retrieval_threshold?: number }
+  ) => api.patch(`/rag/knowledge-bases/${kbId}/settings`, body),
 };
 
 export const simulationApi = {
