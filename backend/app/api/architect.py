@@ -57,6 +57,24 @@ def _get_architect_llm(timeout: float | None = None):
     return AzureOpenAI(**kwargs), settings.azure_openai_deployment_gpt4o, "max_completion_tokens", True
 
 
+def _create_chat_completion(client, **kwargs):
+    """client.chat.completions.create(**kwargs), retrying once without
+    `temperature` if the model rejects a non-default value -- reasoning
+    models (e.g. gpt-5-mini) only support the default temperature=1 and
+    return a 400 for any other value. Mirrors the same fallback already in
+    AzureOpenAIClient.chat() (app/core/azure_openai.py), reimplemented here
+    since Architect's endpoints call the raw sync OpenAI/AzureOpenAI client
+    from _get_architect_llm() instead of going through that wrapper."""
+    try:
+        return client.chat.completions.create(**kwargs)
+    except Exception as exc:
+        err = str(exc)
+        if "temperature" in kwargs and "temperature" in err and "unsupported" in err.lower():
+            kwargs = {k: v for k, v in kwargs.items() if k != "temperature"}
+            return client.chat.completions.create(**kwargs)
+        raise
+
+
 def _strip_json_fences(raw: str) -> str:
     """Local models asked for JSON in plain "text" mode (no response_format
     enforcement) sometimes wrap it in markdown code fences or add a stray
@@ -2981,7 +2999,8 @@ async def generate_ui(req: GenerateUIRequest):
             }) as _kb_span:
                 try:
                     kb_response = await asyncio.to_thread(
-                        client.chat.completions.create,
+                        _create_chat_completion,
+                        client,
                         model=_llm_model,
                         messages=[{"role": "user", "content": kb_extraction_prompt}],
                         temperature=0.1,
@@ -3161,7 +3180,8 @@ Incorporate ALL of the above changes while keeping everything else from the orig
         ]
         try:
             dash_resp = await asyncio.to_thread(
-                client.chat.completions.create,
+                _create_chat_completion,
+                client,
                 model=_llm_model,
                 messages=dash_extraction_messages,
                 temperature=0.1,
@@ -3347,7 +3367,8 @@ Incorporate ALL of the above changes while keeping everything else from the orig
         }) as _ui_span:
             try:
                 response = await asyncio.to_thread(
-                    client.chat.completions.create,
+                    _create_chat_completion,
+                    client,
                     model=_llm_model,
                     messages=_send_messages_ui,
                     temperature=0.2,
@@ -6673,7 +6694,8 @@ async def _review_and_fix_generated_code(
             await asyncio.sleep(2)
         try:
             response = await asyncio.to_thread(
-                client.chat.completions.create,
+                _create_chat_completion,
+                client,
                 model=llm_model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
@@ -6991,7 +7013,8 @@ Rules:
 """
     try:
         response = await asyncio.to_thread(
-            client.chat.completions.create,
+            _create_chat_completion,
+            client,
             model=llm_model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
@@ -7063,7 +7086,8 @@ async def score_plan(req: ScorerRequest):
     }) as _score_span:
         try:
             _score_resp = await asyncio.to_thread(
-                _score_client.chat.completions.create,
+                _create_chat_completion,
+                _score_client,
                 model=_score_model,
                 messages=[{"role": "user", "content": scoring_prompt}],
                 temperature=0.3,
@@ -7303,7 +7327,8 @@ RATE LIMITING REQUIRED:
                 )
             try:
                 fe_response = await asyncio.to_thread(
-                    client.chat.completions.create,
+                    _create_chat_completion,
+                    client,
                     model=_llm_model,
                     messages=[{"role": "user", "content": frontend_prompt}],
                     temperature=0.2,
@@ -7341,7 +7366,8 @@ RATE LIMITING REQUIRED:
             )
             try:
                 be_response = await asyncio.to_thread(
-                    client.chat.completions.create,
+                    _create_chat_completion,
+                    client,
                     model=_llm_model,
                     messages=[{"role": "user", "content": backend_prompt}],
                     temperature=0.2,
@@ -7559,7 +7585,8 @@ SANDBOX HTML:
 """
 
     response = await asyncio.to_thread(
-        client.chat.completions.create,
+        _create_chat_completion,
+        client,
         model=_llm_model,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.1,
@@ -7630,7 +7657,8 @@ async def architect_chat(req: ArchitectChatRequest):
     _use_schema = _architect_provider() == "lmstudio" and not _already_asked_questions
 
     response = await asyncio.to_thread(
-        client.chat.completions.create,
+        _create_chat_completion,
+        client,
         model=_llm_model,
         messages=conversation,
         temperature=0.7,
