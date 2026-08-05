@@ -7411,7 +7411,7 @@ RATE LIMITING REQUIRED:
         # ── Pass 1: Frontend ────────────────────────────────────────────────
         with _tracer.start_as_current_span("architect.generate_frontend") as fe_span:
             fe_span.set_attribute("llm.model", _llm_model)
-            fe_span.set_attribute("llm.max_tokens", 14000)
+            fe_span.set_attribute("llm.max_tokens", 32000)
             if req.sandbox_html:
                 # Ground the Agentic Code frontend in the EXACT sandbox HTML
                 # already shown to the user (same one RAG Template Code and
@@ -7452,7 +7452,7 @@ RATE LIMITING REQUIRED:
                     messages=[{"role": "user", "content": frontend_prompt}],
                     temperature=0.2,
                     **({"response_format": {"type": "json_object"}} if _supports_json else {}),
-                    **{_tok_kwarg: 14000},
+                    **{_tok_kwarg: 32000},
                 )
                 fe_data = json.loads(_strip_json_fences(fe_response.choices[0].message.content or "{}"))
                 # Normalize whitespace-mangled paths (e.g. " .env.example" vs
@@ -7461,6 +7461,19 @@ RATE LIMITING REQUIRED:
                 fe_files = {path.strip(): content for path, content in fe_data.get("files", {}).items()}
                 all_files.update(fe_files)
                 fe_span.set_attribute("frontend.file_count", len(fe_files))
+                if not fe_files:
+                    # A reasoning model can burn its whole token budget on hidden
+                    # reasoning and return "{}" -- valid JSON, zero files, no
+                    # exception raised anywhere in the try block above. Without
+                    # this, that case looked identical to a real success (HTTP
+                    # 200, a plausible-looking file_count from later scaffold
+                    # steps) while shipping a project with no actual app code.
+                    logger.warning("architect generate-project: frontend pass returned 0 files (model=%s)", _llm_model)
+                    all_files["frontend/README.md"] = (
+                        "# Frontend generation returned no files\n"
+                        f"Model {_llm_model} returned an empty file set for this pass "
+                        "(likely a token-budget/reasoning-output issue). Re-run generation."
+                    )
             except Exception as e:
                 fe_span.record_exception(e)
                 fe_span.set_status(trace_status("ERROR", str(e)))
@@ -7475,7 +7488,7 @@ RATE LIMITING REQUIRED:
             # emitted yet while still closing valid JSON (see
             # _generate_missing_backend_modules for the deterministic
             # follow-up fix that catches whatever this bump doesn't).
-            be_span.set_attribute("llm.max_tokens", 16000)
+            be_span.set_attribute("llm.max_tokens", 32000)
             backend_prompt = (
                 PROJECT_BACKEND_PROMPT
                 .replace("{description}", description)
@@ -7491,7 +7504,7 @@ RATE LIMITING REQUIRED:
                     messages=[{"role": "user", "content": backend_prompt}],
                     temperature=0.2,
                     **({"response_format": {"type": "json_object"}} if _supports_json else {}),
-                    **{_tok_kwarg: 16000},
+                    **{_tok_kwarg: 32000},
                 )
                 be_data = json.loads(_strip_json_fences(be_response.choices[0].message.content or "{}"))
                 # Normalize whitespace-mangled paths, same as the frontend
@@ -7501,6 +7514,16 @@ RATE LIMITING REQUIRED:
                 be_files = {path.strip(): content for path, content in be_data.get("files", {}).items()}
                 all_files.update(be_files)
                 be_span.set_attribute("backend.file_count", len(be_files))
+                if not be_files:
+                    # Same silent-empty-pass failure mode as the frontend pass
+                    # above -- see that comment for why this can't be caught
+                    # by the except block.
+                    logger.warning("architect generate-project: backend pass returned 0 files (model=%s)", _llm_model)
+                    all_files["backend/README.md"] = (
+                        "# Backend generation returned no files\n"
+                        f"Model {_llm_model} returned an empty file set for this pass "
+                        "(likely a token-budget/reasoning-output issue). Re-run generation."
+                    )
             except Exception as e:
                 be_span.record_exception(e)
                 be_span.set_status(trace_status("ERROR", str(e)))
