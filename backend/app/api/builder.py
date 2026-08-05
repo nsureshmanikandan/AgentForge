@@ -736,6 +736,31 @@ async def save_workflow(body: WorkflowSaveRequest, db: AsyncSession = Depends(ge
     return {"workflow_id": workflow_id}
 
 
+@router.put("/workflows/{workflow_id}")
+async def update_workflow(workflow_id: str, body: WorkflowSaveRequest, db: AsyncSession = Depends(get_db)):
+    """Update an already-saved workflow's name/nodes/edges in place.
+
+    Without this, every Save or Run of an already-saved workflow had no way
+    to do anything but POST /workflows again, which always mints a brand new
+    UUID row -- confirmed live: re-running the same saved workflow repeatedly
+    piled up duplicate "Workflow <timestamp>" entries in the saved list
+    instead of updating the one that was already there.
+    """
+    result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
+    wf = result.scalar_one_or_none()
+    if not wf:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    wf.name = body.name
+    wf.nodes = body.nodes
+    wf.edges = body.edges
+    await db.commit()
+    await db.refresh(wf)
+
+    _workflows[workflow_id] = _wf_to_dict(wf)
+    return {"workflow_id": workflow_id}
+
+
 @router.get("/workflows")
 async def list_workflows(db: AsyncSession = Depends(get_db)):
     """Return all saved workflows."""

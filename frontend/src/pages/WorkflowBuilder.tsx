@@ -80,6 +80,14 @@ export default function WorkflowBuilder() {
   const [canvasKey, setCanvasKey] = useState(0);
   const [loadedNodes, setLoadedNodes] = useState<Node[] | undefined>(undefined);
   const [loadedEdges, setLoadedEdges] = useState<Edge[] | undefined>(undefined);
+  // Tracks the identity of whatever saved workflow is currently on the
+  // canvas (from Load, a ?workflowId= link, or a just-completed Save/Run) --
+  // null means "not yet saved anywhere". Save and Run both use this to
+  // UPDATE that same row instead of always minting a new one, which
+  // previously piled up duplicate "Workflow <timestamp>" entries every time
+  // an already-saved workflow was re-run or re-saved.
+  const [currentWorkflowId, setCurrentWorkflowId] = useState<string | null>(null);
+  const [currentWorkflowName, setCurrentWorkflowName] = useState<string | null>(null);
   const workflowRef = useRef<{ nodes: Node[]; edges: Edge[] } | null>(null);
   const ideaRequestIdRef = useRef(0);
   // True once the user has typed into the Run modal's textarea themselves --
@@ -167,9 +175,11 @@ export default function WorkflowBuilder() {
     axios
       .get(`${API_BASE}/builder/workflows/${workflowId}`)
       .then((res) => {
-        const data = res.data as { nodes: Node[]; edges: Edge[] };
+        const data = res.data as { name: string; nodes: Node[]; edges: Edge[] };
         setLoadedNodes(normalizeToRoleNodes(data.nodes));
         setLoadedEdges(data.edges);
+        setCurrentWorkflowId(workflowId);
+        setCurrentWorkflowName(data.name);
         setCanvasKey((k) => k + 1);
         setLastLoadedTemplate(null);
         showToast("Loaded workflow from approval link.");
@@ -291,17 +301,33 @@ export default function WorkflowBuilder() {
     if (token) headers["Authorization"] = `Bearer ${token}`;
 
     try {
-      // Save workflow first
-      const saveRes = await fetch(`${API_BASE}/builder/workflows`, {
-        method: "POST", headers,
-        body: JSON.stringify({
-          name: "Workflow " + new Date().toLocaleTimeString(),
-          nodes: workflowRef.current.nodes,
-          edges: workflowRef.current.edges,
-        }),
-      });
+      // Save workflow first (needed so trigger-stream has a workflow_id to
+      // execute against). If this canvas is already a saved workflow, UPDATE
+      // that same row instead of minting a new "Workflow <timestamp>" row on
+      // every single Run -- confirmed live: re-running an already-saved
+      // workflow repeatedly piled up duplicate entries in the saved list.
+      const runSaveName = currentWorkflowName ?? "Workflow " + new Date().toLocaleTimeString();
+      const saveRes = await fetch(
+        currentWorkflowId ? `${API_BASE}/builder/workflows/${currentWorkflowId}` : `${API_BASE}/builder/workflows`,
+        {
+          method: currentWorkflowId ? "PUT" : "POST",
+          headers,
+          body: JSON.stringify({
+            name: runSaveName,
+            nodes: workflowRef.current.nodes,
+            edges: workflowRef.current.edges,
+          }),
+        }
+      );
       if (!saveRes.ok) throw new Error("Failed to save workflow");
       const { workflow_id } = await saveRes.json() as { workflow_id: string };
+      // First-ever Run on a never-saved canvas auto-creates one entry --
+      // remember it so a second Run updates that same entry instead of
+      // creating yet another one.
+      if (!currentWorkflowId) {
+        setCurrentWorkflowId(workflow_id);
+        setCurrentWorkflowName(runSaveName);
+      }
 
       // Reset all nodes to idle before starting
       workflowRef.current.nodes.forEach((n) => {
@@ -746,24 +772,36 @@ if __name__ == "__main__":
 
   const handleSave = () => {
     if (!workflowRef.current) return;
-    setSaveNameInput(lastLoadedTemplate?.name ?? "");
+    setSaveNameInput(currentWorkflowName ?? lastLoadedTemplate?.name ?? "");
     setShowSaveModal(true);
   };
 
   const confirmSaveWorkflow = async () => {
     if (!workflowRef.current || !saveNameInput.trim() || saving) return;
     setSaving(true);
+    const trimmedName = saveNameInput.trim();
+    // Keeping the same name as whatever's already loaded means "save this
+    // workflow again" -- update it in place. Changing the name is treated as
+    // "Save As": a deliberate fork, so it creates a new row (and that new
+    // row becomes the current one going forward).
+    const isUpdate = !!currentWorkflowId && trimmedName === currentWorkflowName;
     try {
-      const res = await fetch(`${API_BASE}/builder/workflows`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: saveNameInput.trim(),
-          nodes: workflowRef.current.nodes,
-          edges: workflowRef.current.edges,
-        }),
-      });
+      const res = await fetch(
+        isUpdate ? `${API_BASE}/builder/workflows/${currentWorkflowId}` : `${API_BASE}/builder/workflows`,
+        {
+          method: isUpdate ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: trimmedName,
+            nodes: workflowRef.current.nodes,
+            edges: workflowRef.current.edges,
+          }),
+        }
+      );
       if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+      const { workflow_id } = (await res.json()) as { workflow_id: string };
+      setCurrentWorkflowId(workflow_id);
+      setCurrentWorkflowName(trimmedName);
       setShowSaveModal(false);
       showToast(`Saved: ${saveNameInput.trim()}`);
     } catch {
@@ -817,6 +855,8 @@ if __name__ == "__main__":
         if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error("invalid shape");
         setLoadedNodes(nodes);
         setLoadedEdges(edges);
+        setCurrentWorkflowId(null);
+        setCurrentWorkflowName(null);
         setCanvasKey((k) => k + 1);
         setLastLoadedTemplate(null);
         showToast(`Imported "${file.name}"!`);
@@ -844,6 +884,8 @@ if __name__ == "__main__":
       const { nodes, edges } = res.data as { nodes: Node[]; edges: Edge[] };
       setLoadedNodes(nodes);
       setLoadedEdges(edges);
+      setCurrentWorkflowId(null);
+      setCurrentWorkflowName(null);
       setCanvasKey((k) => k + 1);
       setLastLoadedTemplate(null);
       setShowAutoBuild(false);
@@ -891,6 +933,8 @@ if __name__ == "__main__":
   const handleSelectSavedWorkflow = (wf: SavedWorkflow) => {
     setLoadedNodes(normalizeToRoleNodes(wf.nodes));
     setLoadedEdges(wf.edges);
+    setCurrentWorkflowId(wf.id);
+    setCurrentWorkflowName(wf.name);
     setCanvasKey((k) => k + 1);
     setShowLoadPicker(false);
     setSelectedNode(null);
@@ -903,6 +947,8 @@ if __name__ == "__main__":
   const handleLoadTemplate = (tpl: WorkflowTemplate) => {
     setLoadedNodes(tpl.nodes);
     setLoadedEdges(tpl.edges);
+    setCurrentWorkflowId(null);
+    setCurrentWorkflowName(null);
     setCanvasKey((k) => k + 1);
     setShowTemplates(false);
     setLastLoadedTemplate(tpl);
