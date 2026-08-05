@@ -1,5 +1,27 @@
 import pytest
-from app.core.guardrails import GuardrailsEngine
+from app.core.guardrails import GuardrailsEngine, GLOBAL_SAFETY_RULES, is_rule_enabled
+
+
+@pytest.fixture
+def restore_global_rules():
+    """GLOBAL_SAFETY_RULES is shared, mutable module state (the same dict
+    api/safety.py's endpoints mutate) -- any test that toggles a rule must
+    restore it, or it leaks into every other test/request that runs after."""
+    snapshot = {rule_id: dict(rule) for rule_id, rule in GLOBAL_SAFETY_RULES.items()}
+    yield
+    for rule_id, rule in snapshot.items():
+        GLOBAL_SAFETY_RULES[rule_id].update(rule)
+
+
+def test_is_rule_enabled_reflects_toggle(restore_global_rules):
+    assert is_rule_enabled("pii-detection") is True
+    GLOBAL_SAFETY_RULES["pii-detection"]["enabled"] = False
+    assert is_rule_enabled("pii-detection") is False
+
+
+def test_is_rule_enabled_fails_open_for_unknown_rule():
+    assert is_rule_enabled("not-a-real-rule") is True
+
 
 @pytest.mark.asyncio
 async def test_pii_email_redacted():

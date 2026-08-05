@@ -1,7 +1,7 @@
 ﻿import json
 import time
 from app.core.azure_openai import AzureOpenAIClient
-from app.core.guardrails import GuardrailsEngine
+from app.core.guardrails import GuardrailsEngine, is_rule_enabled
 from app.core.telemetry import get_tracer
 from app.config import settings
 
@@ -24,9 +24,17 @@ class AgentOrchestrator:
         provider_override = provider_map.get(model_choice, "azure")
         self._llm = AzureOpenAIClient(provider=provider_override)
         guardrail_cfg = agent_config.get("guardrails", {})
+        # Org-wide Safety & Guardrails toggles act as a ceiling, not a
+        # default: an agent can only be *more* restrictive than the org
+        # policy, never override an org-disabled rule back on. A fresh
+        # AgentOrchestrator is constructed on every /run call, so this reads
+        # the current global toggle value on every request -- no caching to
+        # go stale.
+        self._pii_enabled = guardrail_cfg.get("pii", True) and is_rule_enabled("pii-detection")
+        self._hallucination_enabled = guardrail_cfg.get("hallucination", True) and is_rule_enabled("hallucination-check")
         self._guardrails = GuardrailsEngine(
-            pii_enabled=guardrail_cfg.get("pii", True),
-            hallucination_enabled=guardrail_cfg.get("hallucination", True),
+            pii_enabled=self._pii_enabled,
+            hallucination_enabled=self._hallucination_enabled,
         )
 
     async def run(self, user_input: str, chat_history: list[dict] | None = None) -> dict:
@@ -49,15 +57,14 @@ class AgentOrchestrator:
             if kb_id and self.db is not None:
                 from app.core.rag_engine import RAGEngine
 
-                hallucination_enabled = self.config.get("guardrails", {}).get("hallucination", True)
                 engine = RAGEngine(kb_id=kb_id)
-                kb_result = await engine.retrieve(safe_input, self.db, enforce_cutoff=hallucination_enabled)
+                kb_result = await engine.retrieve(safe_input, self.db, enforce_cutoff=self._hallucination_enabled)
                 kb_sources = [text for text, _, _, _ in kb_result]   # unpack tuples → plain strings
                 span.set_attribute("agent.kb_sources_found", len(kb_sources))
                 if kb_sources:
                     context = "\n\n".join(kb_sources)
                     system_prompt = f"{system_prompt}\n\nUse the following retrieved document context to answer:\n{context}"
-                elif hallucination_enabled:
+                elif self._hallucination_enabled:
                     # No chunk cleared the similarity cutoff -- ground the
                     # response in an honest "don't know" instead of letting
                     # the LLM answer ungrounded (matches RAGEngine.query()'s
