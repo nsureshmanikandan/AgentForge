@@ -407,6 +407,9 @@ function Sidebar() {
         <NavLink to="/knowledge-bases" className={linkClass} title={collapsed ? "Knowledge Bases" : undefined}>
           <IconDatabase />{!collapsed && "Knowledge Bases"}
         </NavLink>
+        <NavLink to="/builder" className={linkClass} title={collapsed ? "Visual Builder" : undefined}>
+          <IconWrench />{!collapsed && "Visual Builder"}
+        </NavLink>
 
         {/* PROJECTS */}
         {!collapsed && <p className="text-xs font-semibold text-gray-400 px-3 pt-4 pb-2 uppercase tracking-wider">Projects</p>}
@@ -433,13 +436,16 @@ function Sidebar() {
         <NavLink to="/workflow-runs" className={linkClass} title={collapsed ? "Workflow Observability" : undefined}>
           <IconChart />{!collapsed && "Workflow Observability"}
         </NavLink>
+        <NavLink to="/safety" className={linkClass} title={collapsed ? "Safety & Guardrails" : undefined}>
+          <IconShield />{!collapsed && "Safety & Guardrails"}
+        </NavLink>
+        <NavLink to="/evaluations" className={linkClass} title={collapsed ? "Evaluations" : undefined}>
+          <IconClipboard />{!collapsed && "Evaluations"}
+        </NavLink>
 
         {/* GET STARTED */}
         {!collapsed && <p className="text-xs font-semibold text-gray-400 px-3 pt-4 pb-2 uppercase tracking-wider">Get Started</p>}
         {collapsed && <div className="pt-3" />}
-        <NavLink to="/builder" className={linkClass} title={collapsed ? "Visual Builder" : undefined}>
-          <IconWrench />{!collapsed && "Visual Builder"}
-        </NavLink>
         <NavLink to="/marketplace" className={linkClass} title={collapsed ? "Marketplace" : undefined}>
           <IconStore />{!collapsed && "Marketplace"}
         </NavLink>
@@ -455,12 +461,6 @@ function Sidebar() {
         </NavLink>
         <NavLink to="/api-keys" className={linkClass} title={collapsed ? "API Keys" : undefined}>
           <IconKey />{!collapsed && "API Keys"}
-        </NavLink>
-        <NavLink to="/safety" className={linkClass} title={collapsed ? "Safety & Guardrails" : undefined}>
-          <IconShield />{!collapsed && "Safety & Guardrails"}
-        </NavLink>
-        <NavLink to="/evaluations" className={linkClass} title={collapsed ? "Evaluations" : undefined}>
-          <IconClipboard />{!collapsed && "Evaluations"}
         </NavLink>
         <NavLink to="/voice" className={linkClass} title={collapsed ? "Voice Agents" : undefined}>
           <IconMic />{!collapsed && "Voice Agents"}
