@@ -284,16 +284,20 @@ async def _extract_variables(text: str, client: AzureOpenAIClient, rule: str = "
 
 
 ROLE_COLORS: dict[str, dict] = {
-    "input":      {"bg": "#1e3a5f", "border": "#3b82f6", "text": "#93c5fd"},
-    "classifier": {"bg": "#3b1f5e", "border": "#8b5cf6", "text": "#c4b5fd"},
-    "router":     {"bg": "#1e3a5f", "border": "#06b6d4", "text": "#67e8f9"},
-    "responder":  {"bg": "#14532d", "border": "#22c55e", "text": "#86efac"},
-    "guard":      {"bg": "#7f1d1d", "border": "#ef4444", "text": "#fca5a5"},
-    "rag":        {"bg": "#1c1917", "border": "#f59e0b", "text": "#fcd34d"},
-    "output":     {"bg": "#14532d", "border": "#166534", "text": "#86efac"},
+    "input":        {"bg": "#1e3a5f", "border": "#3b82f6", "text": "#93c5fd"},
+    "classifier":   {"bg": "#3b1f5e", "border": "#8b5cf6", "text": "#c4b5fd"},
+    "router":       {"bg": "#1e3a5f", "border": "#06b6d4", "text": "#67e8f9"},
+    "responder":    {"bg": "#14532d", "border": "#22c55e", "text": "#86efac"},
+    "guard":        {"bg": "#7f1d1d", "border": "#ef4444", "text": "#fca5a5"},
+    "rag":          {"bg": "#1c1917", "border": "#f59e0b", "text": "#fcd34d"},
+    "output":       {"bg": "#14532d", "border": "#166534", "text": "#86efac"},
+    "agent":        {"bg": "#1e1b4b", "border": "#7c3aed", "text": "#c4b5fd"},
+    "condition":    {"bg": "#1e293b", "border": "#0ea5e9", "text": "#7dd3fc"},
+    "approval":     {"bg": "#7c2d12", "border": "#f97316", "text": "#fdba74"},
+    "http_request": {"bg": "#164e63", "border": "#06b6d4", "text": "#67e8f9"},
 }
 
-AUTO_BUILD_SYSTEM = """You are an AI workflow architect. Given a pipeline description, decompose it into a visual workflow of agents.
+AUTO_BUILD_SYSTEM = """You are an AI workflow architect. Given a pipeline description, decompose it into a visual workflow graph.
 
 Return ONLY valid JSON with this exact structure:
 {
@@ -301,23 +305,38 @@ Return ONLY valid JSON with this exact structure:
   "nodes": [
     {
       "id": "node_1",
-      "role": "one of: input | classifier | router | responder | guard | rag | output",
+      "role": "one of: input | agent | condition | approval | http_request | output | classifier | router | responder | guard | rag",
       "label": "short display name",
       "description": "one sentence what this node does",
       "x": 80,
-      "y": 200
+      "y": 200,
+      "rule": "ONLY for role=condition: a short boolean Python expression over plain variable names that would plausibly be extractable from the previous node's output, e.g. 'risk_score >= 70'. Omit this field for every other role.",
+      "approver_email": "ONLY for role=approval: a placeholder approver address, e.g. 'manager@company.com'. Omit this field for every other role.",
+      "method": "ONLY for role=http_request: GET, POST, PUT, PATCH, or DELETE. Omit this field for every other role.",
+      "url": "ONLY for role=http_request: the endpoint URL. You may use the literal text {{input}} anywhere you want the previous node's output substituted in. Omit this field for every other role.",
+      "headers": "ONLY for role=http_request, optional: a JSON object as a string, e.g. '{\\"Authorization\\": \\"Bearer sk-...\\"}'. Omit for every other role.",
+      "body": "ONLY for role=http_request, optional: a JSON object or raw text as a string, may contain {{input}}. Omit for every other role."
     }
   ],
   "edges": [
-    {"from": "node_1", "to": "node_2"}
+    {"from": "node_1", "to": "node_2", "label": "ONLY when the source node is role=condition or role=router: the exact branch label ('true'/'false' for condition; a short descriptive label like 'Critical'/'Routine' for router). Omit this field for every other edge."}
   ]
 }
 
+ROLE GUIDE -- pick deliberately, don't default everything to the same role:
+- input / output: always exactly the first and last node
+- agent: a named AI worker that analyzes or transforms the previous node's output (e.g. "Fraud Risk Analyst", "Compliance Recommendation Agent"). PREFER this role for any step that represents a distinct piece of AI reasoning -- naming these like real job roles is what makes a pipeline read as a genuine multi-agent workflow rather than a single anonymous pipeline
+- condition: a two-way branch evaluated against the "rule" field above. MUST have exactly two outgoing edges, labeled exactly "true" and "false"
+- router: a branch with more than two options, or options that aren't a clean boolean -- use descriptive edge labels instead of a rule
+- approval: PAUSES the entire pipeline and waits for a real human to approve or reject via email before continuing. Use this whenever the description mentions human review, sign-off, manager approval, or "human in the loop" -- do NOT substitute "guard" for this, guard does not actually pause anything
+- http_request: makes a REAL outbound HTTP call to an external API/system and feeds the response to the next node. Use this whenever the description mentions calling, checking, or verifying against an external service or API -- do NOT substitute "rag" for this, rag does not actually make a network call
+- classifier / router / responder / guard / rag: older, narrower roles, still valid for simple pipelines, but prefer agent/condition/approval/http_request above whenever the description calls for those specific behaviors
+
 Rules:
 - Always start with an "input" role node and end with an "output" role node
-- Use 3-6 nodes total
-- Space nodes horizontally: x values 80, 280, 480, 680, 880. y=200 for main path, branch nodes at y=100 or y=300
-- For branching (router splits), use different y values for branches
+- Use 3-7 nodes total
+- Space nodes horizontally: x values 80, 280, 480, 680, 880, 1080. y=200 for main path, branch nodes at y=100 or y=300
+- Only include the extra per-role fields (rule/approver_email/method/url/headers/body) on the node whose role actually needs them -- never on any other node
 - Return ONLY JSON. No markdown, no explanation."""
 
 
@@ -569,15 +588,24 @@ async def auto_build_workflow(body: AutoBuildRequest):
     for n in gpt_nodes:
         role = n.get("role", "agent")
         colors = ROLE_COLORS.get(role, {"bg": "#1e1b4b", "border": "#7c3aed", "text": "#c4b5fd"})
+        node_data = {
+            "label": n.get("label", role),
+            "role": role,
+            "description": n.get("description", ""),
+        }
+        # condition/approval/http_request nodes are useless without their
+        # config -- the execution engine reads these fields directly off
+        # `data` (see _run_pipeline_from / _call_http_request). Without this,
+        # Auto-Build could label a node "http_request" but it would have no
+        # URL to call, forcing a manual re-entry of every field afterward.
+        for field in ("rule", "approver_email", "method", "url", "headers", "body"):
+            if n.get(field):
+                node_data[field] = n[field]
         rf_nodes.append({
             "id": n["id"],
             "type": "roleNode",
             "position": {"x": n.get("x", 80), "y": n.get("y", 200)},
-            "data": {
-                "label": n.get("label", role),
-                "role": role,
-                "description": n.get("description", ""),
-            },
+            "data": node_data,
             "style": {
                 "background": colors["bg"],
                 "border": f"1px solid {colors['border']}",
@@ -587,14 +615,21 @@ async def auto_build_workflow(body: AutoBuildRequest):
 
     rf_edges = []
     for i, e in enumerate(gpt_edges):
-        rf_edges.append({
+        edge = {
             "id": f"e-{i}",
             "source": e.get("from", ""),
             "target": e.get("to", ""),
             "animated": True,
             "style": {"stroke": "#7c3aed", "strokeWidth": 2.5},
             "markerEnd": {"type": "arrowclosed", "color": "#7c3aed", "width": 20, "height": 20},
-        })
+        }
+        # condition/router nodes pick which outgoing edge to follow by exact
+        # label match (see _run_pipeline_from) -- without passing this
+        # through, a branching node from Auto-Build would have no way to
+        # determine which path to take at execution time.
+        if e.get("label"):
+            edge["label"] = e["label"]
+        rf_edges.append(edge)
 
     return {"nodes": rf_nodes, "edges": rf_edges, "name": data.get("name", body.name)}
 
