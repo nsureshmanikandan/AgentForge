@@ -19,6 +19,17 @@ router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 # v2: AI-generated test cases + real agent invocation + LLM judge
 
+
+def parse_judge_verdict(judge_reply: str) -> bool:
+    """True only if the judge's reply ends with an explicit 'VERDICT: PASS'
+    line. Falls back to a bare PASS/FAIL substring check for a reply that
+    skipped the marker, so a judge that ignores the format instruction
+    doesn't silently fail every case."""
+    match = re.search(r"VERDICT:\s*(PASS|FAIL)", judge_reply, re.IGNORECASE)
+    if match:
+        return match.group(1).upper() == "PASS"
+    return "PASS" in judge_reply.upper()
+
 async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)) -> User:
     try:
         payload = decode_token(token)
@@ -329,27 +340,44 @@ async def create_eval_run(
         else:
             actual = "[Agent not found in database — cannot run]"
 
-        # LLM-as-judge: semantic pass/fail comparison
+        # LLM-as-judge: semantic pass/fail comparison.
+        #
+        # Forcing an immediate one-word answer ("respond with ONLY PASS or
+        # FAIL") starved a reasoning model of any room to actually reason,
+        # producing a worse snap judgment -- confirmed live: the same
+        # expected/actual pair, judged 5x at temperature=1 with
+        # max_tokens=5, came back FAIL/FAIL/FAIL/PASS/'' (empty -- reasoning
+        # tokens alone exhausted the tiny budget, and the current code
+        # treats an empty verdict as FAIL). Judged again with room to
+        # explain first (temperature=0, higher token budget), the SAME
+        # model correctly said PASS with sound reasoning every time. So the
+        # fix isn't just determinism (temperature=0 alone still judges
+        # cold-take-only) -- it's giving the judge a sentence of reasoning
+        # before it commits to a verdict, then parsing a clearly marked
+        # verdict line out of that explanation instead of the whole reply.
         ok = False
         if actual and not actual.startswith("["):
             try:
                 verdict = await llm.chat(
                     [
-                        {"role": "system", "content": "You are a strict QA evaluator. Respond with ONLY the single word PASS or FAIL, nothing else."},
+                        {"role": "system", "content": "You are a QA evaluator judging whether an agent's actual response covers the same intent and guidance as an expected reference response."},
                         {
                             "role": "user",
                             "content": (
                                 f"Expected response:\n{expected}\n\n"
                                 f"Actual response:\n{actual}\n\n"
                                 "Does the actual response address the same intent, key facts, and guidance as the expected response? "
-                                "Minor wording differences are fine. PASS if semantically equivalent, FAIL if it misses key points or is incorrect."
+                                "The actual response may be longer, more detailed, or differently formatted than the expected one -- "
+                                "that alone is not a failure. Judge only whether it covers the same substance. "
+                                "In 1-2 sentences, explain your reasoning. Then end your reply with a final line reading "
+                                "exactly 'VERDICT: PASS' or 'VERDICT: FAIL'."
                             ),
                         },
                     ],
-                    temperature=1,
-                    max_tokens=5,
+                    temperature=0,
+                    max_tokens=300,
                 )
-                ok = "PASS" in verdict.upper()
+                ok = parse_judge_verdict(verdict)
             except Exception:
                 ok = bool(actual.strip())
 
