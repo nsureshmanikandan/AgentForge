@@ -5007,7 +5007,7 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
           </div>
           <p className="text-center text-[11px] text-gray-400 mt-2">{Math.round((step / 4) * 100)}% complete</p>
         </div>
-        <p className="text-xs text-gray-400 mt-1">This takes ~15–30 seconds…</p>
+        <p className="text-xs text-gray-400 mt-1">This takes 15–90 seconds, depending on how many pages the app needs…</p>
       </div>
     );
   }
@@ -5196,7 +5196,7 @@ function AppTab({ plan, uiHtml, onGenerateUI, generatingUI, uiError, progressSte
         </svg>
         Launch UI Sandbox
       </button>
-      <p className="text-xs text-gray-400 mt-3">{plan.tech_stack.frontend} · Interactive mock preview · ~15–30s</p>
+      <p className="text-xs text-gray-400 mt-3">{plan.tech_stack.frontend} · Interactive mock preview · 15–90s</p>
     </div>
   );
 }
