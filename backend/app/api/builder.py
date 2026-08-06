@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.azure_openai import AzureOpenAIClient
 from app.core.email import send_email
+from app.api.builder_export import export_workflow
 from app.database import get_db, AsyncSessionLocal
 from app.models.workflow import Workflow, WorkflowRun
 from app.api.auth import get_current_user
@@ -67,6 +68,13 @@ class WorkflowRunLog(BaseModel):
     status: str  # "running" | "done" | "error"
     output: str
     duration_ms: int
+
+
+class ExportCodeRequest(BaseModel):
+    nodes: list[dict]
+    edges: list[dict]
+    workflow_name: str = "AgentForge Workflow"
+    framework: str = "langgraph"  # "langgraph" | "ms_agent_framework" | "crewai"
 
 
 class TriggerRequest(BaseModel):
@@ -713,6 +721,23 @@ async def suggest_input(body: SuggestInputRequest):
 
     raw = await client.chat(messages, temperature=0.5)
     return {"suggested_input": raw.strip()}
+
+
+@router.post("/export-code")
+async def export_workflow_code(body: ExportCodeRequest):
+    """
+    Translate the canvas's {nodes, edges} into a full downloadable project in
+    the chosen agent framework's real SDK (LangGraph / Microsoft Agent
+    Framework / CrewAI) -- see backend/app/api/builder_export.py and
+    docs/superpowers/specs/2026-07-26-multi-framework-agent-export-design.md.
+    Returns {files: {"path": "content"}}, same shape as Architect's Custom
+    Code Export, for the frontend to zip and download.
+    """
+    try:
+        files = export_workflow(body.nodes, body.edges, body.workflow_name, body.framework)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"files": files}
 
 
 @router.post("/workflows")

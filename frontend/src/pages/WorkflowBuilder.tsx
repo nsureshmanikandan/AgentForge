@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import axios from "axios";
+import JSZip from "jszip";
 import AgentCanvas from "../components/canvas/AgentCanvas";
 import AgentConfigPanel from "../components/agents/AgentConfigPanel";
 import type { Node, Edge } from "@xyflow/react";
@@ -152,6 +153,12 @@ export default function WorkflowBuilder() {
   const [savedWorkflows, setSavedWorkflows] = useState<SavedWorkflow[]>([]);
   const [loadSearch, setLoadSearch] = useState("");
   const [loadPickerError, setLoadPickerError] = useState<string | null>(null);
+
+  // Export Code: target agent framework (backend translates {nodes, edges}
+  // into a real, deployable project per framework -- see
+  // backend/app/api/builder_export.py)
+  const [exportFramework, setExportFramework] = useState<"langgraph" | "ms_agent_framework" | "crewai">("langgraph");
+  const [exporting, setExporting] = useState(false);
 
   // Auto-Build panel state
   const [showAutoBuild, setShowAutoBuild] = useState(false);
@@ -465,309 +472,39 @@ export default function WorkflowBuilder() {
     setSelectedNode((prev) => (prev === nodeId ? null : prev));
   }, []);
 
-  const handleExportCode = () => {
-    if (!workflowRef.current) return;
+  const handleExportCode = async () => {
+    if (!workflowRef.current || exporting) return;
     const { nodes, edges } = workflowRef.current;
-    const workflowName = "AgentForge Workflow";
-    const date = new Date().toISOString();
-    const py = (s: string) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    const safe = (id: string) => id.replace(/[^a-zA-Z0-9_]/g, "_");
+    setExporting(true);
+    try {
+      const res = await axios.post(`${API_BASE}/builder/export-code`, {
+        nodes,
+        edges,
+        workflow_name: currentWorkflowName ?? "AgentForge Workflow",
+        framework: exportFramework,
+      });
+      const files = (res.data as { files: Record<string, string> }).files ?? {};
 
-    const nodeList = nodes.map((n) => {
-      const d = n.data as Record<string, unknown>;
-      return `#   - ${String(d.label ?? n.id)} (id: ${n.id}, role: ${String(d.role ?? "agent")})`;
-    }).join("\n");
+      const zip = new JSZip();
+      for (const [path, content] of Object.entries(files)) {
+        zip.file(path, content);
+      }
+      const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `workflow-${exportFramework}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
 
-    // NODES/EDGES are exported as plain data so the engine below can walk the
-    // exact same graph shape the visual canvas ran, instead of guessing at
-    // control flow — this keeps branching/approval semantics faithful to the
-    // live pipeline (see backend/app/api/builder.py::_run_pipeline_from).
-    const nodesDict = nodes.map((n) => {
-      const d = n.data as Record<string, unknown>;
-      const rule = d.rule ? `"${py(String(d.rule))}"` : "None";
-      const approverEmail = d.approver_email ? `"${py(String(d.approver_email))}"` : "None";
-      const url = d.url ? `"${py(String(d.url))}"` : "None";
-      const method = d.method ? `"${py(String(d.method))}"` : "None";
-      const headers = d.headers ? `"${py(String(d.headers))}"` : "None";
-      const body = d.body ? `"${py(String(d.body))}"` : "None";
-      return `    "${n.id}": {"label": "${py(String(d.label ?? n.id))}", "role": "${py(String(d.role ?? "agent"))}", "rule": ${rule}, "approver_email": ${approverEmail}, "url": ${url}, "method": ${method}, "headers": ${headers}, "body": ${body}},`;
-    }).join("\n");
-
-    const edgesList = edges.map((e) => {
-      const label = e.label ? `"${py(String(e.label))}"` : "None";
-      return `    {"source": "${e.source}", "target": "${e.target}", "label": ${label}},`;
-    }).join("\n");
-
-    // Only agent/input/output/etc. nodes get a real function body to implement;
-    // condition/approval/http_request nodes are structural and handled by the engine itself.
-    const STRUCTURAL_ROLES = ["condition", "approval", "http_request"];
-    const workNodes = nodes.filter((n) => {
-      const role = String((n.data as Record<string, unknown>).role ?? "agent");
-      return !STRUCTURAL_ROLES.includes(role);
-    });
-
-    const systemPrompts = workNodes.map((n) => {
-      const d = n.data as Record<string, unknown>;
-      const label = String(d.label ?? n.id);
-      const role = String(d.role ?? "agent");
-      const description = String(d.description ?? "");
-      const prompt = `You are the "${label}" step (role: ${role}) in a workflow.${description ? ` ${description}` : ""} Process the input you're given and return your response as plain text.`;
-      return `    "${n.id}": "${py(prompt)}",`;
-    }).join("\n");
-
-    const nodeFunctions = workNodes.map((n) => {
-      const d = n.data as Record<string, unknown>;
-      const label = String(d.label ?? n.id);
-      const role = String(d.role ?? "agent");
-      const description = String(d.description ?? "");
-      return `async def node_${safe(n.id)}(input: str) -> str:\n    """${label} (role: ${role}). ${description}"""\n    return await call_llm(SYSTEM_PROMPTS["${n.id}"], input)`;
-    }).join("\n\n");
-
-    const nodeFuncMap = workNodes.map((n) => `    "${n.id}": node_${safe(n.id)},`).join("\n");
-
-    const code = `"""
-Auto-generated AgentForge workflow: ${workflowName}
-Generated: ${date}
-
-This mirrors the same graph the Visual Builder ran: NODES/EDGES describe the
-exact shape (including condition rules and approval gates), and run_pipeline()
-below walks them the same way backend/app/api/builder.py::_run_pipeline_from
-does — evaluating condition rules to pick a branch, and pausing at approval
-nodes instead of running every node unconditionally.
-
-Requires: pip install simpleeval httpx
-Optional (for real LLM calls instead of pass-through stubs): pip install openai
-                                                              set OPENAI_API_KEY=sk-...
-
-Run it with:
-    python workflow.py "your test input text here"                 # stub nodes (free, offline)
-    python workflow.py "your test input text here" --openai        # real LLM calls (needs OPENAI_API_KEY)
-(falls back to a generic sample input if you don't pass any text)
-"""
-import asyncio
-import re
-import sys
-import httpx
-from simpleeval import simple_eval
-
-USE_OPENAI = "--openai" in sys.argv
-_openai_client = None
-if USE_OPENAI:
-    from openai import AsyncOpenAI
-    _openai_client = AsyncOpenAI()  # reads OPENAI_API_KEY from the environment
-
-
-async def call_llm(system_prompt: str, input: str) -> str:
-    """Runs a node's step through a real LLM when --openai is passed and
-    OPENAI_API_KEY is set; otherwise returns the input unchanged (free,
-    offline stub — same default behavior as before this flag existed)."""
-    if not USE_OPENAI or _openai_client is None:
-        return input
-    response = await _openai_client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": input},
-        ],
-        temperature=0.3,
-    )
-    return response.choices[0].message.content or input
-
-
-# Workflow nodes:
-${nodeList}
-
-NODES = {
-${nodesDict}
-}
-
-SYSTEM_PROMPTS = {
-${systemPrompts}
-}
-
-# Canvas creation order — only used as a cycle-fallback / tiebreaker; actual
-# execution order comes from _topo_sort(), same as the live engine.
-CANVAS_ORDER = [${nodes.map((n) => `"${n.id}"`).join(", ")}]
-
-EDGES = [
-${edgesList}
-]
-
-
-def _topo_sort() -> list:
-    """Kahn's-algorithm topological sort, ported from
-    backend/app/api/builder.py::_topo_sort so branch/dependency order matches
-    the live engine exactly (falls back to canvas order on a cycle)."""
-    adj: dict = {node_id: [] for node_id in NODES}
-    in_degree: dict = {node_id: 0 for node_id in NODES}
-    for e in EDGES:
-        src, tgt = e["source"], e["target"]
-        if src in adj and tgt in in_degree:
-            adj[src].append(tgt)
-            in_degree[tgt] += 1
-
-    queue = [node_id for node_id in CANVAS_ORDER if in_degree[node_id] == 0]
-    result = []
-    while queue:
-        node_id = queue.pop(0)
-        result.append(node_id)
-        for neighbor in adj[node_id]:
-            in_degree[neighbor] -= 1
-            if in_degree[neighbor] == 0:
-                queue.append(neighbor)
-
-    visited = set(result)
-    for node_id in CANVAS_ORDER:
-        if node_id not in visited:
-            result.append(node_id)
-    return result
-
-
-class PipelinePaused(Exception):
-    """Raised when execution reaches an approval node awaiting a human decision."""
-    def __init__(self, node_id: str, context: str):
-        self.node_id = node_id
-        self.context = context
-        super().__init__(f"Paused at '{node_id}' — waiting for approval")
-
-
-def extract_variables(text: str) -> dict:
-    """Naive 'key: value' extractor used to evaluate condition rules below.
-    TODO: replace with a real LLM-based extraction call for production use —
-    this regex fallback only understands simple 'label: value' patterns
-    (e.g. 'days: 5'), same test inputs used against the live pipeline."""
-    variables: dict = {}
-    pattern = r"([A-Za-z_][A-Za-z0-9_ ]{0,20}?):\\s*(.+?)(?=(?:\\s+[A-Za-z_][A-Za-z0-9_ ]{0,20}?:)|$)"
-    for match in re.finditer(pattern, text):
-        key = match.group(1).strip().replace(" ", "_")
-        value = match.group(2).strip().rstrip(".")
-        try:
-            variables[key] = int(value)
-        except ValueError:
-            try:
-                variables[key] = float(value)
-            except ValueError:
-                variables[key] = value
-    return variables
-
-
-def evaluate_condition(rule: str, variables: dict) -> bool:
-    """Safely evaluate a condition rule — never uses eval(), fails closed."""
-    try:
-        return bool(simple_eval(rule, names=variables))
-    except Exception:
-        return False
-
-
-def _reachable_from(start_id: str) -> set:
-    seen = {start_id}
-    queue = [start_id]
-    while queue:
-        current = queue.pop(0)
-        for e in EDGES:
-            if e["source"] == current and e["target"] not in seen:
-                seen.add(e["target"])
-                queue.append(e["target"])
-    return seen
-
-
-async def _call_http_request(node: dict, previous_output: str) -> str:
-    """Executes an http_request node's outbound API call, ported from
-    backend/app/api/builder.py::_call_http_request. Use the literal text
-    "{{input}}" in the URL or body to insert the previous node's output."""
-    url = (node.get("url") or "").replace("{{input}}", previous_output or "")
-    if not url:
-        raise ValueError("http_request node has no URL configured")
-    method = (node.get("method") or "GET").upper()
-    headers_raw = node.get("headers") or ""
-    body_raw = (node.get("body") or "").replace("{{input}}", previous_output or "")
-
-    import json as _json
-    headers = _json.loads(headers_raw) if headers_raw else None
-    json_body, data_body = None, None
-    if body_raw:
-        try:
-            json_body = _json.loads(body_raw)
-        except _json.JSONDecodeError:
-            data_body = body_raw
-
-    async with httpx.AsyncClient(timeout=15.0) as http_client:
-        response = await http_client.request(method, url, headers=headers, json=json_body, content=data_body)
-    response.raise_for_status()
-    return response.text[:4000]
-
-
-${nodeFunctions}
-
-NODE_FUNCS = {
-${nodeFuncMap}
-}
-
-
-async def run_pipeline(user_input: str) -> str:
-    """Execute the ${workflowName} pipeline, following the same branching/
-    approval-pause rules as the live Visual Builder run."""
-    output = user_input
-    excluded: set = set()
-    order = _topo_sort()
-    i = 0
-    while i < len(order):
-        node_id = order[i]
-        i += 1
-        if node_id in excluded:
-            continue
-        node = NODES[node_id]
-        role = node["role"]
-
-        if role == "condition":
-            variables = extract_variables(output)
-            result = evaluate_condition(node["rule"], variables)
-            branch_label = "true" if result else "false"
-            chosen_edge = next((e for e in EDGES if e["source"] == node_id and e["label"] == branch_label), None)
-            if chosen_edge is None:
-                break  # no matching branch edge -- stop here, same as the live engine
-            other_label = "false" if branch_label == "true" else "true"
-            other_edge = next((e for e in EDGES if e["source"] == node_id and e["label"] == other_label), None)
-            if other_edge is not None:
-                chosen_reachable = _reachable_from(chosen_edge["target"])
-                other_reachable = _reachable_from(other_edge["target"]) - chosen_reachable
-                excluded |= other_reachable
-            continue
-
-        if role == "approval":
-            raise PipelinePaused(node_id, output)
-            # In production: send an approval email/Slack message here, persist
-            # the pause point, and resume run_pipeline from the node *after*
-            # this one once a human approves (mirrors approve_run in builder.py).
-
-        if role == "http_request":
-            output = await _call_http_request(node, output)
-            continue
-
-        node_fn = NODE_FUNCS.get(node_id)
-        if node_fn is not None:
-            output = await node_fn(output)
-
-    return output
-
-
-if __name__ == "__main__":
-    text_args = [a for a in sys.argv[1:] if a != "--openai"]
-    test_input = text_args[0] if text_args else "Hello, I need help"
-    try:
-        result = asyncio.run(run_pipeline(test_input))
-        print(result)
-    except PipelinePaused as p:
-        print(f"Paused at node '{p.node_id}' — awaiting approval. Context: {p.context}")
-`;
-
-    const url = URL.createObjectURL(new Blob([code], { type: "text/plain" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "workflow.py";
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast("Python code exported!");
+      const frameworkLabel = { langgraph: "LangGraph", ms_agent_framework: "Microsoft Agent Framework", crewai: "CrewAI" }[exportFramework];
+      showToast(`${frameworkLabel} project exported!`);
+    } catch (err) {
+      console.error("[handleExportCode] export-code failed:", err);
+      showToast("Failed to export code. Is the backend running?");
+    } finally {
+      setExporting(false);
+    }
   };
 
   const handleSave = () => {
@@ -1014,11 +751,22 @@ if __name__ == "__main__":
         >
           ✨ Auto-Build
         </button>
+        <select
+          value={exportFramework}
+          onChange={(e) => setExportFramework(e.target.value as typeof exportFramework)}
+          title="Target agent framework for Export Code"
+          className="bg-orange-700 text-white px-2 py-1.5 rounded-lg text-sm font-medium shadow border border-orange-500"
+        >
+          <option value="langgraph">LangGraph</option>
+          <option value="ms_agent_framework">Microsoft Agent Framework</option>
+          <option value="crewai">CrewAI</option>
+        </select>
         <button
           onClick={handleExportCode}
-          className="bg-orange-600 hover:bg-orange-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow"
+          disabled={exporting}
+          className="bg-orange-600 hover:bg-orange-700 disabled:opacity-60 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow"
         >
-          Export Code
+          {exporting ? "Exporting…" : "Export Code"}
         </button>
         <button
           onClick={handleExportJson}
