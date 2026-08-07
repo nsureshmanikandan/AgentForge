@@ -371,7 +371,16 @@ def _foundry_wrapper_ms_agent_framework() -> str:
     installed package directly (not guessed from C# docs, which use a
     differently-shaped IResponseHandler interface than the Python package
     actually exposes): ResponsesAgentServerHost() + the @app.response_handler
-    decorator, returning a TextResponse built from an async callable."""
+    decorator, returning a TextResponse built from an async callable.
+
+    workflow.run() returns a WorkflowRunResult -- a list[WorkflowEvent]
+    subclass containing every internal event of the run, confirmed live by
+    the deployed agent answering every question with a multi-thousand-
+    character dump of raw WorkflowEvent/AgentExecutorResponse reprs instead
+    of an answer. get_outputs() (reads events the output node's
+    ctx.yield_output() call produced -- see _export_ms_agent_framework) is
+    the real accessor for the actual result, confirmed against the
+    installed agent_framework SDK source directly."""
     return '''"""
 Foundry Hosted Agent entrypoint -- wraps this export's WorkflowBuilder-based
 workflow (see main.py) through the Responses protocol.
@@ -390,7 +399,11 @@ async def handle(request, context, cancellation_signal):
 
     async def _get_text() -> str:
         result = await workflow.run(user_text)
-        return str(result)
+        # get_outputs() reads events the output node's ctx.yield_output()
+        # call produced (see main.py's output-node executor + _extract_text)
+        # -- already a plain string by the time it reaches here.
+        outputs = result.get_outputs()
+        return str(outputs[-1]) if outputs else "Workflow completed with no output yielded."
 
     return TextResponse(context, request, text=_get_text)
 
@@ -1332,9 +1345,17 @@ def _export_ms_agent_framework(nodes: list[dict], edges: list[dict], workflow_na
                 f'@executor(id={json.dumps(var)})\n'
                 f'@node_span({json.dumps(nid)}, {json.dumps(role)})\n'
                 f'async def {var}(message: Any, ctx: WorkflowContext) -> None:\n'
-                f'    """{node["label"]} (output)."""\n'
-                f'    result = message.get("output") if isinstance(message, dict) else message\n'
-                f'    await ctx.send_message(result)\n'
+                f'    """{node["label"]} (output) -- yield_output(), NOT send_message(): this is the\n'
+                f'    workflow\'s terminal node, and send_message() (which only routes to a downstream\n'
+                f'    executor) has none to route to. yield_output() is the framework\'s real\n'
+                f'    "this is a result" signal -- it\'s what WorkflowRunResult.get_outputs() (used by\n'
+                f'    _main() and foundry_main.py below to get the actual answer text) reads, confirmed\n'
+                f'    live: send_message() here left get_outputs() always empty, and printing the raw\n'
+                f'    WorkflowRunResult (a list[WorkflowEvent] subclass) dumped every internal event\n'
+                f'    instead of an answer.\n'
+                f'    """\n'
+                f'    result = _extract_text(message)\n'
+                f'    await ctx.yield_output(result)\n'
             )
         elif role in _AGENT_LIKE_ROLES:
             desc_lit = json.dumps(node["description"] or f'You are the {node["label"]} step in a workflow.')
@@ -1447,7 +1468,7 @@ import asyncio
 import sys
 from typing import Any
 
-from agent_framework import Agent, AgentExecutor, WorkflowBuilder, WorkflowContext, executor
+from agent_framework import Agent, AgentExecutor, AgentExecutorResponse, WorkflowBuilder, WorkflowContext, executor
 from agentforge_runtime import (
     load_settings, configure_observability, new_run_id, node_span,
     evaluate_condition, call_http_request,
@@ -1455,6 +1476,21 @@ from agentforge_runtime import (
 )
 
 {_MSAF_LLM_SNIPPET}
+
+def _extract_text(message: Any) -> str:
+    """Normalizes the 3 message shapes a node can receive in this export:
+    an AgentExecutorResponse (straight from an agent-like node's
+    AgentExecutor -- its own .text is the clean assistant reply, confirmed
+    against the real agent_framework SDK source, not the raw dataclass repr
+    str() would give), this export's own {{"output": ..., "branch": ...}}
+    dict convention (condition/router/http_request nodes), or a plain string.
+    """
+    if isinstance(message, AgentExecutorResponse):
+        return message.agent_response.text
+    if isinstance(message, dict):
+        return str(message.get("output", ""))
+    return str(message)
+
 
 class WorkflowPaused(Exception):
     """Raised by an approval node -- see its docstring above."""
@@ -1477,8 +1513,14 @@ workflow = workflow_builder.build()
 
 async def _main(workflow_input: str) -> None:
     try:
-        await workflow.run(workflow_input)
-        print("Workflow complete.")
+        result = await workflow.run(workflow_input)
+        # workflow.run() returns a WorkflowRunResult -- a list[WorkflowEvent]
+        # subclass containing every internal event of the run, NOT the final
+        # answer (confirmed live: printing it directly dumps the raw event
+        # trace). get_outputs() is the framework's real accessor for what
+        # the output-node's yield_output() call above actually surfaced.
+        outputs = result.get_outputs()
+        print(outputs[-1] if outputs else "Workflow completed with no output yielded.")
     except WorkflowPaused as p:
         print(f"Paused at '{{p.node_label}}' (run {{_run_id}}) -- awaiting approval from {{p.approver_email}}. "
               f"Context: {{p.context}}. Resume with: python main.py --resume {{_run_id}} --decision \\"approved\\"")

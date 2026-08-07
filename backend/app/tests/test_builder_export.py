@@ -235,7 +235,7 @@ def test_ms_agent_framework_uses_real_chatagent_and_workflowbuilder():
     nodes, edges = _fraud_triage()
     files = export_workflow(nodes, edges, "Fraud Triage", "ms_agent_framework")
     src = files["main.py"]
-    assert "from agent_framework import Agent, AgentExecutor, WorkflowBuilder" in src
+    assert "from agent_framework import Agent, AgentExecutor, AgentExecutorResponse, WorkflowBuilder" in src
     assert "Agent(get_chat_client()," in src
     assert "AgentExecutor(" in src
     assert "WorkflowBuilder(start_executor=" in src
@@ -473,6 +473,40 @@ def test_ms_agent_framework_persists_and_resumes_approval():
     assert "save_pause(" in src
     assert "--resume" in src
     assert "def _resume_run" in src
+
+
+def test_ms_agent_framework_output_node_yields_not_sends():
+    # Regression test: confirmed live that the output node MUST call
+    # ctx.yield_output(), not ctx.send_message() -- send_message() only
+    # routes to a downstream executor, and the output node (the workflow's
+    # terminal node) has none. With send_message(), get_outputs() (see next
+    # test) was always empty and the deployed agent answered every question
+    # with a multi-thousand-character dump of raw internal WorkflowEvent/
+    # AgentExecutorResponse reprs instead of an answer.
+    nodes, edges = _fraud_triage()
+    files = export_workflow(nodes, edges, "x", "ms_agent_framework")
+    src = files["main.py"]
+    ast.parse(src)
+    assert "await ctx.yield_output(result)" in src
+    assert "def _extract_text(message: Any) -> str:" in src
+    assert "AgentExecutorResponse" in src
+
+
+def test_ms_agent_framework_main_and_foundry_wrapper_extract_final_output():
+    # Regression test: workflow.run() returns a WorkflowRunResult -- a
+    # list[WorkflowEvent] subclass -- so `str(await workflow.run(...))`
+    # (the old code) dumps the raw event trace. get_outputs() is the real
+    # accessor for what the output node's yield_output() call surfaced.
+    nodes, edges = _fraud_triage()
+    files = export_workflow(nodes, edges, "x", "ms_agent_framework")
+    main_src = files["main.py"]
+    foundry_src = files["foundry_main.py"]
+    ast.parse(main_src)
+    ast.parse(foundry_src)
+    assert "result.get_outputs()" in main_src
+    assert 'print("Workflow complete.")' not in main_src
+    assert "result.get_outputs()" in foundry_src
+    assert "return str(result)" not in foundry_src
 
 
 def test_azure_yaml_generated_for_all_frameworks():
