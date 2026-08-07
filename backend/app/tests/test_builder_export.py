@@ -167,13 +167,16 @@ def test_full_project_shape(fixture_name, framework):
     nodes, edges = ALL_FIXTURES[fixture_name]()
     files = export_workflow(nodes, edges, fixture_name, framework)
     assert set(files.keys()) == {
-        "main.py", "runtime.py", "requirements.txt", "requirements-dev.txt",
+        "main.py", "runtime.py", "foundry_main.py", "azure.yaml",
+        "requirements.txt", "requirements-dev.txt",
         ".env.example", ".gitignore", ".dockerignore", "Dockerfile", "README.md",
     }
     assert files["requirements.txt"].strip()
     assert "FROM python" in files["Dockerfile"]
     assert "LLM_PROVIDER" in files[".env.example"]
     ast.parse(files["runtime.py"])
+    ast.parse(files["foundry_main.py"])
+    assert "codeConfiguration" in files["azure.yaml"]
 
 
 # ─── Per-framework: real SDK constructs actually appear ────────────────────
@@ -407,6 +410,42 @@ def test_ms_agent_framework_persists_and_resumes_approval():
     assert "save_pause(" in src
     assert "--resume" in src
     assert "def _resume_run" in src
+
+
+def test_azure_yaml_generated_for_all_frameworks():
+    nodes, edges = _fraud_triage()
+    for fw in FRAMEWORKS:
+        files = export_workflow(nodes, edges, "x", fw)
+        yaml_src = files["azure.yaml"]
+        assert "host: azure.ai.agent" in yaml_src
+        assert "foundry_main.py" in yaml_src
+        assert "${{connections." in yaml_src  # Foundry secret placeholder, not a literal key
+
+
+def test_langgraph_foundry_wrapper_present():
+    nodes, edges = _fraud_triage()
+    files = export_workflow(nodes, edges, "x", "langgraph")
+    fm = files["foundry_main.py"]
+    ast.parse(fm)
+    assert "ResponsesHostServer" in fm
+    assert "from main import compiled" in fm
+    assert "langchain-azure-ai" in files["requirements.txt"]
+
+
+def test_msaf_and_crewai_foundry_wrapper_present():
+    # Verified against the real installed azure-ai-agentserver-responses
+    # package (VERSION 2.0.0b1) rather than guessed from the C#
+    # IResponseHandler docs, which use a differently-shaped interface than
+    # the Python package's decorator-based ResponsesAgentServerHost API.
+    nodes, edges = _fraud_triage()
+    for fw in ("ms_agent_framework", "crewai"):
+        files = export_workflow(nodes, edges, "x", fw)
+        fm = files["foundry_main.py"]
+        ast.parse(fm)
+        assert "ResponsesAgentServerHost" in fm
+        assert "@app.response_handler" in fm
+        assert "TextResponse" in fm
+        assert "azure-ai-agentserver-responses==" in files["requirements.txt"]
 
 
 def test_azure_is_default_provider_in_env_example():

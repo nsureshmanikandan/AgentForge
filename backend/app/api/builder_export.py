@@ -223,6 +223,122 @@ def _readme(framework: str, workflow_name: str, extra_notes: str, memory_note: s
     )
 
 
+def _azure_yaml(workflow_name: str) -> str:
+    """The azd-recognized deployment descriptor -- lets `azd up` build, push,
+    and deploy this export's foundry_main.py directly. Secrets are resolved
+    from a Foundry project connection at container start via the
+    ${{connections.<name>.<path>}} placeholder syntax, never a literal value
+    here -- see https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/deploy-hosted-agent
+    """
+    safe_name = "".join(c if c.isalnum() or c == "-" else "-" for c in workflow_name.lower())[:63].strip("-") or "agent"
+    return f'''name: {safe_name}
+services:
+  agent:
+    host: azure.ai.agent
+    project: .
+    kind: hosted
+    codeConfiguration:
+      runtime: python_3_13
+      entryPoint:
+        - python
+        - foundry_main.py
+      dependencyResolution: remote_build
+    env:
+      LLM_PROVIDER: azure
+      AZURE_OPENAI_ENDPOINT: ${{{{connections.agent-secrets.target}}}}
+      AZURE_OPENAI_API_KEY: ${{{{connections.agent-secrets.credentials.key}}}}
+      AZURE_OPENAI_DEPLOYMENT: gpt-4o
+      AZURE_OPENAI_API_VERSION: 2024-12-01-preview
+'''
+
+
+def _foundry_wrapper_langgraph() -> str:
+    """Uses langchain_azure_ai.agents.hosting.ResponsesHostServer, the real,
+    documented pattern for hosting a LangGraph graph on Foundry -- see
+    https://learn.microsoft.com/en-us/azure/foundry/how-to/develop/langchain-hosted-agents
+    (verified against current docs, not guessed)."""
+    return '''"""
+Foundry Hosted Agent entrypoint -- wraps this export's compiled LangGraph
+graph (already checkpointed with SqliteSaver, see main.py) through the
+Responses protocol so `azd up` can deploy it directly.
+"""
+import os
+from main import compiled
+from langchain_azure_ai.agents.hosting import ResponsesHostServer
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "8088"))
+    ResponsesHostServer(compiled).run(port=port)
+'''
+
+
+def _foundry_wrapper_ms_agent_framework() -> str:
+    """Uses azure-ai-agentserver-responses' real API -- verified against the
+    installed package directly (not guessed from C# docs, which use a
+    differently-shaped IResponseHandler interface than the Python package
+    actually exposes): ResponsesAgentServerHost() + the @app.response_handler
+    decorator, returning a TextResponse built from an async callable."""
+    return '''"""
+Foundry Hosted Agent entrypoint -- wraps this export's WorkflowBuilder-based
+workflow (see main.py) through the Responses protocol.
+"""
+import os
+
+from main import workflow
+from azure.ai.agentserver.responses import ResponsesAgentServerHost, TextResponse
+
+app = ResponsesAgentServerHost()
+
+
+@app.response_handler
+async def handle(request, context, cancellation_signal):
+    user_text = await context.get_input_text()
+
+    async def _get_text() -> str:
+        result = await workflow.run(user_text)
+        return str(result)
+
+    return TextResponse(context, request, text=_get_text)
+
+
+if __name__ == "__main__":
+    app.run(port=int(os.environ.get("PORT", "8088")))
+'''
+
+
+def _foundry_wrapper_crewai() -> str:
+    """Uses azure-ai-agentserver-responses' real API -- verified against the
+    installed package directly (see _foundry_wrapper_ms_agent_framework)."""
+    return '''"""
+Foundry Hosted Agent entrypoint -- wraps this export's run_graph()-driven
+workflow (see main.py) through the Responses protocol.
+"""
+import os
+
+from main import NODES, EDGES, HANDLERS
+from runtime import run_graph, new_run_id, load_settings, configure_observability
+from azure.ai.agentserver.responses import ResponsesAgentServerHost, TextResponse
+
+app = ResponsesAgentServerHost()
+
+
+@app.response_handler
+async def handle(request, context, cancellation_signal):
+    load_settings()
+    user_text = await context.get_input_text()
+
+    def _get_text() -> str:
+        return run_graph(NODES, EDGES, HANDLERS, user_text, new_run_id())
+
+    return TextResponse(context, request, text=_get_text)
+
+
+if __name__ == "__main__":
+    configure_observability()
+    app.run(port=int(os.environ.get("PORT", "8088")))
+'''
+
+
 # ─── Shared runtime.py content (settings, retry, OTel, persistence) ────────
 #
 # Every export ships a `runtime.py` alongside its workflow-specific `main.py`.
@@ -848,6 +964,8 @@ if __name__ == "__main__":
         "azure-monitor-opentelemetry==1.6.4\n"
         "opentelemetry-api==1.29.0\n"
         + ("langgraph-checkpoint-sqlite==2.0.1\n" if has_approval else "")
+        + "langchain-azure-ai[hosting]==1.2.4\n"
+        + "azure-identity==1.19.0\n"
     )
 
     runtime_py = (
@@ -873,6 +991,8 @@ if __name__ == "__main__":
     return {
         "main.py": script,
         "runtime.py": runtime_py,
+        "foundry_main.py": _foundry_wrapper_langgraph(),
+        "azure.yaml": _azure_yaml(workflow_name),
         "requirements.txt": requirements,
         "requirements-dev.txt": "pytest==8.3.4\npytest-asyncio==0.25.2\n",
         ".env.example": _env_example(),
@@ -1165,6 +1285,7 @@ if __name__ == "__main__":
         "tenacity==9.0.0\n"
         "azure-monitor-opentelemetry==1.6.4\n"
         "opentelemetry-api==1.29.0\n"
+        "azure-ai-agentserver-responses==2.0.0b1\n"
     )
 
     runtime_py = (
@@ -1195,6 +1316,8 @@ if __name__ == "__main__":
     return {
         "main.py": script,
         "runtime.py": runtime_py,
+        "foundry_main.py": _foundry_wrapper_ms_agent_framework(),
+        "azure.yaml": _azure_yaml(workflow_name),
         "requirements.txt": requirements,
         "requirements-dev.txt": "pytest==8.3.4\npytest-asyncio==0.25.2\n",
         ".env.example": _env_example(),
@@ -1481,6 +1604,7 @@ if __name__ == "__main__":
         "tenacity==9.0.0\n"
         "azure-monitor-opentelemetry==1.6.4\n"
         "opentelemetry-api==1.29.0\n"
+        "azure-ai-agentserver-responses==2.0.0b1\n"
     )
 
     runtime_py = (
@@ -1494,6 +1618,8 @@ if __name__ == "__main__":
     return {
         "main.py": script,
         "runtime.py": runtime_py,
+        "foundry_main.py": _foundry_wrapper_crewai(),
+        "azure.yaml": _azure_yaml(workflow_name),
         "requirements.txt": requirements,
         "requirements-dev.txt": "pytest==8.3.4\npytest-asyncio==0.25.2\n",
         ".env.example": _env_example(),
