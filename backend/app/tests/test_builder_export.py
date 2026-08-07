@@ -502,6 +502,34 @@ def test_ms_agent_framework_persists_and_resumes_approval():
     assert "def _resume_run" in src
 
 
+def test_readme_invoke_example_uses_valid_json_not_double_braces():
+    # Regression test: the README's `_readme()` function concatenates plain
+    # (non-f) string literals, so writing {{"input": ...}} intending
+    # f-string-style brace escaping actually renders literal double braces
+    # in the generated Markdown -- confirmed by generating a real README and
+    # checking it byte-for-byte, not by inspecting the generator source.
+    # Invalid JSON in a copy-pasteable command is exactly the kind of thing
+    # a user would paste verbatim and then have to debug for no reason.
+    nodes, edges = _fraud_triage()
+    for fw in FRAMEWORKS:
+        readme = export_workflow(nodes, edges, "x", fw)["README.md"]
+        assert '{{"input"' not in readme
+        assert '{"input": "your test message"}' in readme
+
+
+def test_readme_documents_resume_over_http_only_for_ms_agent_framework():
+    # LangGraph and CrewAI exports don't support resuming a paused run
+    # through the deployed endpoint (only via their own local --resume CLI
+    # flag) -- the README must not claim they do.
+    nodes, edges = _support_supervisor()
+    msaf_readme = export_workflow(nodes, edges, "x", "ms_agent_framework")["README.md"]
+    assert "RESUME:" in msaf_readme
+    assert "azd ai agent invoke" in msaf_readme
+
+    crewai_readme = export_workflow(nodes, edges, "x", "crewai")["README.md"]
+    assert "RESUME:" not in crewai_readme
+
+
 def test_ms_agent_framework_run_id_is_contextvar_not_plain_global():
     # Regression test: a plain module-level `_run_id = ""` global is not
     # safe for foundry_main.py's HTTP handler, where each request runs as
@@ -612,6 +640,18 @@ def test_readme_documents_foundry_main_entry_point_correction():
         readme = files["README.md"]
         assert "foundry_main.py" in readme
         assert "azd ai agent init" in readme
+
+
+def test_readme_documents_cloud_shell_fallback_for_blocked_azd():
+    # Confirmed live: azd (a Go binary) hit a TLS handshake timeout against a
+    # host curl/the browser reached fine -- a corporate endpoint-security
+    # pattern, not specific to one machine. The README must document the
+    # Cloud Shell zip-upload workaround, not just assume azd runs locally.
+    nodes, edges = _fraud_triage()
+    for fw in FRAMEWORKS:
+        readme = export_workflow(nodes, edges, "x", fw)["README.md"]
+        assert "Cloud Shell" in readme
+        assert "TLS handshake timeout" in readme
         assert "azd env set --file" in readme
 
 
