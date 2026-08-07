@@ -10,6 +10,7 @@ wire transfer human-in-the-loop, merchant/address API chain, support
 supervisor/specialist), not arbitrary hypothetical graphs.
 """
 import ast
+import json
 
 import pytest
 
@@ -168,6 +169,7 @@ def test_full_project_shape(fixture_name, framework):
     files = export_workflow(nodes, edges, fixture_name, framework)
     assert set(files.keys()) == {
         "main.py", "agentforge_runtime.py", "foundry_main.py", "azure.yaml", "tests/test_workflow.py",
+        "infra/main.bicep", "infra/main.parameters.json",
         "requirements.txt", "requirements-dev.txt",
         ".env.example", ".gitignore", ".dockerignore", "Dockerfile", "README.md",
     }
@@ -177,7 +179,7 @@ def test_full_project_shape(fixture_name, framework):
     ast.parse(files["agentforge_runtime.py"])
     ast.parse(files["foundry_main.py"])
     ast.parse(files["tests/test_workflow.py"])
-    assert "codeConfiguration" in files["azure.yaml"]
+    assert "name:" in files["azure.yaml"]
 
 
 @pytest.mark.parametrize("framework", FRAMEWORKS)
@@ -434,7 +436,7 @@ def test_runtime_has_opentelemetry_observability():
         assert "def node_span" in rt
         assert "workflow_run_id" in rt
         assert "azure-monitor-opentelemetry==" in files["requirements.txt"]
-        assert "opentelemetry-api==" in files["requirements.txt"]
+        assert "opentelemetry-api" in files["requirements.txt"]
         assert "@node_span(" in files["main.py"]
 
 
@@ -474,13 +476,62 @@ def test_ms_agent_framework_persists_and_resumes_approval():
 
 
 def test_azure_yaml_generated_for_all_frameworks():
+    # Deliberately minimal -- confirmed live that `azd ai agent init` must
+    # run first and APPENDS its own services: block; a pre-filled one here
+    # just becomes a second, stale, conflicting entry that has to be deleted
+    # by hand. Also confirmed live that azd's envsubst cannot parse a
+    # double-brace ${{connections....}} placeholder ("unable to parse
+    # variable name") -- so this file must never contain one.
     nodes, edges = _fraud_triage()
     for fw in FRAMEWORKS:
         files = export_workflow(nodes, edges, "x", fw)
         yaml_src = files["azure.yaml"]
-        assert "host: azure.ai.agent" in yaml_src
-        assert "foundry_main.py" in yaml_src
-        assert "${{connections." in yaml_src  # Foundry secret placeholder, not a literal key
+        assert "name:" in yaml_src
+        assert "services:" not in yaml_src
+        assert "${{" not in yaml_src
+
+
+def test_infra_files_generated_for_all_frameworks():
+    # `azd up`/`azd deploy` require infra/main.bicep to exist and declare at
+    # least one resource -- confirmed live ("ARM template contains no
+    # resources" on an empty/output-only template).
+    nodes, edges = _fraud_triage()
+    for fw in FRAMEWORKS:
+        files = export_workflow(nodes, edges, "x", fw)
+        assert "resource " in files["infra/main.bicep"]
+        assert "environmentName" in files["infra/main.parameters.json"]
+        json.loads(files["infra/main.parameters.json"])  # must be valid JSON
+
+
+def test_readme_documents_foundry_main_entry_point_correction():
+    # Regression test: confirmed live that azd ai agent init auto-suggests
+    # `main.py` as the entry point (that's the local test-run script), and
+    # accepting that default deploys a container with no /readiness
+    # endpoint, so Foundry can never bring the session online
+    # ("session_not_ready ... did not become ready within the expected
+    # timeout"). The README must tell users to override it to foundry_main.py.
+    nodes, edges = _fraud_triage()
+    for fw in FRAMEWORKS:
+        files = export_workflow(nodes, edges, "x", fw)
+        readme = files["README.md"]
+        assert "foundry_main.py" in readme
+        assert "azd ai agent init" in readme
+        assert "azd env set --file" in readme
+
+
+def test_ms_agent_framework_requirements_include_openai_extension_and_compatible_otel():
+    # Regression tests for two bugs only surfaced by an actual remote Foundry
+    # container build/run, not by import-only checks:
+    # 1. agent_framework.openai.OpenAIChatClient lives in a separate package
+    #    (agent-framework-core alone raises ModuleNotFoundError at runtime).
+    # 2. agent-framework-core==1.13.0 requires opentelemetry-api>=1.39.0,<2 --
+    #    the old ==1.29.0 pin caused a remote pip ResolutionImpossible.
+    nodes, edges = _fraud_triage()
+    files = export_workflow(nodes, edges, "x", "ms_agent_framework")
+    reqs = files["requirements.txt"]
+    assert "agent-framework-openai" in reqs
+    assert "opentelemetry-api==1.29.0" not in reqs
+    assert "opentelemetry-api>=1.39.0" in reqs
 
 
 def test_langgraph_foundry_wrapper_present():

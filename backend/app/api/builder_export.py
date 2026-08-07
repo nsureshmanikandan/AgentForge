@@ -201,17 +201,45 @@ def _readme(framework: str, workflow_name: str, extra_notes: str, memory_note: s
         "python main.py \"your test input text here\"\n"
         "```\n\n"
         "## Deploying to Azure AI Foundry\n\n"
-        "This project ships `foundry_main.py` and `azure.yaml`, so it deploys directly with "
-        "the Azure Developer CLI -- no manual wrapping needed:\n\n"
+        "This project ships `foundry_main.py` (the Hosted Agent entrypoint) and a minimal "
+        "`azure.yaml` + `infra/` -- verified end-to-end against a real Foundry resource. "
+        "Steps, in order:\n\n"
         "```bash\n"
-        "azd ext install azure.ai.agents\n"
         "azd auth login\n"
-        "azd up   # provisions the Foundry project + deploys foundry_main.py\n"
+        "azd ext install azure.ai.agents\n"
+        "azd ai agent init\n"
         "```\n\n"
-        "Secrets are read via `azure.yaml`'s `${{connections.agent-secrets...}}` placeholders "
-        "-- create that connection in the Foundry portal under your project's "
-        "**Connected resources** before running `azd up`, rather than putting a literal key "
-        "in `azure.yaml`.\n\n"
+        "`azd ai agent init` asks a series of questions -- answer them like this:\n\n"
+        "- **How do you want to initialize your agent?** -> Use the code in the current directory\n"
+        "- **Enter the file path for the entry point of the agent** -> type `foundry_main.py` "
+        "(it auto-suggests `main.py` -- that's your local test-run script, NOT the Foundry "
+        "server; using it here means the container never exposes a `/readiness` endpoint and "
+        "the deployed agent never comes online)\n"
+        "- **How should dependencies be resolved?** -> Remote build\n"
+        "- **Which protocols does your agent support?** -> responses\n"
+        "- **Select a Foundry project** -> your existing project (or create a new one)\n"
+        "- **How would you like to configure model(s)?** -> Use an existing model deployment, "
+        "then pick your deployment\n\n"
+        "This appends a `services:` entry to `azure.yaml` for you -- don't hand-write one.\n\n"
+        "Next, load your provider credentials as azd environment values (NOT literal values in "
+        "`azure.yaml` -- `azd`'s env substitution only understands plain `${VAR}` references, "
+        "not a Foundry connection placeholder):\n\n"
+        "```bash\n"
+        "azd env set --file .env   # loads your filled-in .env in one shot\n"
+        "```\n\n"
+        "Then open `azure.yaml`, find the `environmentVariables:` list under your agent's "
+        "service block, and add an entry per credential your provider needs (matching "
+        "`.env.example`'s names), e.g.:\n\n"
+        "```yaml\n"
+        "            - name: AZURE_OPENAI_ENDPOINT\n"
+        "              value: ${AZURE_OPENAI_ENDPOINT}\n"
+        "```\n\n"
+        "Finally:\n\n"
+        "```bash\n"
+        "azd up\n"
+        "```\n\n"
+        "Test it with `azd ai agent invoke <agent-name> '{{\"input\": \"your test message\"}}'` or "
+        "the Agent Playground link `azd up` prints.\n\n"
         f"{extra_notes}\n"
         "## Observability\n\n"
         "This export is instrumented with OpenTelemetry (`agentforge_runtime.py`'s "
@@ -227,31 +255,66 @@ def _readme(framework: str, workflow_name: str, extra_notes: str, memory_note: s
 
 
 def _azure_yaml(workflow_name: str) -> str:
-    """The azd-recognized deployment descriptor -- lets `azd up` build, push,
-    and deploy this export's foundry_main.py directly. Secrets are resolved
-    from a Foundry project connection at container start via the
-    ${{connections.<name>.<path>}} placeholder syntax, never a literal value
-    here -- see https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/deploy-hosted-agent
+    """A minimal azd project descriptor -- deliberately does NOT pre-populate
+    a `services:` block. Confirmed live: the real deployment flow requires
+    running `azd ai agent init` first (it's what actually creates and wires
+    the Foundry project + agent service, discovering your real subscription/
+    project/model interactively), and that command APPENDS its own service
+    entry into this file rather than replacing one that's already there --
+    a pre-filled block here just becomes a second, stale, conflicting entry
+    that has to be deleted by hand. It also confirmed live that `azd`'s
+    envsubst-based env substitution cannot parse the double-brace
+    `${{connections.<name>.<path>}}` Foundry-secret-placeholder syntax this
+    function used to emit ("unable to parse variable name") -- secrets are
+    wired via `azd env set` + plain single-brace `${VAR}` references
+    instead, which `azd ai agent init` sets up correctly on its own. See the
+    README's Foundry deployment section for the full, verified step-by-step.
     """
     safe_name = "".join(c if c.isalnum() or c == "-" else "-" for c in workflow_name.lower())[:63].strip("-") or "agent"
-    return f'''name: {safe_name}
-services:
-  agent:
-    host: azure.ai.agent
-    project: .
-    kind: hosted
-    codeConfiguration:
-      runtime: python_3_13
-      entryPoint:
-        - python
-        - foundry_main.py
-      dependencyResolution: remote_build
-    env:
-      LLM_PROVIDER: azure
-      AZURE_OPENAI_ENDPOINT: ${{{{connections.agent-secrets.target}}}}
-      AZURE_OPENAI_API_KEY: ${{{{connections.agent-secrets.credentials.key}}}}
-      AZURE_OPENAI_DEPLOYMENT: gpt-4o
-      AZURE_OPENAI_API_VERSION: 2024-12-01-preview
+    return f'''# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+name: {safe_name}
+'''
+
+
+def _infra_bicep() -> str:
+    """A minimal placeholder Bicep template. `azd up`/`azd deploy` require
+    infra/main.bicep to exist and declare at least one resource -- confirmed
+    live ("ARM template contains no resources" on an empty/output-only
+    template) -- even when the actual Foundry project + agent are entirely
+    provisioned by the `azure.ai.agent`/`azure.ai.project` extension
+    providers `azd ai agent init` wires up, not by this file. The tag
+    resource below is harmless (it only labels the existing resource group)
+    and satisfies that requirement without provisioning anything real."""
+    return '''targetScope = 'resourceGroup'
+
+@description('Name of the azd environment')
+param environmentName string
+
+@description('Location for resources')
+param location string = resourceGroup().location
+
+resource rgTags 'Microsoft.Resources/tags@2022-09-01' = {
+  name: 'default'
+  properties: {
+    tags: {
+      'azd-env-name': environmentName
+    }
+  }
+}
+
+output AZURE_LOCATION string = location
+'''
+
+
+def _infra_parameters() -> str:
+    return '''{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": { "value": "${AZURE_ENV_NAME}" },
+    "location": { "value": "${AZURE_LOCATION}" }
+  }
+}
 '''
 
 
@@ -1174,6 +1237,8 @@ if __name__ == "__main__":
         "agentforge_runtime.py": runtime_py,
         "foundry_main.py": _foundry_wrapper_langgraph(),
         "azure.yaml": _azure_yaml(workflow_name),
+        "infra/main.bicep": _infra_bicep(),
+        "infra/main.parameters.json": _infra_parameters(),
         "tests/test_workflow.py": _langgraph_test_suite(),
         "requirements.txt": requirements,
         "requirements-dev.txt": "pytest==8.3.4\npytest-asyncio==0.25.2\n",
@@ -1460,13 +1525,23 @@ if __name__ == "__main__":
 
     requirements = (
         "agent-framework-core==1.13.0\n"
+        # agent_framework.openai.OpenAIChatClient (used by _MSAF_LLM_SNIPPET
+        # above for every provider) lives in this separate package --
+        # agent-framework-core alone raises ModuleNotFoundError at runtime,
+        # confirmed live (import succeeds, only fails when the client class
+        # is actually constructed, so this was invisible to import-only checks).
+        "agent-framework-openai\n"
         "simpleeval==1.0.3\n"
         "httpx==0.28.1\n"
         "python-dotenv==1.0.1\n"
         "pydantic-settings==2.7.1\n"
         "tenacity==9.0.0\n"
         "azure-monitor-opentelemetry==1.6.4\n"
-        "opentelemetry-api==1.29.0\n"
+        # agent-framework-core==1.13.0 requires opentelemetry-api>=1.39.0,<2 --
+        # confirmed live via a remote-build pip ResolutionImpossible naming
+        # this exact constraint (azure-monitor-opentelemetry==1.6.4 is NOT a
+        # source of the conflict, so it already tolerates this range).
+        "opentelemetry-api>=1.39.0,<2\n"
         "azure-ai-agentserver-responses==2.0.0b1\n"
     )
 
@@ -1500,6 +1575,8 @@ if __name__ == "__main__":
         "agentforge_runtime.py": runtime_py,
         "foundry_main.py": _foundry_wrapper_ms_agent_framework(),
         "azure.yaml": _azure_yaml(workflow_name),
+        "infra/main.bicep": _infra_bicep(),
+        "infra/main.parameters.json": _infra_parameters(),
         "tests/test_workflow.py": _ms_agent_framework_test_suite(),
         "requirements.txt": requirements,
         "requirements-dev.txt": "pytest==8.3.4\npytest-asyncio==0.25.2\n",
@@ -1803,6 +1880,8 @@ if __name__ == "__main__":
         "agentforge_runtime.py": runtime_py,
         "foundry_main.py": _foundry_wrapper_crewai(),
         "azure.yaml": _azure_yaml(workflow_name),
+        "infra/main.bicep": _infra_bicep(),
+        "infra/main.parameters.json": _infra_parameters(),
         "tests/test_workflow.py": _crewai_test_suite(flat, edges),
         "requirements.txt": requirements,
         "requirements-dev.txt": "pytest==8.3.4\npytest-asyncio==0.25.2\n",
