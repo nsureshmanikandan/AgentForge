@@ -256,19 +256,47 @@ def _foundry_wrapper_langgraph() -> str:
     """Uses langchain_azure_ai.agents.hosting.ResponsesHostServer, the real,
     documented pattern for hosting a LangGraph graph on Foundry -- see
     https://learn.microsoft.com/en-us/azure/foundry/how-to/develop/langchain-hosted-agents
-    (verified against current docs, not guessed)."""
+    (verified against current docs, not guessed).
+
+    ResponsesHostServer's default request converter only supports graphs
+    whose state declares a `messages` field (LangGraph's conventional
+    MessagesState) -- confirmed live it raises ValueError at construction
+    for this export's custom WorkflowState (input/output/context/_branch),
+    REGARDLESS of whether build_input is overridden, because the schema
+    check runs unconditionally in the base __init__. The documented fix
+    ("subclass and override build_input") is real but incomplete on its
+    own -- the private `_validate_graph_schema` staticmethod must also be
+    overridden to skip that check. This is fragile (an underscore-prefixed
+    method on an explicitly-preview API, "subject to change" per its own
+    ExperimentalWarning) but is the only working option today -- confirmed
+    live end-to-end, including a real Azure OpenAI call through it."""
     return '''"""
 Foundry Hosted Agent entrypoint -- wraps this export's compiled LangGraph
 graph (already checkpointed with SqliteSaver, see main.py) through the
 Responses protocol so `azd up` can deploy it directly.
+
+WorkflowResponsesHost overrides two things ResponsesHostServer needs for a
+custom (non-`messages`-based) LangGraph state schema -- see this module's
+own comment above for why both overrides are required, not just build_input.
 """
 import os
 from main import compiled
 from langchain_azure_ai.agents.hosting import ResponsesHostServer
 
+
+class WorkflowResponsesHost(ResponsesHostServer):
+    @staticmethod
+    def _validate_graph_schema(graph):
+        pass  # custom WorkflowState schema, not messages-based -- see module docstring
+
+    async def build_input(self, request, context, *, skip_call_ids=None):
+        text = await context.get_input_text()
+        return {"input": text, "output": "", "context": {}, "_branch": ""}
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8088"))
-    ResponsesHostServer(compiled).run(port=port)
+    WorkflowResponsesHost(compiled).run(port=port)
 '''
 
 

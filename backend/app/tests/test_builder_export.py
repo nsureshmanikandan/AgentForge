@@ -493,6 +493,25 @@ def test_langgraph_foundry_wrapper_present():
     assert "langchain-azure-ai" in files["requirements.txt"]
 
 
+def test_langgraph_foundry_wrapper_overrides_schema_validation():
+    # Regression test: confirmed live that ResponsesHostServer(compiled)
+    # raises ValueError at CONSTRUCTION time (not just import time) for any
+    # graph whose state schema isn't messages-based -- this export's
+    # WorkflowState (input/output/context/_branch) always trips that check.
+    # The class's own docstring says "subclass and override build_input",
+    # but that alone doesn't help: the private _validate_graph_schema
+    # staticmethod runs unconditionally in the base __init__ regardless of
+    # subclassing. Both must be overridden -- confirmed live end-to-end,
+    # including a real Azure OpenAI call through the resulting server.
+    nodes, edges = _fraud_triage()
+    files = export_workflow(nodes, edges, "x", "langgraph")
+    fm = files["foundry_main.py"]
+    assert "class WorkflowResponsesHost(ResponsesHostServer):" in fm
+    assert "_validate_graph_schema" in fm
+    assert "def build_input(self, request, context" in fm
+    assert "WorkflowResponsesHost(compiled)" in fm
+
+
 def test_msaf_and_crewai_foundry_wrapper_present():
     # Verified against the real installed azure-ai-agentserver-responses
     # package (VERSION 2.0.0b1) rather than guessed from the C#
