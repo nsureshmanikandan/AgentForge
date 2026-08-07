@@ -546,7 +546,7 @@ def load_settings() -> dict:
 
 _RUNTIME_RETRY_SNIPPET = '''
 import logging
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_not_exception_type
 
 logger = logging.getLogger("agentforge_export")
 
@@ -571,7 +571,13 @@ http_retry = retry(
     reraise=True,
     stop=stop_after_attempt(int(os.getenv("HTTP_MAX_RETRIES", "3"))),
     wait=wait_exponential(multiplier=1, min=1, max=10),
-    retry=retry_if_exception_type(Exception),
+    # Retry any transient failure EXCEPT HTTPStepError -- that's raised
+    # deliberately for 4xx client errors, which won't succeed by retrying.
+    # (retry_if_exception_type(Exception) would match HTTPStepError too,
+    # since it's an Exception subclass -- confirmed live via the generated
+    # test suite's test_call_http_request_does_not_retry_on_4xx, which
+    # caught this retrying 3x on a 400 before this fix.)
+    retry=retry_if_not_exception_type(HTTPStepError),
 )
 
 

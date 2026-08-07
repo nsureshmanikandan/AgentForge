@@ -362,6 +362,47 @@ def test_http_client_error_is_not_retried_server_error_is():
     assert "raise HTTPStepError" in rt
 
 
+def test_http_4xx_is_not_actually_retried_at_runtime(tmp_path, monkeypatch):
+    # Regression test: string-only assertions (like the test above) can't
+    # catch this class of bug -- retry_if_exception_type(Exception) matches
+    # HTTPStepError too (it's an Exception subclass), so the OLD code
+    # retried a 4xx three times despite raising HTTPStepError specifically
+    # to signal "don't retry this." Confirmed live via the generated
+    # tests/test_workflow.py::test_call_http_request_does_not_retry_on_4xx,
+    # which failed with call_count == 3 before this fix. This test actually
+    # imports and executes the generated runtime.py, not just greps its
+    # source, so it can't be fooled by matching text with wrong behavior.
+    import sys
+    import httpx
+    nodes, edges = _fraud_triage()
+    files = export_workflow(nodes, edges, "x", "langgraph")
+    runtime_path = tmp_path / "runtime.py"
+    runtime_path.write_text(files["runtime.py"], encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    sys.modules.pop("runtime", None)
+    import runtime as generated_runtime
+
+    call_count = {"n": 0}
+
+    class FakeResponse:
+        status_code = 400
+        text = "bad request"
+
+    class FakeClient:
+        def __init__(self, *a, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def request(self, *a, **kw):
+            call_count["n"] += 1
+            return FakeResponse()
+
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+    with pytest.raises(generated_runtime.HTTPStepError):
+        generated_runtime.call_http_request("https://example.test", "GET", "", "", "")
+    assert call_count["n"] == 1  # must NOT retry a 4xx
+    sys.modules.pop("runtime", None)
+
+
 def test_runtime_has_opentelemetry_observability():
     nodes, edges = _fraud_triage()
     for fw in FRAMEWORKS:
