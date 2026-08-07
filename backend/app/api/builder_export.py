@@ -339,6 +339,140 @@ if __name__ == "__main__":
 '''
 
 
+_COMMON_TEST_BODY = '''"""
+Generated tests for this workflow export. Mocks the LLM/HTTP layer entirely --
+no network calls or API keys required to run this suite.
+
+Run: pytest tests/test_workflow.py -v
+"""
+import pytest
+
+
+def test_evaluate_condition_fails_closed_on_malformed_rule():
+    from runtime import evaluate_condition
+    assert evaluate_condition("not a valid ) expression (", {}) == "false"
+
+
+def test_evaluate_condition_true_and_false_paths():
+    from runtime import evaluate_condition
+    assert evaluate_condition("risk_score >= 50", {"risk_score": 80}) == "true"
+    assert evaluate_condition("risk_score >= 50", {"risk_score": 10}) == "false"
+
+
+def test_call_http_request_retries_then_raises_on_persistent_5xx(monkeypatch):
+    import httpx
+    from runtime import call_http_request, HTTPStepError
+
+    class FakeResponse:
+        status_code = 503
+        text = "server error"
+        def raise_for_status(self):
+            raise httpx.HTTPStatusError("503", request=None, response=self)
+
+    class FakeClient:
+        def __init__(self, *a, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def request(self, *a, **kw): return FakeResponse()
+
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+    with pytest.raises(HTTPStepError):
+        call_http_request("https://example.test", "GET", "", "", "")
+
+
+def test_call_http_request_does_not_retry_on_4xx(monkeypatch):
+    import httpx
+    from runtime import call_http_request, HTTPStepError
+
+    call_count = {"n": 0}
+
+    class FakeResponse:
+        status_code = 400
+        text = "bad request"
+
+    class FakeClient:
+        def __init__(self, *a, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def request(self, *a, **kw):
+            call_count["n"] += 1
+            return FakeResponse()
+
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+    with pytest.raises(HTTPStepError):
+        call_http_request("https://example.test", "GET", "", "", "")
+    assert call_count["n"] == 1  # no retry on a 4xx
+'''
+
+_PERSISTENCE_TEST_BODY = '''
+
+def test_pause_resume_roundtrip(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHECKPOINT_DB_PATH", str(tmp_path / "test_checkpoints.db"))
+    import importlib
+    import runtime
+    importlib.reload(runtime)
+    runtime.save_pause("test-run-1", "node_x", {"output": "hello"}, approver_email="a@b.com", node_label="Approve")
+    loaded = runtime.load_pause("test-run-1")
+    assert loaded is not None
+    assert loaded["node_id"] == "node_x"
+    assert loaded["context"] == {"output": "hello"}
+    pending = runtime.list_pending()
+    assert any(p["run_id"] == "test-run-1" for p in pending)
+    runtime.clear_pause("test-run-1")
+    assert runtime.load_pause("test-run-1") is None
+'''
+
+
+def _langgraph_test_suite() -> str:
+    return _COMMON_TEST_BODY + '''
+
+def test_langgraph_graph_builds():
+    import main
+    assert main.compiled is not None
+    assert main.graph is not None
+'''
+
+
+def _ms_agent_framework_test_suite() -> str:
+    return _COMMON_TEST_BODY + _PERSISTENCE_TEST_BODY + '''
+
+def test_ms_agent_framework_workflow_builds():
+    import main
+    assert main.workflow is not None
+'''
+
+
+def _crewai_test_suite(flat_nodes: list[dict], edges: list[dict]) -> str:
+    condition_nodes = [n for n in flat_nodes if n["role"] in ("condition", "router")]
+    branch_assertions: list[str] = []
+    for cnode in condition_nodes:
+        outs = _outgoing(edges, cnode["id"])
+        for e in outs:
+            target_var = _safe_id(e["target"])
+            branch_lit = json.dumps(str(e.get("label") or ""))
+            test_name = f'test_branch_{_safe_id(cnode["id"])}_to_{target_var}'
+            branch_assertions.append(
+                f'def {test_name}():\n'
+                f'    """Reaching branch {branch_lit} from {json.dumps(cnode["id"])} must route to '
+                f'{json.dumps(e["target"])} -- this is the exact assertion shape that would have caught '
+                f'the branch-dispatch double-execution bug fixed in this export generator (see runtime.py\'s '
+                f'run_graph()/_next_node_after())."""\n'
+                f'    import main\n'
+                f'    from runtime import _next_node_after\n'
+                f'    context = {{"output": "test input", "branch": {branch_lit}}}\n'
+                f'    result = _next_node_after(main.NODES, main.EDGES, {json.dumps(cnode["id"])}, context)\n'
+                f'    assert result == {json.dumps(e["target"])}\n'
+            )
+    return _COMMON_TEST_BODY + _PERSISTENCE_TEST_BODY + '''
+
+def test_crewai_workflow_data_builds():
+    import main
+    assert main.NODES
+    assert main.EDGES
+    assert main.HANDLERS
+''' + "\n\n" + "\n\n".join(branch_assertions)
+
+
 # ─── Shared runtime.py content (settings, retry, OTel, persistence) ────────
 #
 # Every export ships a `runtime.py` alongside its workflow-specific `main.py`.
@@ -993,6 +1127,7 @@ if __name__ == "__main__":
         "runtime.py": runtime_py,
         "foundry_main.py": _foundry_wrapper_langgraph(),
         "azure.yaml": _azure_yaml(workflow_name),
+        "tests/test_workflow.py": _langgraph_test_suite(),
         "requirements.txt": requirements,
         "requirements-dev.txt": "pytest==8.3.4\npytest-asyncio==0.25.2\n",
         ".env.example": _env_example(),
@@ -1318,6 +1453,7 @@ if __name__ == "__main__":
         "runtime.py": runtime_py,
         "foundry_main.py": _foundry_wrapper_ms_agent_framework(),
         "azure.yaml": _azure_yaml(workflow_name),
+        "tests/test_workflow.py": _ms_agent_framework_test_suite(),
         "requirements.txt": requirements,
         "requirements-dev.txt": "pytest==8.3.4\npytest-asyncio==0.25.2\n",
         ".env.example": _env_example(),
@@ -1620,6 +1756,7 @@ if __name__ == "__main__":
         "runtime.py": runtime_py,
         "foundry_main.py": _foundry_wrapper_crewai(),
         "azure.yaml": _azure_yaml(workflow_name),
+        "tests/test_workflow.py": _crewai_test_suite(flat, edges),
         "requirements.txt": requirements,
         "requirements-dev.txt": "pytest==8.3.4\npytest-asyncio==0.25.2\n",
         ".env.example": _env_example(),

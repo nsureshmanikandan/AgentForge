@@ -167,7 +167,7 @@ def test_full_project_shape(fixture_name, framework):
     nodes, edges = ALL_FIXTURES[fixture_name]()
     files = export_workflow(nodes, edges, fixture_name, framework)
     assert set(files.keys()) == {
-        "main.py", "runtime.py", "foundry_main.py", "azure.yaml",
+        "main.py", "runtime.py", "foundry_main.py", "azure.yaml", "tests/test_workflow.py",
         "requirements.txt", "requirements-dev.txt",
         ".env.example", ".gitignore", ".dockerignore", "Dockerfile", "README.md",
     }
@@ -176,6 +176,7 @@ def test_full_project_shape(fixture_name, framework):
     assert "LLM_PROVIDER" in files[".env.example"]
     ast.parse(files["runtime.py"])
     ast.parse(files["foundry_main.py"])
+    ast.parse(files["tests/test_workflow.py"])
     assert "codeConfiguration" in files["azure.yaml"]
 
 
@@ -446,6 +447,27 @@ def test_msaf_and_crewai_foundry_wrapper_present():
         assert "@app.response_handler" in fm
         assert "TextResponse" in fm
         assert "azure-ai-agentserver-responses==" in files["requirements.txt"]
+
+
+def test_generated_test_suite_present_and_valid():
+    nodes, edges = _support_supervisor()
+    for fw in FRAMEWORKS:
+        files = export_workflow(nodes, edges, "x", fw)
+        key = "tests/test_workflow.py"
+        assert key in files
+        ast.parse(files[key])
+        assert "def test_" in files[key]
+        assert "monkeypatch" in files[key]
+        assert "pytest==" in files["requirements-dev.txt"]
+
+
+def test_crewai_generated_tests_cover_every_branch():
+    nodes, edges = _support_supervisor()
+    files = export_workflow(nodes, edges, "x", "crewai")
+    src = files["tests/test_workflow.py"]
+    # s3 (Case Router) has two outgoing edges: true->s4, false->s5.
+    assert "def test_branch_s3_to_s4():" in src
+    assert "def test_branch_s3_to_s5():" in src
 
 
 def test_azure_is_default_provider_in_env_example():
