@@ -166,10 +166,14 @@ def test_full_project_shape(fixture_name, framework):
     """Every export is a full downloadable project, not just a bare script."""
     nodes, edges = ALL_FIXTURES[fixture_name]()
     files = export_workflow(nodes, edges, fixture_name, framework)
-    assert set(files.keys()) == {"main.py", "requirements.txt", ".env.example", "Dockerfile", "README.md"}
+    assert set(files.keys()) == {
+        "main.py", "runtime.py", "requirements.txt", "requirements-dev.txt",
+        ".env.example", ".gitignore", ".dockerignore", "Dockerfile", "README.md",
+    }
     assert files["requirements.txt"].strip()
     assert "FROM python" in files["Dockerfile"]
     assert "LLM_PROVIDER" in files[".env.example"]
+    ast.parse(files["runtime.py"])
 
 
 # ─── Per-framework: real SDK constructs actually appear ────────────────────
@@ -182,17 +186,19 @@ def test_langgraph_uses_real_stategraph():
     assert "StateGraph(WorkflowState)" in src
     assert "add_conditional_edges(" in src  # router node present
     assert "interrupt(" in src  # approval node present
-    assert "MemorySaver" in src  # required for interrupt() to function at all
+    assert "SqliteSaver" in src  # durable checkpointer, required for interrupt() to survive a restart
     assert "langgraph==" in files["requirements.txt"]
+    assert "langgraph-checkpoint-sqlite==" in files["requirements.txt"]
 
 
 def test_langgraph_no_checkpointer_without_approval():
-    """Stateless-by-default: only add the MemorySaver when an approval node
+    """Stateless-by-default: only add a checkpointer when an approval node
     actually needs interrupt() to work -- never persist by default otherwise."""
     nodes, edges = _travel_expense_multi_agent()
     files = export_workflow(nodes, edges, "Travel Expense", "langgraph")
-    assert "MemorySaver" not in files["main.py"]
+    assert "SqliteSaver" not in files["main.py"]
     assert "compiled = graph.compile()" in files["main.py"]
+    assert "langgraph-checkpoint-sqlite==" not in files["requirements.txt"]
 
 
 def test_ms_agent_framework_uses_real_chatagent_and_workflowbuilder():
@@ -243,11 +249,42 @@ def test_crewai_branching_and_approval_use_documented_custom_glue():
     assert "no native human-in-the-loop pause primitive" in files["README.md"]
 
 
+def test_crewai_graph_engine_resumes_correctly():
+    # Regression test: the driver's main loop used to append an unconditional
+    # `run_{var}(context)` call for EVERY node in topological order, even
+    # nodes only reachable via a condition/router's branch dispatch -- e.g.
+    # the "false"/billing branch would complete successfully and then
+    # immediately hit the "true"/approval branch's unconditional call, which
+    # unconditionally raises WorkflowPaused regardless of which branch was
+    # actually taken. Confirmed live against a real Azure OpenAI deployment
+    # before the fix. The fix replaces that bespoke per-workflow control flow
+    # with a fixed, shared run_graph() engine (runtime.py) walking NODES/EDGES
+    # data -- so this class of bug can't be reintroduced by a future export.
+    nodes, edges = _support_supervisor()
+    files = export_workflow(nodes, edges, "Support Supervisor", "crewai")
+    src = files["main.py"]
+    ast.parse(src)
+    assert "NODES = {" in src
+    assert "EDGES = [" in src
+    assert "from runtime import (" in src and "run_graph" in src
+    assert "def _run_s2(context: dict) -> dict:" in src  # per-node handler still generated
+    # No bespoke if/elif branch dispatch left in main.py -- that logic now
+    # lives once in runtime.py's run_graph()/_next_node_after(), not
+    # regenerated per workflow.
+    assert 'if context.get("branch") ==' not in src
+    assert "null" not in src  # JSON `null` is a Python NameError, not None -- regression guard
+    rt = files["runtime.py"]
+    assert "def run_graph(" in rt
+    assert "def _next_node_after(" in rt
+    assert "resume_from" in rt
+    assert "class WorkflowPaused" in rt
+
+
 def test_crewai_memory_warning_present_in_readme():
     nodes, edges = _wire_transfer_approval()
     files = export_workflow(nodes, edges, "Wire Transfer", "crewai")
     assert "local file storage" in files["README.md"]
-    assert "does not survive in a containerized deployment" in files["README.md"]
+    assert "SQLite-backed durable checkpointing" in files["README.md"]
 
 
 def test_two_chained_http_calls_both_present():
@@ -270,6 +307,106 @@ def test_unknown_framework_raises():
 def test_empty_nodes_raises():
     with pytest.raises(ValueError, match="empty workflow"):
         export_workflow([], [], "Test", "langgraph")
+
+
+def test_gitignore_and_dockerignore_present_and_correct():
+    nodes, edges = _fraud_triage()
+    for fw in FRAMEWORKS:
+        files = export_workflow(nodes, edges, "x", fw)
+        assert ".env" in files[".gitignore"]
+        assert "!.env.example" in files[".gitignore"]
+        assert "*.db" in files[".gitignore"]
+        assert ".env" in files[".dockerignore"]
+        assert "tests/" in files[".dockerignore"]
+
+
+def test_runtime_settings_validates_provider_env_vars():
+    nodes, edges = _fraud_triage()
+    for fw in FRAMEWORKS:
+        files = export_workflow(nodes, edges, "x", fw)
+        rt = files["runtime.py"]
+        ast.parse(rt)
+        assert "class ConfigError" in rt
+        assert "pydantic_settings" in rt
+        assert "def load_settings" in rt
+        assert "pydantic-settings==" in files["requirements.txt"]
+
+
+def test_runtime_has_retry_and_typed_exceptions():
+    nodes, edges = _fraud_triage()
+    for fw in FRAMEWORKS:
+        files = export_workflow(nodes, edges, "x", fw)
+        rt = files["runtime.py"]
+        assert "class LLMCallError" in rt
+        assert "class HTTPStepError" in rt
+        assert "from tenacity import" in rt
+        assert "def call_http_request" in rt
+        assert "tenacity==" in files["requirements.txt"]
+        # call_http_request/evaluate_condition must live in runtime.py only --
+        # main.py should import them, not redefine them.
+        assert "def call_http_request" not in files["main.py"]
+        assert "def evaluate_condition" not in files["main.py"]
+        assert "call_http_request" in files["main.py"]
+        assert "evaluate_condition" in files["main.py"]
+
+
+def test_http_client_error_is_not_retried_server_error_is():
+    nodes, edges = _fraud_triage()
+    files = export_workflow(nodes, edges, "x", "langgraph")
+    rt = files["runtime.py"]
+    assert "400 <= response.status_code < 500" in rt
+    assert "raise HTTPStepError" in rt
+
+
+def test_runtime_has_opentelemetry_observability():
+    nodes, edges = _fraud_triage()
+    for fw in FRAMEWORKS:
+        files = export_workflow(nodes, edges, "x", fw)
+        rt = files["runtime.py"]
+        assert "def configure_observability" in rt
+        assert "configure_azure_monitor" in rt
+        assert "APPLICATIONINSIGHTS_CONNECTION_STRING" in rt
+        assert "def traced_step" in rt
+        assert "def node_span" in rt
+        assert "workflow_run_id" in rt
+        assert "azure-monitor-opentelemetry==" in files["requirements.txt"]
+        assert "opentelemetry-api==" in files["requirements.txt"]
+        assert "@node_span(" in files["main.py"]
+
+
+def test_dockerfile_is_hardened():
+    nodes, edges = _fraud_triage()
+    files = export_workflow(nodes, edges, "x", "langgraph")
+    dockerfile = files["Dockerfile"]
+    assert "FROM python:3.12.8-slim AS builder" in dockerfile
+    assert "useradd" in dockerfile
+    assert "USER appuser" in dockerfile
+    assert "HEALTHCHECK" in dockerfile
+    assert "PYTHONDONTWRITEBYTECODE" in dockerfile
+    assert "PYTHONUNBUFFERED" in dockerfile
+
+
+def test_runtime_has_sqlite_persistence_helpers():
+    nodes, edges = _support_supervisor()
+    for fw in ("ms_agent_framework", "crewai"):
+        files = export_workflow(nodes, edges, "x", fw)
+        rt = files["runtime.py"]
+        assert "def save_pause" in rt
+        assert "def load_pause" in rt
+        assert "def list_pending" in rt
+        assert "CHECKPOINT_DB_PATH" in rt
+        assert "CREATE TABLE IF NOT EXISTS" in rt
+
+
+def test_ms_agent_framework_persists_and_resumes_approval():
+    nodes, edges = _support_supervisor()
+    files = export_workflow(nodes, edges, "x", "ms_agent_framework")
+    src = files["main.py"]
+    ast.parse(src)
+    assert "from runtime import (" in src
+    assert "save_pause(" in src
+    assert "--resume" in src
+    assert "def _resume_run" in src
 
 
 def test_azure_is_default_provider_in_env_example():

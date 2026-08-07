@@ -133,15 +133,58 @@ def _env_example() -> str:
     )
 
 
-def _dockerfile(entry_module: str) -> str:
+def _gitignore() -> str:
     return (
-        "FROM python:3.12-slim\n"
-        "WORKDIR /app\n"
-        "COPY requirements.txt .\n"
-        "RUN pip install --no-cache-dir -r requirements.txt\n"
-        "COPY . .\n"
-        f'CMD ["python", "{entry_module}"]\n'
+        ".env\n"
+        "!.env.example\n"
+        "__pycache__/\n"
+        "*.pyc\n"
+        "*.db\n"
+        ".pytest_cache/\n"
+        ".venv/\n"
+        "venv/\n"
     )
+
+
+def _dockerignore() -> str:
+    return (
+        ".env\n"
+        ".git/\n"
+        "__pycache__/\n"
+        "*.pyc\n"
+        "*.db\n"
+        ".pytest_cache/\n"
+        "tests/\n"
+        "requirements-dev.txt\n"
+        "README.md\n"
+    )
+
+
+def _dockerfile(entry_module: str) -> str:
+    return f'''FROM python:3.12.8-slim AS builder
+WORKDIR /app
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+FROM python:3.12.8-slim
+WORKDIR /app
+ENV PATH="/opt/venv/bin:$PATH" \\
+    PYTHONDONTWRITEBYTECODE=1 \\
+    PYTHONUNBUFFERED=1
+RUN apt-get update && apt-get install -y --no-install-recommends curl \\
+    && rm -rf /var/lib/apt/lists/* \\
+    && useradd --create-home --shell /bin/bash appuser
+COPY --from=builder /opt/venv /opt/venv
+COPY . .
+RUN chown -R appuser:appuser /app
+USER appuser
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \\
+    CMD curl -f http://localhost:8088/readiness || exit 1
+EXPOSE 8088
+CMD ["python", "foundry_main.py"]
+'''
 
 
 def _readme(framework: str, workflow_name: str, extra_notes: str, memory_note: str) -> str:
@@ -154,16 +197,414 @@ def _readme(framework: str, workflow_name: str, extra_notes: str, memory_note: s
         "pip install -r requirements.txt\n"
         "python main.py \"your test input text here\"\n"
         "```\n\n"
-        "## Deploying\n\n"
-        "This project ships with a `Dockerfile`, so it's ready for Azure AI Foundry's "
-        "Hosted Agents (which natively support LangGraph, Microsoft Agent Framework, and "
-        "CrewAI -- no migration required) or any other container host. Set the same "
-        "environment variables from `.env.example` as the host's secrets/config, "
-        "not as a shipped `.env` file.\n\n"
+        "## Deploying to Azure AI Foundry\n\n"
+        "This project ships `foundry_main.py` and `azure.yaml`, so it deploys directly with "
+        "the Azure Developer CLI -- no manual wrapping needed:\n\n"
+        "```bash\n"
+        "azd ext install azure.ai.agents\n"
+        "azd auth login\n"
+        "azd up   # provisions the Foundry project + deploys foundry_main.py\n"
+        "```\n\n"
+        "Secrets are read via `azure.yaml`'s `${{connections.agent-secrets...}}` placeholders "
+        "-- create that connection in the Foundry portal under your project's "
+        "**Connected resources** before running `azd up`, rather than putting a literal key "
+        "in `azure.yaml`.\n\n"
         f"{extra_notes}\n"
+        "## Observability\n\n"
+        "This export is instrumented with OpenTelemetry (`runtime.py`'s "
+        "`configure_observability()`): once deployed to Foundry, traces flow automatically to "
+        "the project's Application Insights instance (Foundry injects "
+        "`APPLICATIONINSIGHTS_CONNECTION_STRING`) -- view them under **Investigate -> "
+        "Transaction search**. Locally, spans print to the console. Prompt/response content is "
+        "excluded from spans and logs by default (PII/secrets safety); set `OTEL_LOG_PROMPTS=true` "
+        "to include it for local debugging.\n\n"
         "## Memory & state\n\n"
         f"{memory_note}\n"
     )
+
+
+# ─── Shared runtime.py content (settings, retry, OTel, persistence) ────────
+#
+# Every export ships a `runtime.py` alongside its workflow-specific `main.py`.
+# runtime.py's content is per-FRAMEWORK (LangGraph doesn't need the generic
+# SQLite pause/resume helpers or the CrewAI graph engine; LangGraph gets its
+# own native SqliteSaver instead -- see _export_langgraph) but never
+# per-WORKFLOW: the same runtime.py is correct for every LangGraph export
+# regardless of which canvas graph produced it. This keeps the enterprise-
+# readiness infrastructure (retries, tracing, persistence) as fixed,
+# reviewable code rather than something regenerated -- and therefore
+# potentially reintroduced-with-a-bug -- on every export.
+
+_RUNTIME_SETTINGS_SNIPPET = '''
+import os
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class ConfigError(ValueError):
+    """Raised when required environment variables are missing or invalid."""
+
+
+class _AzureSettings(BaseSettings):
+    model_config = SettingsConfigDict(extra="ignore")
+    azure_openai_endpoint: str = Field(default="")
+    azure_openai_api_key: str = Field(default="")
+    azure_openai_deployment: str = Field(default="gpt-4o")
+    azure_openai_api_version: str = Field(default="2024-12-01-preview")
+
+
+class _GeminiSettings(BaseSettings):
+    model_config = SettingsConfigDict(extra="ignore")
+    gemini_api_key: str = Field(default="")
+    gemini_model: str = Field(default="gemini-3.1-flash-lite")
+
+
+class _LmStudioSettings(BaseSettings):
+    model_config = SettingsConfigDict(extra="ignore")
+    lmstudio_base_url: str = Field(default="http://localhost:1234/v1")
+    lmstudio_model: str = Field(default="qwen/qwen3.5-9b")
+
+
+def load_settings() -> dict:
+    """Validates the env vars required by LLM_PROVIDER and raises one clear
+    ConfigError listing everything missing, instead of letting a misconfigured
+    deployment fail deep inside an HTTP call with a cryptic auth error."""
+    provider = os.getenv("LLM_PROVIDER", "azure").lower()
+    missing: list[str] = []
+    if provider == "azure":
+        settings = _AzureSettings()
+        if not settings.azure_openai_endpoint:
+            missing.append("AZURE_OPENAI_ENDPOINT")
+        if not settings.azure_openai_api_key:
+            missing.append("AZURE_OPENAI_API_KEY")
+    elif provider == "gemini":
+        settings = _GeminiSettings()
+        if not settings.gemini_api_key:
+            missing.append("GEMINI_API_KEY")
+    elif provider == "lmstudio":
+        settings = _LmStudioSettings()
+    else:
+        raise ConfigError(f"Unknown LLM_PROVIDER={provider!r}. Expected azure, gemini, or lmstudio.")
+    if missing:
+        raise ConfigError(
+            f"Missing required environment variable(s) for LLM_PROVIDER={provider!r}: "
+            + ", ".join(missing)
+            + ". Copy .env.example to .env and fill them in, or set them in your deployment's secrets/config."
+        )
+    return settings.model_dump()
+'''
+
+_RUNTIME_RETRY_SNIPPET = '''
+import logging
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+logger = logging.getLogger("agentforge_export")
+
+
+class LLMCallError(Exception):
+    """Raised when an LLM call fails after all retries are exhausted."""
+
+
+class HTTPStepError(Exception):
+    """Raised when an http_request step fails after all retries are exhausted,
+    or immediately on a 4xx client error (never retried -- a bad request or
+    auth failure won't succeed by trying again)."""
+
+
+llm_retry = retry(
+    reraise=True,
+    stop=stop_after_attempt(int(os.getenv("LLM_MAX_RETRIES", "3"))),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+)
+
+http_retry = retry(
+    reraise=True,
+    stop=stop_after_attempt(int(os.getenv("HTTP_MAX_RETRIES", "3"))),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception_type(Exception),
+)
+
+
+def call_http_request(url: str, method: str, headers_raw: str, body_raw: str, previous_output: str) -> str:
+    import json as _json_mod
+    import httpx
+    url = url.replace("{{input}}", previous_output or "")
+    body_raw = body_raw.replace("{{input}}", previous_output or "") if body_raw else body_raw
+    headers = _json_mod.loads(headers_raw) if headers_raw else None
+    json_body, data_body = None, None
+    if body_raw:
+        try:
+            json_body = _json_mod.loads(body_raw)
+        except _json_mod.JSONDecodeError:
+            data_body = body_raw
+
+    @http_retry
+    def _do_request():
+        timeout = float(os.getenv("HTTP_TIMEOUT_SECONDS", "15.0"))
+        with httpx.Client(timeout=timeout) as client:
+            response = client.request(method, url, headers=headers, json=json_body, content=data_body)
+        if 400 <= response.status_code < 500:
+            raise HTTPStepError(f"{method} {url} failed with client error {response.status_code}: {response.text[:500]}")
+        response.raise_for_status()
+        return response.text[:4000]
+
+    try:
+        return _do_request()
+    except HTTPStepError:
+        raise
+    except Exception as e:
+        raise HTTPStepError(f"{method} {url} failed after retries: {e}") from e
+
+
+def evaluate_condition(rule: str, variables: dict) -> str:
+    """Same fail-closed simpleeval pattern as the live canvas engine
+    (backend/app/api/builder.py::_evaluate_condition) -- never uses eval().
+    A failed evaluation is logged (not silent) so a mis-routing condition is
+    visible in logs/traces instead of mute."""
+    from simpleeval import simple_eval
+    try:
+        return "true" if bool(simple_eval(rule, names=variables)) else "false"
+    except Exception as e:
+        logger.warning(f"condition {rule!r} failed to evaluate: {e}; defaulting to false")
+        return "false"
+'''
+
+_RUNTIME_OBSERVABILITY_SNIPPET = '''
+import json as _json
+import logging as _logging
+import uuid
+from contextlib import contextmanager
+
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
+
+_tracer = trace.get_tracer("agentforge.export")
+_ALLOWED_ATTRS = {"node_id", "role", "model", "branch", "http_status", "duration_ms", "workflow_run_id"}
+
+
+class _JsonLogFormatter(_logging.Formatter):
+    def format(self, record: _logging.LogRecord) -> str:
+        span = trace.get_current_span()
+        ctx = span.get_span_context()
+        payload = {
+            "timestamp": self.formatTime(record),
+            "level": record.levelname,
+            "message": record.getMessage(),
+            "trace_id": format(ctx.trace_id, "032x") if ctx.trace_id else None,
+            "span_id": format(ctx.span_id, "016x") if ctx.span_id else None,
+        }
+        return _json.dumps(payload)
+
+
+def configure_observability() -> None:
+    """Sets up OpenTelemetry: Azure Monitor exporter when Foundry (or any
+    Azure Monitor-backed host) has injected APPLICATIONINSIGHTS_CONNECTION_STRING,
+    otherwise a local console exporter. Also configures JSON structured
+    logging correlated to the active trace/span."""
+    handler = _logging.StreamHandler()
+    handler.setFormatter(_JsonLogFormatter())
+    root = _logging.getLogger()
+    root.handlers = [handler]
+    root.setLevel(_logging.INFO)
+
+    if os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+        from azure.monitor.opentelemetry import configure_azure_monitor
+        configure_azure_monitor()
+    else:
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+        provider = TracerProvider()
+        provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
+        trace.set_tracer_provider(provider)
+
+
+def new_run_id() -> str:
+    return uuid.uuid4().hex[:12]
+
+
+@contextmanager
+def traced_step(name: str, **attrs):
+    """Wraps one node/LLM/HTTP/condition step in a span. Only allow-listed
+    attribute keys are ever attached (see _ALLOWED_ATTRS) -- prompt/response
+    content is excluded unless OTEL_LOG_PROMPTS=true, to avoid leaking
+    business data or secrets into traces by default."""
+    with _tracer.start_as_current_span(name) as span:
+        for k, v in attrs.items():
+            if k in _ALLOWED_ATTRS:
+                span.set_attribute(k, v)
+        try:
+            yield span
+        except Exception as e:
+            span.set_status(Status(StatusCode.ERROR, str(e)))
+            span.record_exception(e)
+            raise
+
+
+def node_span(node_id: str, role: str):
+    """Decorator wrapping a generated node/executor function in a
+    traced_step span -- works for both sync (LangGraph/CrewAI) and async
+    (Microsoft Agent Framework @executor) functions without requiring the
+    decorated function's own body to be re-indented."""
+    import asyncio
+    import functools
+
+    def decorator(fn):
+        if asyncio.iscoroutinefunction(fn):
+            @functools.wraps(fn)
+            async def async_wrapper(*args, **kwargs):
+                with traced_step(f"node.{node_id}", node_id=node_id, role=role):
+                    return await fn(*args, **kwargs)
+            return async_wrapper
+
+        @functools.wraps(fn)
+        def sync_wrapper(*args, **kwargs):
+            with traced_step(f"node.{node_id}", node_id=node_id, role=role):
+                return fn(*args, **kwargs)
+        return sync_wrapper
+    return decorator
+'''
+
+_RUNTIME_PERSISTENCE_SNIPPET = '''
+import sqlite3
+from pathlib import Path
+from datetime import datetime, timezone
+
+_DB_PATH = Path(os.getenv("CHECKPOINT_DB_PATH", "./data/checkpoints.db"))
+
+
+def _connect() -> sqlite3.Connection:
+    _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(_DB_PATH))
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS paused_runs (
+            run_id TEXT PRIMARY KEY,
+            node_id TEXT NOT NULL,
+            context_json TEXT NOT NULL,
+            approver_email TEXT,
+            node_label TEXT,
+            paused_at TEXT NOT NULL
+        )"""
+    )
+    return conn
+
+
+def save_pause(run_id: str, node_id: str, context: dict, approver_email: str = "", node_label: str = "") -> None:
+    conn = _connect()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO paused_runs (run_id, node_id, context_json, approver_email, node_label, paused_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (run_id, node_id, _json.dumps(context), approver_email, node_label, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_pause(run_id: str):
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT node_id, context_json, approver_email, node_label, paused_at FROM paused_runs WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "node_id": row[0],
+            "context": _json.loads(row[1]),
+            "approver_email": row[2],
+            "node_label": row[3],
+            "paused_at": row[4],
+        }
+    finally:
+        conn.close()
+
+
+def clear_pause(run_id: str) -> None:
+    conn = _connect()
+    try:
+        conn.execute("DELETE FROM paused_runs WHERE run_id = ?", (run_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def list_pending() -> list:
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT run_id, node_id, node_label, approver_email, paused_at FROM paused_runs ORDER BY paused_at DESC"
+        ).fetchall()
+        return [
+            {"run_id": r[0], "node_id": r[1], "node_label": r[2], "approver_email": r[3], "paused_at": r[4]}
+            for r in rows
+        ]
+    finally:
+        conn.close()
+'''
+
+_CREWAI_GRAPH_ENGINE_SNIPPET = '''
+
+class WorkflowPaused(Exception):
+    """Raised by an approval node handler."""
+    def __init__(self, run_id: str, node_id: str, node_label: str, approver_email: str, context: dict):
+        self.run_id = run_id
+        self.node_id = node_id
+        self.node_label = node_label
+        self.approver_email = approver_email
+        self.context = context
+        super().__init__(f"Paused at '{node_label}' (run {run_id}) -- awaiting approval from {approver_email}")
+
+
+def _next_node_after(nodes: dict, edges: list, node_id: str, context: dict):
+    outs = [e for e in edges if e["source"] == node_id]
+    if not outs:
+        return None
+    role = nodes[node_id]["role"]
+    if role in ("condition", "router"):
+        branch = context.get("branch")
+        for e in outs:
+            if e.get("label") == branch:
+                return e["target"]
+        return None
+    return outs[0]["target"]
+
+
+def run_graph(nodes: dict, edges: list, handlers: dict, workflow_input: str, run_id: str, resume_from: str | None = None) -> str:
+    """Walks the node/edge graph defined as plain data, dispatching each node
+    to its handler function. Checkpoints (run_id, node_id, context) to SQLite
+    after every node so a crash or an approval pause can be resumed from
+    exactly where it left off, instead of restarting the whole workflow.
+
+    `handlers` maps node_id -> callable(context: dict) -> dict. Handlers for
+    condition/router nodes additionally set context["branch"], which this
+    engine uses (via the node's outgoing edges) to pick the next node."""
+    if resume_from is not None:
+        paused = load_pause(run_id)
+        if paused is None:
+            raise ValueError(f"No paused run found for run_id={run_id!r}")
+        context = paused["context"]
+        current = _next_node_after(nodes, edges, resume_from, context)
+    else:
+        context = {"output": workflow_input}
+        start = next(n["id"] for n in nodes.values() if n["role"] == "input")
+        current = _next_node_after(nodes, edges, start, context)
+
+    while current is not None:
+        node = nodes[current]
+        if node["role"] == "output":
+            clear_pause(run_id)
+            return context["output"]
+        try:
+            context = handlers[current](context)
+        except WorkflowPaused:
+            save_pause(run_id, current, context, approver_email=node.get("approver_email", ""), node_label=node.get("label", current))
+            raise
+        save_pause(run_id, current, context)
+        current = _next_node_after(nodes, edges, current, context)
+    return context.get("output", workflow_input)
+'''
 
 
 # ─── LangGraph ──────────────────────────────────────────────────────────────
@@ -298,16 +739,16 @@ def _export_langgraph(nodes: list[dict], edges: list[dict], workflow_name: str) 
             node_fn_lines.append(
                 f'def node_{var}(state: WorkflowState) -> WorkflowState:\n'
                 f'    """{node["label"]} (approval) -- pauses via interrupt() until a human resumes\n'
-                f'    with Command(resume=...). Requires the MemorySaver checkpointer below to\n'
-                f'    function at all -- that checkpointer is in-memory/process-local only (not\n'
-                f'    a persistent store), so this does not contradict the stateless-by-default\n'
-                f'    design: it just makes interrupt() work within one run.\n'
+                f'    with Command(resume=...). Requires the SqliteSaver checkpointer below to\n'
+                f'    function at all -- and (unlike the default in-memory MemorySaver) that\n'
+                f'    checkpointer is durable, so this pause survives a container restart.\n'
                 f'    """\n'
                 f'    decision = interrupt({{"node": {label_lit}, "approver_email": {approver_lit}, "context": state.get("output", state["input"])}})\n'
                 f'    state["output"] = str(decision)\n'
                 f'    return state\n'
             )
 
+        node_fn_lines[-1] = f'@node_span({json.dumps(nid)}, {json.dumps(role)})\n' + node_fn_lines[-1]
         add_node_lines.append(f'graph.add_node({json.dumps(nid)}, node_{var})')
 
     # Edges: plain edges vs. conditional edges (from a condition/router node)
@@ -330,8 +771,12 @@ def _export_langgraph(nodes: list[dict], edges: list[dict], workflow_name: str) 
     end_ids = [n["id"] for n in ordered if n["role"] == "output"]
 
     checkpointer_block = (
-        "from langgraph.checkpoint.memory import MemorySaver\n"
-        "compiled = graph.compile(checkpointer=MemorySaver())\n"
+        "import sqlite3\n"
+        "from langgraph.checkpoint.sqlite import SqliteSaver\n"
+        '_checkpoint_path = os.getenv("CHECKPOINT_DB_PATH", "./data/checkpoints.db")\n'
+        "os.makedirs(os.path.dirname(_checkpoint_path) or \".\", exist_ok=True)\n"
+        "_checkpointer = SqliteSaver(sqlite3.connect(_checkpoint_path, check_same_thread=False))\n"
+        "compiled = graph.compile(checkpointer=_checkpointer)\n"
         if has_approval else
         "compiled = graph.compile()\n"
     )
@@ -342,45 +787,24 @@ Workflow: {workflow_name}
 
 Real LangGraph StateGraph: every canvas node is a graph node, condition/router
 nodes use add_conditional_edges(), and the approval node uses interrupt().
+Enterprise infrastructure (settings validation, retries, OpenTelemetry
+tracing, HTTP/condition helpers) lives in runtime.py, shared verbatim across
+every LangGraph export.
 
 Run it:
     python main.py "your test input text here"
 """
 import json
+import os
 import sys
 from typing import TypedDict, Any
 
 from langgraph.graph import StateGraph
 from langgraph.types import interrupt, Command
-from simpleeval import simple_eval
-import httpx
+
+from runtime import load_settings, configure_observability, new_run_id, node_span, evaluate_condition, call_http_request
 
 {_LANGGRAPH_LLM_SNIPPET}
-
-def evaluate_condition(rule: str, variables: dict) -> str:
-    """Same fail-closed simpleeval pattern as the live canvas engine
-    (backend/app/api/builder.py::_evaluate_condition) -- never uses eval()."""
-    try:
-        return "true" if bool(simple_eval(rule, names=variables)) else "false"
-    except Exception:
-        return "false"
-
-
-def call_http_request(url: str, method: str, headers_raw: str, body_raw: str, previous_output: str) -> str:
-    url = url.replace("{{{{input}}}}", previous_output or "")
-    body_raw = body_raw.replace("{{{{input}}}}", previous_output or "") if body_raw else body_raw
-    headers = json.loads(headers_raw) if headers_raw else None
-    json_body, data_body = None, None
-    if body_raw:
-        try:
-            json_body = json.loads(body_raw)
-        except json.JSONDecodeError:
-            data_body = body_raw
-    with httpx.Client(timeout=15.0) as client:
-        response = client.request(method, url, headers=headers, json=json_body, content=data_body)
-    response.raise_for_status()
-    return response.text[:4000]
-
 
 class WorkflowState(TypedDict):
     input: str
@@ -403,8 +827,11 @@ graph.set_entry_point({json.dumps(entry_id)})
 {checkpointer_block}
 
 if __name__ == "__main__":
+    load_settings()
+    configure_observability()
     test_input = sys.argv[1] if len(sys.argv) > 1 else "Hello, I need help"
-    config = {{"configurable": {{"thread_id": "cli-run"}}}}
+    run_id = new_run_id()
+    config = {{"configurable": {{"thread_id": run_id}}}}
     result = compiled.invoke({{"input": test_input, "output": "", "context": {{}}, "_branch": ""}}, config=config)
     print(result.get("output", result))
 '''
@@ -416,24 +843,41 @@ if __name__ == "__main__":
         "simpleeval==1.0.3\n"
         "httpx==0.28.1\n"
         "python-dotenv==1.0.1\n"
+        "pydantic-settings==2.7.1\n"
+        "tenacity==9.0.0\n"
+        "azure-monitor-opentelemetry==1.6.4\n"
+        "opentelemetry-api==1.29.0\n"
+        + ("langgraph-checkpoint-sqlite==2.0.1\n" if has_approval else "")
+    )
+
+    runtime_py = (
+        _RUNTIME_SETTINGS_SNIPPET + "\n"
+        + _RUNTIME_RETRY_SNIPPET + "\n"
+        + _RUNTIME_OBSERVABILITY_SNIPPET
     )
 
     memory_note = (
-        "This export is **stateless by default** -- no persistent checkpointer or store, matching "
-        "the canvas's own current behavior. " +
-        ("An in-memory `MemorySaver` checkpointer is used because this workflow has an approval "
-         "node -- LangGraph's `interrupt()` requires a checkpointer to pause/resume at all, but "
-         "`MemorySaver` is process-local and does not persist across restarts. "
-         if has_approval else "") +
-        "To add real cross-session memory, swap in a `PostgresSaver` (thread-scoped) and/or the "
-        "`langmem` package with a `PostgresStore` (cross-thread, semantic) -- see "
-        "https://docs.langchain.com/oss/python/langgraph/persistence"
+        ("This export uses a **durable SQLite checkpointer** (`SqliteSaver`, see main.py) because "
+         "this workflow has an approval node -- LangGraph's `interrupt()` requires a checkpointer "
+         "to pause/resume at all, and SqliteSaver (unlike the default in-memory `MemorySaver`) "
+         "survives a container restart. Set `CHECKPOINT_DB_PATH` to control where the .db file "
+         "lives. "
+         if has_approval else
+         "This export is **stateless by default** -- no persistent checkpointer, matching the "
+         "canvas's own current behavior (no approval node in this workflow, so none is needed). ") +
+        "To add real cross-session conversational memory (not workflow-run persistence), swap in "
+        "a `PostgresSaver` (thread-scoped) and/or the `langmem` package with a `PostgresStore` "
+        "(cross-thread, semantic) -- see https://docs.langchain.com/oss/python/langgraph/persistence"
     )
 
     return {
         "main.py": script,
+        "runtime.py": runtime_py,
         "requirements.txt": requirements,
+        "requirements-dev.txt": "pytest==8.3.4\npytest-asyncio==0.25.2\n",
         ".env.example": _env_example(),
+        ".gitignore": _gitignore(),
+        ".dockerignore": _dockerignore(),
         "Dockerfile": _dockerfile("main.py"),
         "README.md": _readme(
             "LangGraph", workflow_name,
@@ -511,6 +955,7 @@ def _export_ms_agent_framework(nodes: list[dict], edges: list[dict], workflow_na
         if role == "input":
             executor_defs.append(
                 f'@executor(id={json.dumps(var)})\n'
+                f'@node_span({json.dumps(nid)}, {json.dumps(role)})\n'
                 f'async def {var}(text: str, ctx: WorkflowContext) -> None:\n'
                 f'    """{node["label"]} (input)."""\n'
                 f'    await ctx.send_message(text)\n'
@@ -518,6 +963,7 @@ def _export_ms_agent_framework(nodes: list[dict], edges: list[dict], workflow_na
         elif role == "output":
             executor_defs.append(
                 f'@executor(id={json.dumps(var)})\n'
+                f'@node_span({json.dumps(nid)}, {json.dumps(role)})\n'
                 f'async def {var}(message: Any, ctx: WorkflowContext) -> None:\n'
                 f'    """{node["label"]} (output)."""\n'
                 f'    result = message.get("output") if isinstance(message, dict) else message\n'
@@ -536,6 +982,7 @@ def _export_ms_agent_framework(nodes: list[dict], edges: list[dict], workflow_na
             body_lit = json.dumps(node["body"])
             executor_defs.append(
                 f'@executor(id={json.dumps(var)})\n'
+                f'@node_span({json.dumps(nid)}, {json.dumps(role)})\n'
                 f'async def {var}(message: Any, ctx: WorkflowContext) -> None:\n'
                 f'    """{node["label"]} (http_request)."""\n'
                 f'    text = message.get("output") if isinstance(message, dict) else message\n'
@@ -546,6 +993,7 @@ def _export_ms_agent_framework(nodes: list[dict], edges: list[dict], workflow_na
             rule_lit = json.dumps(node["rule"])
             executor_defs.append(
                 f'@executor(id={json.dumps(var)})\n'
+                f'@node_span({json.dumps(nid)}, {json.dumps(role)})\n'
                 f'async def {var}(message: Any, ctx: WorkflowContext) -> None:\n'
                 f'    """{node["label"]} (condition): {node["rule"]}"""\n'
                 f'    context = message if isinstance(message, dict) else {{"output": message}}\n'
@@ -558,6 +1006,7 @@ def _export_ms_agent_framework(nodes: list[dict], edges: list[dict], workflow_na
             labels_lit = json.dumps(labels)
             executor_defs.append(
                 f'@executor(id={json.dumps(var)})\n'
+                f'@node_span({json.dumps(nid)}, {json.dumps(role)})\n'
                 f'async def {var}(message: Any, ctx: WorkflowContext) -> None:\n'
                 f'    """{node["label"]} (router)."""\n'
                 f'    text = message.get("output") if isinstance(message, dict) else message\n'
@@ -573,15 +1022,17 @@ def _export_ms_agent_framework(nodes: list[dict], edges: list[dict], workflow_na
             approver_lit = json.dumps(node["approver_email"])
             executor_defs.append(
                 f'@executor(id={json.dumps(var)})\n'
+                f'@node_span({json.dumps(nid)}, {json.dumps(role)})\n'
                 f'async def {var}(message: Any, ctx: WorkflowContext) -> None:\n'
                 f'    """{node["label"]} (approval) -- CUSTOM GLUE: Microsoft Agent Framework has\n'
                 f'    no verified native long-running human-in-the-loop pause primitive at the\n'
-                f'    time this was generated, so this raises WorkflowPaused the same way the\n'
-                f'    LangGraph export uses interrupt() -- catch it, get a human decision (e.g.\n'
-                f"    via the emailed link pattern AgentForge's own live canvas engine uses),\n"
-                f'    then re-run with the decision appended to your input.\n'
+                f'    time this was generated, so this persists (run_id, node, context) to\n'
+                f'    SQLite via runtime.save_pause before raising WorkflowPaused -- the same\n'
+                f'    pattern the LangGraph export achieves natively via interrupt(), but manual\n'
+                f'    here. Resume with: python main.py --resume <run_id> --decision "approved"\n'
                 f'    """\n'
                 f'    text = message.get("output") if isinstance(message, dict) else message\n'
+                f'    save_pause(_run_id, {json.dumps(nid)}, {{"output": text}}, approver_email={approver_lit}, node_label={json.dumps(node["label"])})\n'
                 f'    raise WorkflowPaused({json.dumps(node["label"])}, {approver_lit}, text)\n'
             )
 
@@ -615,17 +1066,26 @@ Workflow: {workflow_name}
 Real agent-framework primitives: agent-like nodes are Agent + AgentExecutor,
 condition/router/http_request are @executor-decorated functions, and edges use
 WorkflowBuilder.add_edge(..., condition=lambda msg: ...) for branching.
+Enterprise infrastructure (settings validation, retries, OpenTelemetry
+tracing, SQLite pause/resume, HTTP/condition helpers) lives in runtime.py,
+shared verbatim across every Microsoft Agent Framework export.
 
 Run it:
     python main.py "your test input text here"
+    python main.py --resume <run_id> --decision "approved"
+    python main.py --list-pending
 """
-import json
+import argparse
+import asyncio
 import sys
 from typing import Any
 
 from agent_framework import Agent, AgentExecutor, WorkflowBuilder, WorkflowContext, executor
-from simpleeval import simple_eval
-import httpx
+from runtime import (
+    load_settings, configure_observability, new_run_id, node_span,
+    evaluate_condition, call_http_request,
+    save_pause, load_pause, clear_pause, list_pending,
+)
 
 {_MSAF_LLM_SNIPPET}
 
@@ -638,29 +1098,7 @@ class WorkflowPaused(Exception):
         super().__init__(f"Paused at '{{node_label}}' -- awaiting approval from {{approver_email}}")
 
 
-def evaluate_condition(rule: str, variables: dict) -> str:
-    """Same fail-closed simpleeval pattern as the live canvas engine
-    (backend/app/api/builder.py::_evaluate_condition) -- never uses eval()."""
-    try:
-        return "true" if bool(simple_eval(rule, names=variables)) else "false"
-    except Exception:
-        return "false"
-
-
-def call_http_request(url: str, method: str, headers_raw: str, body_raw: str, previous_output: str) -> str:
-    url = url.replace("{{{{input}}}}", previous_output or "")
-    body_raw = body_raw.replace("{{{{input}}}}", previous_output or "") if body_raw else body_raw
-    headers = json.loads(headers_raw) if headers_raw else None
-    json_body, data_body = None, None
-    if body_raw:
-        try:
-            json_body = json.loads(body_raw)
-        except json.JSONDecodeError:
-            data_body = body_raw
-    with httpx.Client(timeout=15.0) as client:
-        response = client.request(method, url, headers=headers, json=json_body, content=data_body)
-    response.raise_for_status()
-    return response.text[:4000]
+_run_id: str = ""
 
 
 {chr(10).join(executor_defs)}
@@ -670,18 +1108,52 @@ workflow_builder = WorkflowBuilder(start_executor={entry_var})
 workflow = workflow_builder.build()
 
 
-async def _main() -> None:
-    test_input = sys.argv[1] if len(sys.argv) > 1 else "Hello, I need help"
+async def _main(workflow_input: str) -> None:
     try:
-        await workflow.run(test_input)
+        await workflow.run(workflow_input)
         print("Workflow complete.")
     except WorkflowPaused as p:
-        print(f"Paused at '{{p.node_label}}' -- awaiting approval from {{p.approver_email}}. Context: {{p.context}}")
+        print(f"Paused at '{{p.node_label}}' (run {{_run_id}}) -- awaiting approval from {{p.approver_email}}. "
+              f"Context: {{p.context}}. Resume with: python main.py --resume {{_run_id}} --decision \\"approved\\"")
+
+
+def _resume_run(run_id: str, decision: str) -> None:
+    """Reconstructs a run starting from the persisted approval node's
+    decision. MS Agent Framework has no native sub-graph-from-node
+    entrypoint, so this re-runs workflow.run(decision) from the top with the
+    human decision as input -- correct as long as upstream nodes are safe to
+    re-run (e.g. no side-effecting http_request before the approval node);
+    for a workflow where that's not true, use paused["context"] to skip
+    already-completed steps manually instead of relying on this default."""
+    global _run_id
+    paused = load_pause(run_id)
+    if paused is None:
+        print(f"No paused run found for run_id={{run_id}}")
+        return
+    print(f"Resuming node '{{paused['node_id']}}' (run {{run_id}}) with decision: {{decision}}")
+    clear_pause(run_id)
+    _run_id = run_id
+    asyncio.run(_main(decision))
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(_main())
+    load_settings()
+    configure_observability()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input", nargs="?", default="Hello, I need help")
+    parser.add_argument("--resume", metavar="RUN_ID")
+    parser.add_argument("--decision", default="approved")
+    parser.add_argument("--list-pending", action="store_true")
+    args = parser.parse_args()
+
+    if args.list_pending:
+        for p in list_pending():
+            print(p)
+    elif args.resume:
+        _resume_run(args.resume, args.decision)
+    else:
+        _run_id = new_run_id()
+        asyncio.run(_main(args.input))
 '''
 
     requirements = (
@@ -689,6 +1161,17 @@ if __name__ == "__main__":
         "simpleeval==1.0.3\n"
         "httpx==0.28.1\n"
         "python-dotenv==1.0.1\n"
+        "pydantic-settings==2.7.1\n"
+        "tenacity==9.0.0\n"
+        "azure-monitor-opentelemetry==1.6.4\n"
+        "opentelemetry-api==1.29.0\n"
+    )
+
+    runtime_py = (
+        _RUNTIME_SETTINGS_SNIPPET + "\n"
+        + _RUNTIME_RETRY_SNIPPET + "\n"
+        + _RUNTIME_OBSERVABILITY_SNIPPET + "\n"
+        + _RUNTIME_PERSISTENCE_SNIPPET
     )
 
     memory_note = (
@@ -700,18 +1183,23 @@ if __name__ == "__main__":
     )
     approval_note = (
         "\n**Note on the approval node**: Microsoft Agent Framework's human-in-the-loop pause "
-        "primitives were still evolving at the time this was generated. This export uses a "
-        "custom `WorkflowPaused` exception (the same pattern LangGraph's `interrupt()` "
-        "achieves natively) -- verify against the current "
+        "primitives were still evolving at the time this was generated. This export persists "
+        "(run_id, node, context) to SQLite via runtime.py's save_pause before raising a custom "
+        "`WorkflowPaused` exception -- resume with "
+        "`python main.py --resume <run_id> --decision \"approved\"`. Verify against the current "
         "[Agent Framework docs](https://learn.microsoft.com/en-us/agent-framework/) before "
-        "relying on it for a real production pause/resume flow.\n\n"
+        "relying on this for a real production pause/resume flow.\n\n"
         if has_approval else ""
     )
 
     return {
         "main.py": script,
+        "runtime.py": runtime_py,
         "requirements.txt": requirements,
+        "requirements-dev.txt": "pytest==8.3.4\npytest-asyncio==0.25.2\n",
         ".env.example": _env_example(),
+        ".gitignore": _gitignore(),
+        ".dockerignore": _dockerignore(),
         "Dockerfile": _dockerfile("main.py"),
         "README.md": _readme(
             "Microsoft Agent Framework", workflow_name,
@@ -763,29 +1251,31 @@ def _export_crewai(nodes: list[dict], edges: list[dict], workflow_name: str) -> 
     has_branching = any(n["role"] in ("condition", "router") for n in flat)
 
     agent_defs: list[str] = []
-    step_fns: list[str] = []
-    driver_lines: list[str] = ['    context: dict = {"output": workflow_input}']
+    handler_defs: list[str] = []
+    nodes_data_lines: list[str] = []
+    handlers_map_lines: list[str] = []
 
     for node in ordered:
         nid = node["id"]
         var = _safe_id(nid)
         role = node["role"]
         label_lit = json.dumps(node["label"])
+        nodes_data_lines.append(
+            f'    {json.dumps(nid)}: {{"id": {json.dumps(nid)}, "role": {json.dumps(role)}, '
+            f'"label": {label_lit}, "approver_email": {json.dumps(node["approver_email"])}}},'
+        )
 
-        if role == "input":
-            continue  # handled by the driver's initial context, no step needed
-        if role == "output":
-            driver_lines.append(f'    # {node["label"]} (output)')
-            driver_lines.append('    return context["output"]')
-            continue
+        if role in ("input", "output"):
+            continue  # run_graph() handles these roles structurally, no handler needed
 
         if role in _AGENT_LIKE_ROLES:
             desc_lit = json.dumps(node["description"] or f'You are the {node["label"]} step in a workflow.')
             agent_defs.append(
                 f'{var}_agent = Agent(role={label_lit}, goal={desc_lit}, backstory={desc_lit}, llm=get_llm(), verbose=False)'
             )
-            step_fns.append(
-                f'def run_{var}(context: dict) -> dict:\n'
+            handler_defs.append(
+                f'@node_span({json.dumps(nid)}, {json.dumps(role)})\n'
+                f'def _run_{var}(context: dict) -> dict:\n'
                 f'    """{node["label"]} (role: {role})."""\n'
                 f'    task = Task(description=context["output"], expected_output="A helpful response.", agent={var}_agent)\n'
                 f'    crew = Crew(agents=[{var}_agent], tasks=[task], memory=False)\n'
@@ -799,43 +1289,38 @@ def _export_crewai(nodes: list[dict], edges: list[dict], workflow_name: str) -> 
                 f'        pass\n'
                 f'    return context\n'
             )
-            driver_lines.append(f'    context = run_{var}(context)  # {node["label"]}')
         elif role == "http_request":
             url_lit = json.dumps(node["url"])
             method_lit = json.dumps(node["method"] or "GET")
             headers_lit = json.dumps(node["headers"])
             body_lit = json.dumps(node["body"])
-            step_fns.append(
-                f'def run_{var}(context: dict) -> dict:\n'
+            handler_defs.append(
+                f'@node_span({json.dumps(nid)}, {json.dumps(role)})\n'
+                f'def _run_{var}(context: dict) -> dict:\n'
                 f'    """{node["label"]} (http_request) -- CUSTOM GLUE: CrewAI has no native\n'
                 f'    HTTP tool node, so this is a plain function call, same approach as a\n'
                 f'    CrewAI @tool would use internally."""\n'
                 f'    context["output"] = call_http_request({url_lit}, {method_lit}, {headers_lit}, {body_lit}, context["output"])\n'
                 f'    return context\n'
             )
-            driver_lines.append(f'    context = run_{var}(context)  # {node["label"]}')
         elif role == "condition":
             rule_lit = json.dumps(node["rule"])
-            step_fns.append(
-                f'def run_{var}(context: dict) -> dict:\n'
+            handler_defs.append(
+                f'@node_span({json.dumps(nid)}, {json.dumps(role)})\n'
+                f'def _run_{var}(context: dict) -> dict:\n'
                 f'    """{node["label"]} (condition): {node["rule"]} -- CUSTOM GLUE: CrewAI has\n'
-                f'    no native conditional-branching primitive between Tasks, so this is a\n'
-                f'    plain function the driver below calls to decide which branch runs next."""\n'
+                f'    no native conditional-branching primitive between Tasks, so run_graph()\n'
+                f'    (runtime.py) reads context["branch"] set here to pick the next node via\n'
+                f'    the EDGES data below, instead of hand-written if/elif dispatch."""\n'
                 f'    context["branch"] = evaluate_condition({rule_lit}, context)\n'
                 f'    return context\n'
             )
-            driver_lines.append(f'    context = run_{var}(context)  # {node["label"]}')
-            outs = _outgoing(edges, nid)
-            for e in outs:
-                branch = str(e.get("label") or "")
-                target_var = _safe_id(e["target"])
-                driver_lines.append(f'    if context.get("branch") == {json.dumps(branch)}:')
-                driver_lines.append(f'        context = run_{target_var}(context)  # -> {branch}')
         elif role == "router":
             labels = sorted({e.get("label") for e in _outgoing(edges, nid) if e.get("label")})
             labels_lit = json.dumps(labels)
-            step_fns.append(
-                f'def run_{var}(context: dict) -> dict:\n'
+            handler_defs.append(
+                f'@node_span({json.dumps(nid)}, {json.dumps(role)})\n'
+                f'def _run_{var}(context: dict) -> dict:\n'
                 f'    """{node["label"]} (router) -- CUSTOM GLUE: CrewAI has no native router\n'
                 f'    primitive, so a small classification Agent picks a branch label\n'
                 f'    explicitly."""\n'
@@ -847,47 +1332,43 @@ def _export_crewai(nodes: list[dict], edges: list[dict], workflow_name: str) -> 
                 f'    context["branch"] = chosen if chosen in labels else (labels[0] if labels else "")\n'
                 f'    return context\n'
             )
-            driver_lines.append(f'    context = run_{var}(context)  # {node["label"]}')
-            outs = _outgoing(edges, nid)
-            for e in outs:
-                branch = str(e.get("label") or "")
-                target_var = _safe_id(e["target"])
-                driver_lines.append(f'    if context.get("branch") == {json.dumps(branch)}:')
-                driver_lines.append(f'        context = run_{target_var}(context)  # -> {branch}')
         elif role == "approval":
             approver_lit = json.dumps(node["approver_email"])
-            step_fns.append(
-                f'def run_{var}(context: dict) -> dict:\n'
+            handler_defs.append(
+                f'@node_span({json.dumps(nid)}, {json.dumps(role)})\n'
+                f'def _run_{var}(context: dict) -> dict:\n'
                 f'    """{node["label"]} (approval) -- CUSTOM GLUE: CrewAI has no native\n'
-                f'    human-in-the-loop primitive at all, so this raises WorkflowPaused the\n'
-                f'    same way the LangGraph export uses interrupt() -- catch it, get a human\n'
-                f"    decision (e.g. via the emailed link pattern AgentForge's own live canvas\n"
-                f'    engine uses), then re-run with the decision appended to context["output"].\n'
+                f'    human-in-the-loop primitive. run_graph() (runtime.py) persists\n'
+                f'    (run_id, node_id, context) to SQLite via save_pause before this\n'
+                f'    WorkflowPaused propagates -- resume with:\n'
+                f'    python main.py --resume <run_id> --decision "approved"\n'
                 f'    """\n'
-                f'    raise WorkflowPaused({label_lit}, {approver_lit}, context["output"])\n'
+                f'    raise WorkflowPaused(context.get("_run_id", ""), {json.dumps(nid)}, {label_lit}, {approver_lit}, context)\n'
             )
-            driver_lines.append(f'    context = run_{var}(context)  # {node["label"]}')
+        handlers_map_lines.append(f'    {json.dumps(nid)}: _run_{var},')
 
     branch_note = (
-        "\n**Note on branching**: CrewAI has no native conditional/router primitive between "
-        "Tasks -- this export uses a plain Python driver function to decide which step runs "
-        "next, which is the documented, supported way to compose CrewAI with custom control "
-        "flow (a `Crew` per step rather than one `Crew.kickoff()` for the whole graph).\n\n"
+        "\n**Note on branching**: CrewAI has no native conditional/router primitive -- this "
+        "export represents the workflow as data (NODES/EDGES in main.py) walked by the shared, "
+        "unit-tested `run_graph()` engine in runtime.py, which is identical code for every "
+        "CrewAI export regardless of workflow shape (rather than bespoke per-workflow control "
+        "flow).\n\n"
         if has_branching else ""
     )
     approval_note = (
         "\n**Note on the approval node**: CrewAI has no native human-in-the-loop pause "
-        "primitive. This export uses a custom `WorkflowPaused` exception, the same pattern "
-        "the LangGraph export achieves natively via `interrupt()`.\n\n"
+        "primitive. `run_graph()` persists `(run_id, node_id, context)` to SQLite before the "
+        "`WorkflowPaused` exception propagates -- resume with "
+        "`python main.py --resume <run_id> --decision \"approved\"`.\n\n"
         if has_approval else ""
     )
     memory_note = (
-        "This export is **stateless by default** (`memory=False` on every `Crew`), matching "
-        "the canvas's own current behavior. If you turn on `memory=True`, know that CrewAI's "
-        "long-term and entity memory default to **local file storage** (SQLite/ChromaDB) -- "
-        "this does not survive in a containerized deployment (e.g. Azure AI Foundry Hosted "
-        "Agents) without swapping in a real backend first. See "
-        "https://docs.crewai.com/en/concepts/memory\n\n"
+        "This export uses **SQLite-backed durable checkpointing** (see runtime.py's "
+        "save_pause/load_pause/run_graph) so a paused approval or a crash mid-run survives a "
+        "container restart -- set `CHECKPOINT_DB_PATH` to control where the .db file lives. "
+        "CrewAI's own `Crew(memory=True)` long-term/entity memory (separate from this "
+        "workflow-level checkpointing) still defaults to **local file storage** (SQLite/"
+        "ChromaDB) if you turn it on -- see https://docs.crewai.com/en/concepts/memory\n\n"
         "**Known limitation with custom Azure deployment names**: CrewAI (via LiteLLM) decides "
         "whether to send a `stop` parameter by looking up `model=\"azure/<deployment>\"` in "
         "LiteLLM's model registry. A custom Azure deployment name/alias won't match any entry, "
@@ -898,76 +1379,97 @@ def _export_crewai(nodes: list[dict], edges: list[dict], workflow_name: str) -> 
         "return `False` for your deployment."
     )
 
+    # NOTE: deliberately NOT json.dumps()'d as one blob -- JSON's `null` is a
+    # valid Python *identifier* (not the same as `None`), so a naive
+    # json.dumps(edges) embedded into Python source parses fine with ast.parse
+    # but raises NameError at runtime for any edge without a label. Each
+    # field is dumped individually instead, using json.dumps(None) -> "null"
+    # replaced by the literal text "None" only for the label field specifically.
+    edges_data_lines = [
+        '    {"source": %s, "target": %s, "label": %s},' % (
+            json.dumps(e.get("source")),
+            json.dumps(e.get("target")),
+            json.dumps(e.get("label")) if e.get("label") is not None else "None",
+        )
+        for e in edges
+    ]
+    edges_data = "[\n" + "\n".join(edges_data_lines) + "\n]"
+
     script = f'''"""
 Auto-generated by AgentForge's Visual Workflow Builder -- CrewAI export.
 Workflow: {workflow_name}
 
-Real CrewAI primitives: agent-like nodes are Agent + Task + Crew. CrewAI has
-no native branching or human-in-the-loop primitive, so condition/router/
-approval nodes use small, clearly-marked custom glue functions instead --
-see each function's own docstring below.
+Real CrewAI primitives: agent-like nodes are Agent + Task + Crew. The graph
+itself (NODES/EDGES below) is plain data, walked by runtime.py's shared
+run_graph() engine -- see each node handler's own docstring for per-role
+custom glue. Enterprise infrastructure (settings validation, retries,
+OpenTelemetry tracing, SQLite pause/resume, HTTP/condition helpers) also
+lives in runtime.py, shared verbatim across every CrewAI export.
 
 Run it:
     python main.py "your test input text here"
+    python main.py --resume <run_id> --decision "approved"
+    python main.py --list-pending
 """
+import argparse
 import json
-import sys
 
 from crewai import Agent, Task, Crew
-from simpleeval import simple_eval
-import httpx
+from runtime import (
+    load_settings, configure_observability, new_run_id, node_span,
+    evaluate_condition, call_http_request,
+    save_pause, load_pause, clear_pause, list_pending,
+    run_graph, WorkflowPaused,
+)
 
 {_CREWAI_LLM_SNIPPET}
 
-class WorkflowPaused(Exception):
-    """Raised by an approval node -- see its docstring below."""
-    def __init__(self, node_label: str, approver_email: str, context: str):
-        self.node_label = node_label
-        self.approver_email = approver_email
-        self.context = context
-        super().__init__(f"Paused at '{{node_label}}' -- awaiting approval from {{approver_email}}")
-
-
-def evaluate_condition(rule: str, variables: dict) -> str:
-    """Same fail-closed simpleeval pattern as the live canvas engine
-    (backend/app/api/builder.py::_evaluate_condition) -- never uses eval()."""
-    try:
-        return "true" if bool(simple_eval(rule, names=variables)) else "false"
-    except Exception:
-        return "false"
-
-
-def call_http_request(url: str, method: str, headers_raw: str, body_raw: str, previous_output: str) -> str:
-    url = url.replace("{{{{input}}}}", previous_output or "")
-    body_raw = body_raw.replace("{{{{input}}}}", previous_output or "") if body_raw else body_raw
-    headers = json.loads(headers_raw) if headers_raw else None
-    json_body, data_body = None, None
-    if body_raw:
-        try:
-            json_body = json.loads(body_raw)
-        except json.JSONDecodeError:
-            data_body = body_raw
-    with httpx.Client(timeout=15.0) as client:
-        response = client.request(method, url, headers=headers, json=json_body, content=data_body)
-    response.raise_for_status()
-    return response.text[:4000]
-
-
 {chr(10).join(agent_defs)}
 
-{chr(10).join(step_fns)}
+{chr(10).join(handler_defs)}
 
-def run_workflow(workflow_input: str) -> str:
-{chr(10).join(driver_lines)}
-    return context.get("output", workflow_input)
+NODES = {{
+{chr(10).join(nodes_data_lines)}
+}}
+
+EDGES = {edges_data}
+
+HANDLERS = {{
+{chr(10).join(handlers_map_lines)}
+}}
+
+
+def main() -> None:
+    load_settings()
+    configure_observability()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input", nargs="?", default="Hello, I need help")
+    parser.add_argument("--resume", metavar="RUN_ID")
+    parser.add_argument("--decision", default="approved")
+    parser.add_argument("--list-pending", action="store_true")
+    args = parser.parse_args()
+
+    if args.list_pending:
+        for p in list_pending():
+            print(p)
+        return
+
+    run_id = args.resume or new_run_id()
+    workflow_input = args.decision if args.resume else args.input
+    try:
+        result = run_graph(NODES, EDGES, HANDLERS, workflow_input, run_id, resume_from=args.resume)
+        print(result)
+    except WorkflowPaused as p:
+        # Use our own `run_id` (known correct), not p.run_id -- the node
+        # handler that raises WorkflowPaused doesn't have access to the
+        # run_id itself (run_graph() injects it into persistence, not into
+        # the handler's context), so p.run_id is always empty.
+        print(f"Paused at '{{p.node_label}}' (run {{run_id}}) -- awaiting approval from {{p.approver_email}}. "
+              f"Resume with: python main.py --resume {{run_id}} --decision \\"approved\\"")
 
 
 if __name__ == "__main__":
-    test_input = sys.argv[1] if len(sys.argv) > 1 else "Hello, I need help"
-    try:
-        print(run_workflow(test_input))
-    except WorkflowPaused as p:
-        print(f"Paused at '{{p.node_label}}' -- awaiting approval from {{p.approver_email}}. Context: {{p.context}}")
+    main()
 '''
 
     requirements = (
@@ -975,12 +1477,28 @@ if __name__ == "__main__":
         "simpleeval==1.0.3\n"
         "httpx==0.28.1\n"
         "python-dotenv==1.0.1\n"
+        "pydantic-settings==2.7.1\n"
+        "tenacity==9.0.0\n"
+        "azure-monitor-opentelemetry==1.6.4\n"
+        "opentelemetry-api==1.29.0\n"
+    )
+
+    runtime_py = (
+        _RUNTIME_SETTINGS_SNIPPET + "\n"
+        + _RUNTIME_RETRY_SNIPPET + "\n"
+        + _RUNTIME_OBSERVABILITY_SNIPPET + "\n"
+        + _RUNTIME_PERSISTENCE_SNIPPET + "\n"
+        + _CREWAI_GRAPH_ENGINE_SNIPPET
     )
 
     return {
         "main.py": script,
+        "runtime.py": runtime_py,
         "requirements.txt": requirements,
+        "requirements-dev.txt": "pytest==8.3.4\npytest-asyncio==0.25.2\n",
         ".env.example": _env_example(),
+        ".gitignore": _gitignore(),
+        ".dockerignore": _dockerignore(),
         "Dockerfile": _dockerfile("main.py"),
         "README.md": _readme(
             "CrewAI", workflow_name,
