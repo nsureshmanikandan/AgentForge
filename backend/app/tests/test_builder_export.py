@@ -232,16 +232,43 @@ def test_ms_agent_framework_uses_real_chatagent_and_workflowbuilder():
     # 1.13.0) -- the real class is `Agent`. Asserting the class this
     # project actually exports and has run live, not the SDK docs site's
     # "latest" moniker, which tracks an unreleased version ahead of PyPI.
+    #
+    # Agent-like nodes are a plain @executor calling Agent(...).run()
+    # directly, NOT the SDK's own AgentExecutor wrapper (see
+    # test_ms_agent_framework_agent_node_parses_structured_output for why:
+    # AgentExecutor's opaque AgentExecutorResponse has no structured fields
+    # a downstream condition/router node could read).
     nodes, edges = _fraud_triage()
     files = export_workflow(nodes, edges, "Fraud Triage", "ms_agent_framework")
     src = files["main.py"]
-    assert "from agent_framework import Agent, AgentExecutor, AgentExecutorResponse, WorkflowBuilder" in src
+    assert "from agent_framework import Agent, WorkflowBuilder" in src
+    assert "AgentExecutor(" not in src  # not instantiated -- see docstring below for why
     assert "Agent(get_chat_client()," in src
-    assert "AgentExecutor(" in src
     assert "WorkflowBuilder(start_executor=" in src
     assert "@executor(id=" in src
     assert 'condition=lambda msg' in src  # router branching present
     assert "agent-framework-core==" in files["requirements.txt"]
+
+
+def test_ms_agent_framework_agent_node_parses_structured_output():
+    # Regression test: confirmed live that a condition/router node
+    # immediately downstream of an agent-like node always evaluated its rule
+    # against an undefined variable (e.g. "fraud_score >= 50" with no
+    # fraud_score anywhere in context) and silently failed closed to the
+    # same branch every time, regardless of what the classifier agent
+    # actually said -- because AgentExecutor's raw AgentExecutorResponse was
+    # never parsed into structured context fields. The agent-like node must
+    # call response.text and json.loads() it into context, same as the
+    # LangGraph/CrewAI exports already do.
+    nodes, edges = _fraud_triage()
+    files = export_workflow(nodes, edges, "x", "ms_agent_framework")
+    src = files["main.py"]
+    ast.parse(src)
+    assert "response = await" in src and "_agent.run(text)" in src
+    assert "result = response.text" in src
+    assert 'context = {"output": result}' in src
+    assert "context.update(parsed)" in src
+    assert "await ctx.send_message(context)" in src
 
 
 def test_ms_agent_framework_approval_uses_documented_custom_glue():
@@ -475,6 +502,42 @@ def test_ms_agent_framework_persists_and_resumes_approval():
     assert "def _resume_run" in src
 
 
+def test_ms_agent_framework_run_id_is_contextvar_not_plain_global():
+    # Regression test: a plain module-level `_run_id = ""` global is not
+    # safe for foundry_main.py's HTTP handler, where each request runs as
+    # its own asyncio Task -- two concurrent paused runs would clobber each
+    # other's run_id mid-flight. ContextVar gives each Task its own isolated
+    # value. Also confirms every read/write site was migrated consistently
+    # (a partial migration -- e.g. missing the "global _run_id" removal --
+    # would raise SyntaxError/NameError at import time, not silently no-op).
+    nodes, edges = _support_supervisor()
+    files = export_workflow(nodes, edges, "x", "ms_agent_framework")
+    src = files["main.py"]
+    ast.parse(src)
+    assert "from contextvars import ContextVar" in src
+    assert '_run_id: ContextVar[str] = ContextVar("run_id", default="")' in src
+    assert "global _run_id" not in src
+    assert "_run_id.get()" in src
+    assert "_run_id.set(" in src
+
+
+def test_ms_agent_framework_foundry_wrapper_supports_resume_over_http():
+    # Regression test: confirmed live that a paused approval node was
+    # reachable over the deployed HTTP endpoint (nothing stopped
+    # WorkflowPaused from propagating out of workflow.run()) but had no way
+    # to ever be resumed again once deployed -- main.py's --resume flag is
+    # local-CLI-only and isn't exposed through the Responses protocol.
+    nodes, edges = _support_supervisor()
+    files = export_workflow(nodes, edges, "x", "ms_agent_framework")
+    fm = files["foundry_main.py"]
+    ast.parse(fm)
+    assert "RESUME:" in fm
+    assert "_RESUME_PATTERN" in fm
+    assert "except WorkflowPaused as p:" in fm
+    assert "load_pause" in fm and "clear_pause" in fm
+    assert "_run_id.set(" in fm
+
+
 def test_ms_agent_framework_output_node_yields_not_sends():
     # Regression test: confirmed live that the output node MUST call
     # ctx.yield_output(), not ctx.send_message() -- send_message() only
@@ -489,7 +552,6 @@ def test_ms_agent_framework_output_node_yields_not_sends():
     ast.parse(src)
     assert "await ctx.yield_output(result)" in src
     assert "def _extract_text(message: Any) -> str:" in src
-    assert "AgentExecutorResponse" in src
 
 
 def test_ms_agent_framework_main_and_foundry_wrapper_extract_final_output():

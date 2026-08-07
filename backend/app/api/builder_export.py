@@ -380,30 +380,70 @@ def _foundry_wrapper_ms_agent_framework() -> str:
     of an answer. get_outputs() (reads events the output node's
     ctx.yield_output() call produced -- see _export_ms_agent_framework) is
     the real accessor for the actual result, confirmed against the
-    installed agent_framework SDK source directly."""
+    installed agent_framework SDK source directly.
+
+    Also handles resuming a paused approval node THROUGH the deployed
+    endpoint, not just main.py's local --resume CLI flag: send
+    "RESUME: <run_id> <decision>" as the message text (the run_id and
+    approver email are given back in the pause message below). Without
+    this, main.py's approval-node pause was reachable over HTTP (nothing
+    stopped WorkflowPaused from propagating out of workflow.run() here) but
+    had no way to ever be resumed again once deployed -- and worse, every
+    paused run was silently colliding under the same fallback run_id, since
+    this file never set one at all before this fix (see main.py's _run_id
+    ContextVar comment for why a plain module global wasn't safe for a
+    concurrent HTTP handler)."""
     return '''"""
 Foundry Hosted Agent entrypoint -- wraps this export's WorkflowBuilder-based
 workflow (see main.py) through the Responses protocol.
+
+Supports resuming a paused approval node directly through this deployed
+endpoint: send "RESUME: <run_id> <decision>" as the message text -- the
+run_id and approver email are given back to you in the pause message.
 """
 import os
+import re
 
-from main import workflow
+from main import workflow, WorkflowPaused, _run_id, new_run_id, load_pause, clear_pause
 from azure.ai.agentserver.responses import ResponsesAgentServerHost, TextResponse
 
 app = ResponsesAgentServerHost()
+
+_RESUME_PATTERN = re.compile(r"^\\s*RESUME:\\s*(\\S+)\\s+(.+)$", re.IGNORECASE)
 
 
 @app.response_handler
 async def handle(request, context, cancellation_signal):
     user_text = await context.get_input_text()
 
+    async def _run_and_extract(workflow_input: str) -> str:
+        try:
+            result = await workflow.run(workflow_input)
+            # get_outputs() reads events the output node's ctx.yield_output()
+            # call produced (see main.py's output-node executor +
+            # _extract_text) -- already a plain string by the time it
+            # reaches here.
+            outputs = result.get_outputs()
+            return str(outputs[-1]) if outputs else "Workflow completed with no output yielded."
+        except WorkflowPaused as p:
+            return (
+                f"Paused at '{p.node_label}' -- awaiting approval from {p.approver_email}. "
+                f"Context: {p.context}. To resume, send: RESUME: {_run_id.get()} approved"
+            )
+
     async def _get_text() -> str:
-        result = await workflow.run(user_text)
-        # get_outputs() reads events the output node's ctx.yield_output()
-        # call produced (see main.py's output-node executor + _extract_text)
-        # -- already a plain string by the time it reaches here.
-        outputs = result.get_outputs()
-        return str(outputs[-1]) if outputs else "Workflow completed with no output yielded."
+        resume_match = _RESUME_PATTERN.match(user_text)
+        if resume_match:
+            run_id, decision = resume_match.group(1), resume_match.group(2)
+            paused = load_pause(run_id)
+            if paused is None:
+                return f"No paused run found for run_id={run_id!r}."
+            clear_pause(run_id)
+            _run_id.set(run_id)
+            return await _run_and_extract(decision)
+
+        _run_id.set(new_run_id())
+        return await _run_and_extract(user_text)
 
     return TextResponse(context, request, text=_get_text)
 
@@ -1360,8 +1400,30 @@ def _export_ms_agent_framework(nodes: list[dict], edges: list[dict], workflow_na
         elif role in _AGENT_LIKE_ROLES:
             desc_lit = json.dumps(node["description"] or f'You are the {node["label"]} step in a workflow.')
             executor_defs.append(
-                f'{var}_agent = Agent(get_chat_client(), instructions={desc_lit}, name={label_lit})\n'
-                f'{var} = AgentExecutor({var}_agent, id={json.dumps(var)})\n'
+                f'{var}_agent = Agent(get_chat_client(), instructions={desc_lit}, name={label_lit})\n\n'
+                f'@executor(id={json.dumps(var)})\n'
+                f'@node_span({json.dumps(nid)}, {json.dumps(role)})\n'
+                f'async def {var}(message: Any, ctx: WorkflowContext) -> None:\n'
+                f'    """{node["label"]} (role: {role})."""\n'
+                f'    text = _extract_text(message)\n'
+                f'    response = await {var}_agent.run(text)\n'
+                f'    result = response.text\n'
+                f'    context = {{"output": result}}\n'
+                f'    # If the model returned JSON, merge its keys into context so a\n'
+                f'    # downstream condition/router node can reference them by name in its\n'
+                f'    # rule (e.g. a classifier returning {{"fraud_score": 82}}) -- confirmed\n'
+                f'    # live this is required: the SDK\'s own AgentExecutor wrapper (used here\n'
+                f'    # originally) hands back an opaque AgentExecutorResponse with no such\n'
+                f'    # structured fields, so a condition/router node immediately downstream of\n'
+                f'    # an agent-like node always failed closed to the same branch regardless of\n'
+                f'    # what the agent actually said.\n'
+                f'    try:\n'
+                f'        parsed = json.loads(result)\n'
+                f'        if isinstance(parsed, dict):\n'
+                f'            context.update(parsed)\n'
+                f'    except (json.JSONDecodeError, TypeError):\n'
+                f'        pass\n'
+                f'    await ctx.send_message(context)\n'
             )
         elif role == "http_request":
             url_lit = json.dumps(node["url"])
@@ -1401,7 +1463,7 @@ def _export_ms_agent_framework(nodes: list[dict], edges: list[dict], workflow_na
                 f'    labels = {labels_lit}\n'
                 f'    agent = Agent(get_chat_client(), instructions="Choose exactly one of these labels that best matches the intent: " + ", ".join(labels) + ". Return ONLY the label.")\n'
                 f'    reply = await agent.run(text)\n'
-                f'    chosen = str(reply).strip().strip(\'"\').strip("\'")\n'
+                f'    chosen = reply.text.strip().strip(\'"\').strip("\'")\n'
                 f'    branch = chosen if chosen in labels else (labels[0] if labels else "")\n'
                 f'    await ctx.send_message({{"output": text, "branch": branch}})\n'
             )
@@ -1419,8 +1481,8 @@ def _export_ms_agent_framework(nodes: list[dict], edges: list[dict], workflow_na
                 f'    pattern the LangGraph export achieves natively via interrupt(), but manual\n'
                 f'    here. Resume with: python main.py --resume <run_id> --decision "approved"\n'
                 f'    """\n'
-                f'    text = message.get("output") if isinstance(message, dict) else message\n'
-                f'    save_pause(_run_id, {json.dumps(nid)}, {{"output": text}}, approver_email={approver_lit}, node_label={json.dumps(node["label"])})\n'
+                f'    text = _extract_text(message)\n'
+                f'    save_pause(_run_id.get(), {json.dumps(nid)}, {{"output": text}}, approver_email={approver_lit}, node_label={json.dumps(node["label"])})\n'
                 f'    raise WorkflowPaused({json.dumps(node["label"])}, {approver_lit}, text)\n'
             )
 
@@ -1451,8 +1513,13 @@ Auto-generated by AgentForge's Visual Workflow Builder -- Microsoft Agent
 Framework export.
 Workflow: {workflow_name}
 
-Real agent-framework primitives: agent-like nodes are Agent + AgentExecutor,
-condition/router/http_request are @executor-decorated functions, and edges use
+Real agent-framework primitives: every node (including agent-like ones) is a
+plain @executor-decorated function that calls Agent(...).run() directly --
+NOT the SDK's own AgentExecutor wrapper, whose opaque AgentExecutorResponse
+has no structured fields a downstream condition/router node could read
+(confirmed live: this silently made every conditional branch after a
+classifier/agent node fail closed to the same default path regardless of
+what the agent actually said). Edges use
 WorkflowBuilder.add_edge(..., condition=lambda msg: ...) for branching.
 Enterprise infrastructure (settings validation, retries, OpenTelemetry
 tracing, SQLite pause/resume, HTTP/condition helpers) lives in agentforge_runtime.py,
@@ -1465,10 +1532,12 @@ Run it:
 """
 import argparse
 import asyncio
+import json
 import sys
+from contextvars import ContextVar
 from typing import Any
 
-from agent_framework import Agent, AgentExecutor, AgentExecutorResponse, WorkflowBuilder, WorkflowContext, executor
+from agent_framework import Agent, WorkflowBuilder, WorkflowContext, executor
 from agentforge_runtime import (
     load_settings, configure_observability, new_run_id, node_span,
     evaluate_condition, call_http_request,
@@ -1478,15 +1547,10 @@ from agentforge_runtime import (
 {_MSAF_LLM_SNIPPET}
 
 def _extract_text(message: Any) -> str:
-    """Normalizes the 3 message shapes a node can receive in this export:
-    an AgentExecutorResponse (straight from an agent-like node's
-    AgentExecutor -- its own .text is the clean assistant reply, confirmed
-    against the real agent_framework SDK source, not the raw dataclass repr
-    str() would give), this export's own {{"output": ..., "branch": ...}}
-    dict convention (condition/router/http_request nodes), or a plain string.
-    """
-    if isinstance(message, AgentExecutorResponse):
-        return message.agent_response.text
+    """Normalizes the message shapes a node can receive in this export:
+    this export's own {{"output": ..., "branch": ...}} dict convention
+    (produced by every node type after the input node), or a plain string
+    (the input node's own output)."""
     if isinstance(message, dict):
         return str(message.get("output", ""))
     return str(message)
@@ -1501,7 +1565,15 @@ class WorkflowPaused(Exception):
         super().__init__(f"Paused at '{{node_label}}' -- awaiting approval from {{approver_email}}")
 
 
-_run_id: str = ""
+# ContextVar, not a plain module global: foundry_main.py's HTTP handler runs
+# each request as its own asyncio Task, and a plain global would let two
+# concurrent requests clobber each other's run_id mid-flight (confirmed as a
+# real, not hypothetical, bug: foundry_main.py never set this at all before,
+# so every paused run over the deployed endpoint was already saving under
+# the same fallback run_id and silently overwriting each other in SQLite,
+# even without true concurrency). ContextVar gives each asyncio Task -- and
+# therefore each request -- its own isolated value.
+_run_id: ContextVar[str] = ContextVar("run_id", default="")
 
 
 {chr(10).join(executor_defs)}
@@ -1522,8 +1594,8 @@ async def _main(workflow_input: str) -> None:
         outputs = result.get_outputs()
         print(outputs[-1] if outputs else "Workflow completed with no output yielded.")
     except WorkflowPaused as p:
-        print(f"Paused at '{{p.node_label}}' (run {{_run_id}}) -- awaiting approval from {{p.approver_email}}. "
-              f"Context: {{p.context}}. Resume with: python main.py --resume {{_run_id}} --decision \\"approved\\"")
+        print(f"Paused at '{{p.node_label}}' (run {{_run_id.get()}}) -- awaiting approval from {{p.approver_email}}. "
+              f"Context: {{p.context}}. Resume with: python main.py --resume {{_run_id.get()}} --decision \\"approved\\"")
 
 
 def _resume_run(run_id: str, decision: str) -> None:
@@ -1534,14 +1606,13 @@ def _resume_run(run_id: str, decision: str) -> None:
     re-run (e.g. no side-effecting http_request before the approval node);
     for a workflow where that's not true, use paused["context"] to skip
     already-completed steps manually instead of relying on this default."""
-    global _run_id
     paused = load_pause(run_id)
     if paused is None:
         print(f"No paused run found for run_id={{run_id}}")
         return
     print(f"Resuming node '{{paused['node_id']}}' (run {{run_id}}) with decision: {{decision}}")
     clear_pause(run_id)
-    _run_id = run_id
+    _run_id.set(run_id)
     asyncio.run(_main(decision))
 
 
@@ -1561,7 +1632,7 @@ if __name__ == "__main__":
     elif args.resume:
         _resume_run(args.resume, args.decision)
     else:
-        _run_id = new_run_id()
+        _run_id.set(new_run_id())
         asyncio.run(_main(args.input))
 '''
 
