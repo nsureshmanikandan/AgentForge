@@ -211,7 +211,7 @@ def _readme(framework: str, workflow_name: str, extra_notes: str, memory_note: s
         "in `azure.yaml`.\n\n"
         f"{extra_notes}\n"
         "## Observability\n\n"
-        "This export is instrumented with OpenTelemetry (`runtime.py`'s "
+        "This export is instrumented with OpenTelemetry (`agentforge_runtime.py`'s "
         "`configure_observability()`): once deployed to Foundry, traces flow automatically to "
         "the project's Application Insights instance (Foundry injects "
         "`APPLICATIONINSIGHTS_CONNECTION_STRING`) -- view them under **Investigate -> "
@@ -316,7 +316,7 @@ workflow (see main.py) through the Responses protocol.
 import os
 
 from main import NODES, EDGES, HANDLERS
-from runtime import run_graph, new_run_id, load_settings, configure_observability
+from agentforge_runtime import run_graph, new_run_id, load_settings, configure_observability
 from azure.ai.agentserver.responses import ResponsesAgentServerHost, TextResponse
 
 app = ResponsesAgentServerHost()
@@ -349,19 +349,19 @@ import pytest
 
 
 def test_evaluate_condition_fails_closed_on_malformed_rule():
-    from runtime import evaluate_condition
+    from agentforge_runtime import evaluate_condition
     assert evaluate_condition("not a valid ) expression (", {}) == "false"
 
 
 def test_evaluate_condition_true_and_false_paths():
-    from runtime import evaluate_condition
+    from agentforge_runtime import evaluate_condition
     assert evaluate_condition("risk_score >= 50", {"risk_score": 80}) == "true"
     assert evaluate_condition("risk_score >= 50", {"risk_score": 10}) == "false"
 
 
 def test_call_http_request_retries_then_raises_on_persistent_5xx(monkeypatch):
     import httpx
-    from runtime import call_http_request, HTTPStepError
+    from agentforge_runtime import call_http_request, HTTPStepError
 
     class FakeResponse:
         status_code = 503
@@ -382,7 +382,7 @@ def test_call_http_request_retries_then_raises_on_persistent_5xx(monkeypatch):
 
 def test_call_http_request_does_not_retry_on_4xx(monkeypatch):
     import httpx
-    from runtime import call_http_request, HTTPStepError
+    from agentforge_runtime import call_http_request, HTTPStepError
 
     call_count = {"n": 0}
 
@@ -409,17 +409,17 @@ _PERSISTENCE_TEST_BODY = '''
 def test_pause_resume_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setenv("CHECKPOINT_DB_PATH", str(tmp_path / "test_checkpoints.db"))
     import importlib
-    import runtime
-    importlib.reload(runtime)
-    runtime.save_pause("test-run-1", "node_x", {"output": "hello"}, approver_email="a@b.com", node_label="Approve")
-    loaded = runtime.load_pause("test-run-1")
+    import agentforge_runtime
+    importlib.reload(agentforge_runtime)
+    agentforge_runtime.save_pause("test-run-1", "node_x", {"output": "hello"}, approver_email="a@b.com", node_label="Approve")
+    loaded = agentforge_runtime.load_pause("test-run-1")
     assert loaded is not None
     assert loaded["node_id"] == "node_x"
     assert loaded["context"] == {"output": "hello"}
-    pending = runtime.list_pending()
+    pending = agentforge_runtime.list_pending()
     assert any(p["run_id"] == "test-run-1" for p in pending)
-    runtime.clear_pause("test-run-1")
-    assert runtime.load_pause("test-run-1") is None
+    agentforge_runtime.clear_pause("test-run-1")
+    assert agentforge_runtime.load_pause("test-run-1") is None
 '''
 
 
@@ -455,10 +455,10 @@ def _crewai_test_suite(flat_nodes: list[dict], edges: list[dict]) -> str:
                 f'def {test_name}():\n'
                 f'    """Reaching branch {branch_lit} from {json.dumps(cnode["id"])} must route to '
                 f'{json.dumps(e["target"])} -- this is the exact assertion shape that would have caught '
-                f'the branch-dispatch double-execution bug fixed in this export generator (see runtime.py\'s '
+                f'the branch-dispatch double-execution bug fixed in this export generator (see agentforge_runtime.py\'s '
                 f'run_graph()/_next_node_after())."""\n'
                 f'    import main\n'
-                f'    from runtime import _next_node_after\n'
+                f'    from agentforge_runtime import _next_node_after\n'
                 f'    context = {{"output": "test input", "branch": {branch_lit}}}\n'
                 f'    result = _next_node_after(main.NODES, main.EDGES, {json.dumps(cnode["id"])}, context)\n'
                 f'    assert result == {json.dumps(e["target"])}\n'
@@ -473,13 +473,13 @@ def test_crewai_workflow_data_builds():
 ''' + "\n\n" + "\n\n".join(branch_assertions)
 
 
-# ─── Shared runtime.py content (settings, retry, OTel, persistence) ────────
+# ─── Shared agentforge_runtime.py content (settings, retry, OTel, persistence) ──
 #
-# Every export ships a `runtime.py` alongside its workflow-specific `main.py`.
-# runtime.py's content is per-FRAMEWORK (LangGraph doesn't need the generic
+# Every export ships a `agentforge_runtime.py` alongside its workflow-specific `main.py`.
+# agentforge_runtime.py's content is per-FRAMEWORK (LangGraph doesn't need the generic
 # SQLite pause/resume helpers or the CrewAI graph engine; LangGraph gets its
 # own native SqliteSaver instead -- see _export_langgraph) but never
-# per-WORKFLOW: the same runtime.py is correct for every LangGraph export
+# per-WORKFLOW: the same agentforge_runtime.py is correct for every LangGraph export
 # regardless of which canvas graph produced it. This keeps the enterprise-
 # readiness infrastructure (retries, tracing, persistence) as fixed,
 # reviewable code rather than something regenerated -- and therefore
@@ -1044,7 +1044,7 @@ Workflow: {workflow_name}
 Real LangGraph StateGraph: every canvas node is a graph node, condition/router
 nodes use add_conditional_edges(), and the approval node uses interrupt().
 Enterprise infrastructure (settings validation, retries, OpenTelemetry
-tracing, HTTP/condition helpers) lives in runtime.py, shared verbatim across
+tracing, HTTP/condition helpers) lives in agentforge_runtime.py, shared verbatim across
 every LangGraph export.
 
 Run it:
@@ -1058,7 +1058,7 @@ from typing import TypedDict, Any
 from langgraph.graph import StateGraph
 from langgraph.types import interrupt, Command
 
-from runtime import load_settings, configure_observability, new_run_id, node_span, evaluate_condition, call_http_request
+from agentforge_runtime import load_settings, configure_observability, new_run_id, node_span, evaluate_condition, call_http_request
 
 {_LANGGRAPH_LLM_SNIPPET}
 
@@ -1093,9 +1093,19 @@ if __name__ == "__main__":
 '''
 
     requirements = (
-        "langgraph==0.6.10\n"
-        "langchain-openai==0.3.19\n"
-        "langchain-google-genai==2.1.0\n"
+        # langgraph/langchain-openai/langchain-google-genai are pinned to
+        # versions compatible with langchain-azure-ai[hosting] (needed for
+        # the Foundry deployment wrapper) -- langchain-azure-ai>=1.2.5
+        # requires langgraph>=1.1.1,<3.0 and langchain-openai>=1.0.0,<2.0.0.
+        # Confirmed live: AzureChatOpenAI/ChatOpenAI/ChatGoogleGenerativeAI's
+        # constructor kwargs (azure_endpoint=, api_key=, model=,
+        # api_version=, base_url=, google_api_key=) are unchanged at these
+        # versions despite internal field-name changes in LangChain's 1.x
+        # reorg (they're aliases) -- StateGraph/add_conditional_edges/
+        # interrupt()/Command/SqliteSaver are also confirmed unchanged.
+        "langgraph==1.2.10\n"
+        "langchain-openai==1.4.1\n"
+        "langchain-google-genai==4.3.2\n"
         "simpleeval==1.0.3\n"
         "httpx==0.28.1\n"
         "python-dotenv==1.0.1\n"
@@ -1103,9 +1113,9 @@ if __name__ == "__main__":
         "tenacity==9.0.0\n"
         "azure-monitor-opentelemetry==1.6.4\n"
         "opentelemetry-api==1.29.0\n"
-        + ("langgraph-checkpoint-sqlite==2.0.1\n" if has_approval else "")
-        + "langchain-azure-ai[hosting]==1.2.4\n"
-        + "azure-identity==1.19.0\n"
+        + ("langgraph-checkpoint-sqlite==3.1.1\n" if has_approval else "")
+        + "langchain-azure-ai[hosting]==1.2.8\n"
+        + "azure-identity==1.25.3\n"
     )
 
     runtime_py = (
@@ -1130,7 +1140,7 @@ if __name__ == "__main__":
 
     return {
         "main.py": script,
-        "runtime.py": runtime_py,
+        "agentforge_runtime.py": runtime_py,
         "foundry_main.py": _foundry_wrapper_langgraph(),
         "azure.yaml": _azure_yaml(workflow_name),
         "tests/test_workflow.py": _langgraph_test_suite(),
@@ -1288,7 +1298,7 @@ def _export_ms_agent_framework(nodes: list[dict], edges: list[dict], workflow_na
                 f'    """{node["label"]} (approval) -- CUSTOM GLUE: Microsoft Agent Framework has\n'
                 f'    no verified native long-running human-in-the-loop pause primitive at the\n'
                 f'    time this was generated, so this persists (run_id, node, context) to\n'
-                f'    SQLite via runtime.save_pause before raising WorkflowPaused -- the same\n'
+                f'    SQLite via agentforge_runtime.save_pause before raising WorkflowPaused -- the same\n'
                 f'    pattern the LangGraph export achieves natively via interrupt(), but manual\n'
                 f'    here. Resume with: python main.py --resume <run_id> --decision "approved"\n'
                 f'    """\n'
@@ -1328,7 +1338,7 @@ Real agent-framework primitives: agent-like nodes are Agent + AgentExecutor,
 condition/router/http_request are @executor-decorated functions, and edges use
 WorkflowBuilder.add_edge(..., condition=lambda msg: ...) for branching.
 Enterprise infrastructure (settings validation, retries, OpenTelemetry
-tracing, SQLite pause/resume, HTTP/condition helpers) lives in runtime.py,
+tracing, SQLite pause/resume, HTTP/condition helpers) lives in agentforge_runtime.py,
 shared verbatim across every Microsoft Agent Framework export.
 
 Run it:
@@ -1342,7 +1352,7 @@ import sys
 from typing import Any
 
 from agent_framework import Agent, AgentExecutor, WorkflowBuilder, WorkflowContext, executor
-from runtime import (
+from agentforge_runtime import (
     load_settings, configure_observability, new_run_id, node_span,
     evaluate_condition, call_http_request,
     save_pause, load_pause, clear_pause, list_pending,
@@ -1446,7 +1456,7 @@ if __name__ == "__main__":
     approval_note = (
         "\n**Note on the approval node**: Microsoft Agent Framework's human-in-the-loop pause "
         "primitives were still evolving at the time this was generated. This export persists "
-        "(run_id, node, context) to SQLite via runtime.py's save_pause before raising a custom "
+        "(run_id, node, context) to SQLite via agentforge_runtime.py's save_pause before raising a custom "
         "`WorkflowPaused` exception -- resume with "
         "`python main.py --resume <run_id> --decision \"approved\"`. Verify against the current "
         "[Agent Framework docs](https://learn.microsoft.com/en-us/agent-framework/) before "
@@ -1456,7 +1466,7 @@ if __name__ == "__main__":
 
     return {
         "main.py": script,
-        "runtime.py": runtime_py,
+        "agentforge_runtime.py": runtime_py,
         "foundry_main.py": _foundry_wrapper_ms_agent_framework(),
         "azure.yaml": _azure_yaml(workflow_name),
         "tests/test_workflow.py": _ms_agent_framework_test_suite(),
@@ -1575,7 +1585,7 @@ def _export_crewai(nodes: list[dict], edges: list[dict], workflow_name: str) -> 
                 f'def _run_{var}(context: dict) -> dict:\n'
                 f'    """{node["label"]} (condition): {node["rule"]} -- CUSTOM GLUE: CrewAI has\n'
                 f'    no native conditional-branching primitive between Tasks, so run_graph()\n'
-                f'    (runtime.py) reads context["branch"] set here to pick the next node via\n'
+                f'    (agentforge_runtime.py) reads context["branch"] set here to pick the next node via\n'
                 f'    the EDGES data below, instead of hand-written if/elif dispatch."""\n'
                 f'    context["branch"] = evaluate_condition({rule_lit}, context)\n'
                 f'    return context\n'
@@ -1603,7 +1613,7 @@ def _export_crewai(nodes: list[dict], edges: list[dict], workflow_name: str) -> 
                 f'@node_span({json.dumps(nid)}, {json.dumps(role)})\n'
                 f'def _run_{var}(context: dict) -> dict:\n'
                 f'    """{node["label"]} (approval) -- CUSTOM GLUE: CrewAI has no native\n'
-                f'    human-in-the-loop primitive. run_graph() (runtime.py) persists\n'
+                f'    human-in-the-loop primitive. run_graph() (agentforge_runtime.py) persists\n'
                 f'    (run_id, node_id, context) to SQLite via save_pause before this\n'
                 f'    WorkflowPaused propagates -- resume with:\n'
                 f'    python main.py --resume <run_id> --decision "approved"\n'
@@ -1615,7 +1625,7 @@ def _export_crewai(nodes: list[dict], edges: list[dict], workflow_name: str) -> 
     branch_note = (
         "\n**Note on branching**: CrewAI has no native conditional/router primitive -- this "
         "export represents the workflow as data (NODES/EDGES in main.py) walked by the shared, "
-        "unit-tested `run_graph()` engine in runtime.py, which is identical code for every "
+        "unit-tested `run_graph()` engine in agentforge_runtime.py, which is identical code for every "
         "CrewAI export regardless of workflow shape (rather than bespoke per-workflow control "
         "flow).\n\n"
         if has_branching else ""
@@ -1628,7 +1638,7 @@ def _export_crewai(nodes: list[dict], edges: list[dict], workflow_name: str) -> 
         if has_approval else ""
     )
     memory_note = (
-        "This export uses **SQLite-backed durable checkpointing** (see runtime.py's "
+        "This export uses **SQLite-backed durable checkpointing** (see agentforge_runtime.py's "
         "save_pause/load_pause/run_graph) so a paused approval or a crash mid-run survives a "
         "container restart -- set `CHECKPOINT_DB_PATH` to control where the .db file lives. "
         "CrewAI's own `Crew(memory=True)` long-term/entity memory (separate from this "
@@ -1665,11 +1675,11 @@ Auto-generated by AgentForge's Visual Workflow Builder -- CrewAI export.
 Workflow: {workflow_name}
 
 Real CrewAI primitives: agent-like nodes are Agent + Task + Crew. The graph
-itself (NODES/EDGES below) is plain data, walked by runtime.py's shared
+itself (NODES/EDGES below) is plain data, walked by agentforge_runtime.py's shared
 run_graph() engine -- see each node handler's own docstring for per-role
 custom glue. Enterprise infrastructure (settings validation, retries,
 OpenTelemetry tracing, SQLite pause/resume, HTTP/condition helpers) also
-lives in runtime.py, shared verbatim across every CrewAI export.
+lives in agentforge_runtime.py, shared verbatim across every CrewAI export.
 
 Run it:
     python main.py "your test input text here"
@@ -1680,7 +1690,7 @@ import argparse
 import json
 
 from crewai import Agent, Task, Crew
-from runtime import (
+from agentforge_runtime import (
     load_settings, configure_observability, new_run_id, node_span,
     evaluate_condition, call_http_request,
     save_pause, load_pause, clear_pause, list_pending,
@@ -1759,7 +1769,7 @@ if __name__ == "__main__":
 
     return {
         "main.py": script,
-        "runtime.py": runtime_py,
+        "agentforge_runtime.py": runtime_py,
         "foundry_main.py": _foundry_wrapper_crewai(),
         "azure.yaml": _azure_yaml(workflow_name),
         "tests/test_workflow.py": _crewai_test_suite(flat, edges),

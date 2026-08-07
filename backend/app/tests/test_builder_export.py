@@ -167,17 +167,36 @@ def test_full_project_shape(fixture_name, framework):
     nodes, edges = ALL_FIXTURES[fixture_name]()
     files = export_workflow(nodes, edges, fixture_name, framework)
     assert set(files.keys()) == {
-        "main.py", "runtime.py", "foundry_main.py", "azure.yaml", "tests/test_workflow.py",
+        "main.py", "agentforge_runtime.py", "foundry_main.py", "azure.yaml", "tests/test_workflow.py",
         "requirements.txt", "requirements-dev.txt",
         ".env.example", ".gitignore", ".dockerignore", "Dockerfile", "README.md",
     }
     assert files["requirements.txt"].strip()
     assert "FROM python" in files["Dockerfile"]
     assert "LLM_PROVIDER" in files[".env.example"]
-    ast.parse(files["runtime.py"])
+    ast.parse(files["agentforge_runtime.py"])
     ast.parse(files["foundry_main.py"])
     ast.parse(files["tests/test_workflow.py"])
     assert "codeConfiguration" in files["azure.yaml"]
+
+
+@pytest.mark.parametrize("framework", FRAMEWORKS)
+def test_shared_infra_module_is_not_named_runtime(framework):
+    # Regression test: this file used to be named runtime.py. Confirmed live
+    # that langgraph>=1.1.1 ships its own internal `langgraph.runtime`
+    # submodule (Runtime/DEFAULT_RUNTIME/ExecutionInfo) -- once the export's
+    # own directory is on sys.path (exactly what happens when you run
+    # `python main.py` from inside the export folder, and what the
+    # AzureLive verification harness does), this caused
+    # "ImportError: cannot import name 'DEFAULT_RUNTIME' from 'langgraph.runtime'"
+    # resolving to the EXPORT's own file instead of the real langgraph
+    # submodule. Renamed to agentforge_runtime.py, which can't collide with
+    # any dependency's own internal module names.
+    nodes, edges = _fraud_triage()
+    files = export_workflow(nodes, edges, "x", framework)
+    assert "runtime.py" not in files
+    assert "agentforge_runtime.py" in files
+    assert "from runtime import" not in files["main.py"]
 
 
 # ─── Per-framework: real SDK constructs actually appear ────────────────────
@@ -262,7 +281,7 @@ def test_crewai_graph_engine_resumes_correctly():
     # unconditionally raises WorkflowPaused regardless of which branch was
     # actually taken. Confirmed live against a real Azure OpenAI deployment
     # before the fix. The fix replaces that bespoke per-workflow control flow
-    # with a fixed, shared run_graph() engine (runtime.py) walking NODES/EDGES
+    # with a fixed, shared run_graph() engine (agentforge_runtime.py) walking NODES/EDGES
     # data -- so this class of bug can't be reintroduced by a future export.
     nodes, edges = _support_supervisor()
     files = export_workflow(nodes, edges, "Support Supervisor", "crewai")
@@ -270,14 +289,14 @@ def test_crewai_graph_engine_resumes_correctly():
     ast.parse(src)
     assert "NODES = {" in src
     assert "EDGES = [" in src
-    assert "from runtime import (" in src and "run_graph" in src
+    assert "from agentforge_runtime import (" in src and "run_graph" in src
     assert "def _run_s2(context: dict) -> dict:" in src  # per-node handler still generated
     # No bespoke if/elif branch dispatch left in main.py -- that logic now
-    # lives once in runtime.py's run_graph()/_next_node_after(), not
+    # lives once in agentforge_runtime.py's run_graph()/_next_node_after(), not
     # regenerated per workflow.
     assert 'if context.get("branch") ==' not in src
     assert "null" not in src  # JSON `null` is a Python NameError, not None -- regression guard
-    rt = files["runtime.py"]
+    rt = files["agentforge_runtime.py"]
     assert "def run_graph(" in rt
     assert "def _next_node_after(" in rt
     assert "resume_from" in rt
@@ -328,7 +347,7 @@ def test_runtime_settings_validates_provider_env_vars():
     nodes, edges = _fraud_triage()
     for fw in FRAMEWORKS:
         files = export_workflow(nodes, edges, "x", fw)
-        rt = files["runtime.py"]
+        rt = files["agentforge_runtime.py"]
         ast.parse(rt)
         assert "class ConfigError" in rt
         assert "pydantic_settings" in rt
@@ -340,13 +359,13 @@ def test_runtime_has_retry_and_typed_exceptions():
     nodes, edges = _fraud_triage()
     for fw in FRAMEWORKS:
         files = export_workflow(nodes, edges, "x", fw)
-        rt = files["runtime.py"]
+        rt = files["agentforge_runtime.py"]
         assert "class LLMCallError" in rt
         assert "class HTTPStepError" in rt
         assert "from tenacity import" in rt
         assert "def call_http_request" in rt
         assert "tenacity==" in files["requirements.txt"]
-        # call_http_request/evaluate_condition must live in runtime.py only --
+        # call_http_request/evaluate_condition must live in agentforge_runtime.py only --
         # main.py should import them, not redefine them.
         assert "def call_http_request" not in files["main.py"]
         assert "def evaluate_condition" not in files["main.py"]
@@ -357,7 +376,7 @@ def test_runtime_has_retry_and_typed_exceptions():
 def test_http_client_error_is_not_retried_server_error_is():
     nodes, edges = _fraud_triage()
     files = export_workflow(nodes, edges, "x", "langgraph")
-    rt = files["runtime.py"]
+    rt = files["agentforge_runtime.py"]
     assert "400 <= response.status_code < 500" in rt
     assert "raise HTTPStepError" in rt
 
@@ -370,17 +389,17 @@ def test_http_4xx_is_not_actually_retried_at_runtime(tmp_path, monkeypatch):
     # to signal "don't retry this." Confirmed live via the generated
     # tests/test_workflow.py::test_call_http_request_does_not_retry_on_4xx,
     # which failed with call_count == 3 before this fix. This test actually
-    # imports and executes the generated runtime.py, not just greps its
+    # imports and executes the generated agentforge_runtime.py, not just greps its
     # source, so it can't be fooled by matching text with wrong behavior.
     import sys
     import httpx
     nodes, edges = _fraud_triage()
     files = export_workflow(nodes, edges, "x", "langgraph")
-    runtime_path = tmp_path / "runtime.py"
-    runtime_path.write_text(files["runtime.py"], encoding="utf-8")
+    runtime_path = tmp_path / "agentforge_runtime.py"
+    runtime_path.write_text(files["agentforge_runtime.py"], encoding="utf-8")
     monkeypatch.syspath_prepend(str(tmp_path))
     sys.modules.pop("runtime", None)
-    import runtime as generated_runtime
+    import agentforge_runtime as generated_runtime
 
     call_count = {"n": 0}
 
@@ -407,7 +426,7 @@ def test_runtime_has_opentelemetry_observability():
     nodes, edges = _fraud_triage()
     for fw in FRAMEWORKS:
         files = export_workflow(nodes, edges, "x", fw)
-        rt = files["runtime.py"]
+        rt = files["agentforge_runtime.py"]
         assert "def configure_observability" in rt
         assert "configure_azure_monitor" in rt
         assert "APPLICATIONINSIGHTS_CONNECTION_STRING" in rt
@@ -435,7 +454,7 @@ def test_runtime_has_sqlite_persistence_helpers():
     nodes, edges = _support_supervisor()
     for fw in ("ms_agent_framework", "crewai"):
         files = export_workflow(nodes, edges, "x", fw)
-        rt = files["runtime.py"]
+        rt = files["agentforge_runtime.py"]
         assert "def save_pause" in rt
         assert "def load_pause" in rt
         assert "def list_pending" in rt
@@ -448,7 +467,7 @@ def test_ms_agent_framework_persists_and_resumes_approval():
     files = export_workflow(nodes, edges, "x", "ms_agent_framework")
     src = files["main.py"]
     ast.parse(src)
-    assert "from runtime import (" in src
+    assert "from agentforge_runtime import (" in src
     assert "save_pause(" in src
     assert "--resume" in src
     assert "def _resume_run" in src
