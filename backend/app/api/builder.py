@@ -14,8 +14,10 @@ from app.config import settings
 import uuid
 import time
 import json
+import re
 import secrets
 import httpx
+from urllib.parse import quote
 from datetime import datetime
 from simpleeval import simple_eval
 
@@ -172,6 +174,63 @@ async def _choose_branch_label(decision_text: str, labels: list[str], client: Az
     return chosen if chosen in labels else None
 
 
+_RULE_VAR_STOPWORDS = {"and", "or", "not", "True", "False", "None", "is", "in", "if", "else"}
+
+
+def _extract_rule_vars(rule: str) -> list[str]:
+    """Pull plain variable names out of a condition's boolean rule string,
+    e.g. 'risk_score >= 70 and status == "denied"' -> ['risk_score', 'status']."""
+    if not rule:
+        return []
+    tokens = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", rule)
+    return list(dict.fromkeys(t for t in tokens if t not in _RULE_VAR_STOPWORDS))
+
+
+def _condition_hint(node_id: str, edges: list[dict], node_by_id: dict, max_hops: int = 4) -> str:
+    """Look ahead through the graph for the next condition node reachable via a
+    simple unbranched chain, and if found, return a system-prompt addendum telling
+    the LLM to explicitly state that condition's rule variables.
+
+    The condition may not be the *immediate* next node -- e.g. agent -> http_request
+    -> condition is common (an external API call sits between the agent and the
+    check). We walk forward through single-outgoing-edge nodes (skipping over
+    pass-through steps like an HTTP call or RAG lookup) so the hint still reaches
+    the agent whose free text is what actually gets evaluated. We stop at the
+    first branching node (router/condition/approval/multi-edge fan-out) since
+    beyond that point which condition applies becomes ambiguous.
+
+    Without this, an agent's free-text output ("the applicant looks risky") rarely
+    states whether risk_score should read as e.g. 85 or 20, so the downstream
+    extraction step has to guess from vibes -- this makes the source text
+    unambiguous instead of trying to fix it after the fact.
+    """
+    current = node_id
+    for _ in range(max_hops):
+        outgoing = [e for e in edges if e.get("source") == current]
+        if len(outgoing) != 1:
+            break
+        target = node_by_id.get(outgoing[0].get("target"))
+        if not target:
+            break
+        role = target.get("data", {}).get("role") or target.get("role")
+        if role == "condition":
+            rule = target.get("data", {}).get("rule") or target.get("rule", "")
+            rule_vars = _extract_rule_vars(rule)
+            if not rule_vars:
+                return ""
+            example = ", ".join(f"{v}: <number>" for v in rule_vars)
+            return (
+                f"\n\nIMPORTANT: further downstream, a rule check ('{rule}') will run "
+                f"against this content. You must explicitly state a clear value for each of: "
+                f"{', '.join(rule_vars)} (e.g. \"{example}\") so it survives being passed along "
+                "-- don't just describe the situation qualitatively."
+            )
+        if role in ("router", "approval"):
+            break
+        current = target.get("id")
+    return ""
+
+
 def _assert_ssrf_safe_url(url: str) -> None:
     """Reject an http_request node URL that targets internal infrastructure.
 
@@ -226,7 +285,12 @@ async def _call_http_request(node: dict, previous_output: str) -> str:
     headers_raw = data.get("headers") or node.get("headers") or ""
     body_raw = data.get("body") or node.get("body") or ""
 
-    url = url.replace("{{input}}", previous_output or "")
+    # Percent-encode the substituted value -- previous_output is free-text LLM
+    # output and can contain newlines, spaces, or other characters that are
+    # never valid unescaped in a URL (httpx raises "Invalid non-printable
+    # ASCII character" on a raw literal "\n"). The request body has no such
+    # restriction, so it's substituted raw.
+    url = url.replace("{{input}}", quote(previous_output or "", safe=""))
     body_raw = body_raw.replace("{{input}}", previous_output or "") if body_raw else body_raw
 
     _assert_ssrf_safe_url(url)
@@ -477,6 +541,7 @@ async def _run_pipeline_from(
                                 f"You are a {node_role} agent. "
                                 f"{node_description}. "
                                 "Process the input and return a brief output (2-3 sentences)."
+                                f"{_condition_hint(node_id, edges, node_by_id)}"
                             ),
                         },
                         {"role": "user", "content": previous_output or "Start the pipeline."},
@@ -549,6 +614,7 @@ async def _run_pipeline_from(
                         f"You are a {node_role} agent. "
                         f"{node_description}. "
                         "Process the input and return a brief output (2-3 sentences)."
+                        f"{_condition_hint(node_id, edges, node_by_id)}"
                     ),
                 },
                 {"role": "user", "content": previous_output or "Start the pipeline."},
@@ -1018,6 +1084,7 @@ async def trigger_workflow_stream(workflow_id: str, body: TriggerRequest, db: As
 
     async def event_stream():
         ordered = _topo_sort(nodes, edges)
+        node_by_id = {n["id"]: n for n in ordered}
         client = AzureOpenAIClient()
         logs: list[WorkflowRunLog] = []
         previous_output: str = trigger_input
@@ -1136,7 +1203,7 @@ async def trigger_workflow_stream(workflow_id: str, body: TriggerRequest, db: As
                 else:
                     try:
                         messages = [
-                            {"role": "system", "content": f"You are a {node_role} agent. {node_description}. Process the input and return a brief output (2-3 sentences)."},
+                            {"role": "system", "content": f"You are a {node_role} agent. {node_description}. Process the input and return a brief output (2-3 sentences).{_condition_hint(node_id, edges, node_by_id)}"},
                             {"role": "user", "content": previous_output or "Start the pipeline."},
                         ]
                         start = time.time()
@@ -1197,7 +1264,7 @@ async def trigger_workflow_stream(workflow_id: str, body: TriggerRequest, db: As
 
             try:
                 messages = [
-                    {"role": "system", "content": f"You are a {node_role} agent. {node_description}. Process the input and return a brief output (2-3 sentences)."},
+                    {"role": "system", "content": f"You are a {node_role} agent. {node_description}. Process the input and return a brief output (2-3 sentences).{_condition_hint(node_id, edges, node_by_id)}"},
                     {"role": "user", "content": previous_output or "Start the pipeline."},
                 ]
                 start = time.time()

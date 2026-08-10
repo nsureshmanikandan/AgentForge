@@ -768,7 +768,11 @@ http_retry = retry(
 def call_http_request(url: str, method: str, headers_raw: str, body_raw: str, previous_output: str) -> str:
     import json as _json_mod
     import httpx
-    url = url.replace("{{input}}", previous_output or "")
+    from urllib.parse import quote as _quote
+    # Percent-encode the substituted value -- previous_output is free-text LLM
+    # output and can contain newlines or other characters that are never valid
+    # unescaped in a URL. The request body has no such restriction.
+    url = url.replace("{{input}}", _quote(previous_output or "", safe=""))
     body_raw = body_raw.replace("{{input}}", previous_output or "") if body_raw else body_raw
     headers = _json_mod.loads(headers_raw) if headers_raw else None
     json_body, data_body = None, None
