@@ -89,6 +89,57 @@ def _outgoing(edges: list[dict], node_id: str) -> list[dict]:
     return [e for e in edges if e.get("source") == node_id]
 
 
+_RULE_VAR_STOPWORDS = {"and", "or", "not", "True", "False", "None", "is", "in", "if", "else"}
+
+
+def _extract_rule_vars(rule: str) -> list[str]:
+    """Pull plain variable names out of a condition's boolean rule string,
+    e.g. 'risk_score >= 70 and status == "denied"' -> ['risk_score', 'status'].
+    Mirrors builder.py's identical helper for the live engine."""
+    if not rule:
+        return []
+    tokens = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", rule)
+    return list(dict.fromkeys(t for t in tokens if t not in _RULE_VAR_STOPWORDS))
+
+
+def _condition_hint(node_id: str, edges: list[dict], by_id: dict, max_hops: int = 4) -> str:
+    """Static-generation-time port of builder.py's _condition_hint: look ahead
+    through the graph for the next condition node reachable via a simple
+    unbranched chain, and if found, return a system-prompt addendum telling
+    the LLM to explicitly state that condition's rule variables.
+
+    Without this, a generated agent node's free-text output ("the applicant
+    looks risky") rarely states whether risk_score should read as e.g. 85 or
+    20, so evaluate_condition() has to guess -- this makes the source text
+    unambiguous instead. Baked in at generation time since the exported code
+    has no runtime graph to walk.
+    """
+    current = node_id
+    for _ in range(max_hops):
+        outgoing = _outgoing(edges, current)
+        if len(outgoing) != 1:
+            break
+        target = by_id.get(outgoing[0].get("target"))
+        if not target:
+            break
+        role = _role(target)
+        if role == "condition":
+            rule_vars = _extract_rule_vars(_field(target, "rule"))
+            if not rule_vars:
+                return ""
+            example = ", ".join(f"{v}: <number>" for v in rule_vars)
+            return (
+                f" IMPORTANT: further downstream, a rule check will run against this "
+                f"content. You must explicitly state a clear value for each of: "
+                f"{', '.join(rule_vars)} (e.g. \"{example}\") so it survives being passed "
+                "along -- don't just describe the situation qualitatively."
+            )
+        if role in ("router", "approval"):
+            break
+        current = target.get("id")
+    return ""
+
+
 def _normalize_nodes(nodes: list[dict]) -> list[dict]:
     """Flatten every node to a plain dict with all fields at the top level,
     so the rest of this module never has to branch on flat-vs-data shape."""
@@ -800,6 +851,23 @@ def call_http_request(url: str, method: str, headers_raw: str, body_raw: str, pr
         raise HTTPStepError(f"{method} {url} failed after retries: {e}") from e
 
 
+_INLINE_VAR_PATTERN = __import__("re").compile(r"([A-Za-z_][A-Za-z0-9_]*)\\s*[:=]\\s*(-?\\d+(?:\\.\\d+)?)")
+
+
+def extract_inline_vars(text: str) -> dict:
+    """Heuristic fallback for populating context when an agent node's LLM
+    response isn't valid JSON (the normal case -- system prompts ask for
+    "a brief output", not JSON) but does state 'variable_name: 96'-style
+    values inline, exactly the format the condition-hint instruction (see
+    node docstrings above) tells upstream agents to use. Without this, a
+    downstream evaluate_condition() call would never see a value that was
+    only ever stated in prose, defaulting every condition to false."""
+    return {
+        m.group(1): (float(m.group(2)) if "." in m.group(2) else int(m.group(2)))
+        for m in _INLINE_VAR_PATTERN.finditer(text)
+    }
+
+
 def evaluate_condition(rule: str, variables: dict) -> str:
     """Same fail-closed simpleeval pattern as the live canvas engine
     (backend/app/api/builder.py::_evaluate_condition) -- never uses eval().
@@ -1118,16 +1186,17 @@ def _export_langgraph(nodes: list[dict], edges: list[dict], workflow_name: str) 
             node_fn_lines.append(
                 f'def node_{var}(state: WorkflowState) -> WorkflowState:\n'
                 f'    """{node["label"]} (output)."""\n'
-                f'    state["output"] = state.get("output", state["input"])\n'
+                f'    state["output"] = (state.get("output") or state["input"])\n'
                 f'    return state\n'
             )
         elif role in _AGENT_LIKE_ROLES:
             default_prompt_lit = json.dumps(f'You are the {node["label"]} step in a workflow.')
+            hint_lit = json.dumps(_condition_hint(nid, edges, by_id))
             node_fn_lines.append(
                 f'def node_{var}(state: WorkflowState) -> WorkflowState:\n'
                 f'    """{node["label"]} (role: {role})."""\n'
-                f'    system_prompt = {desc_lit} or {default_prompt_lit}\n'
-                f'    text = state.get("output", state["input"])\n'
+                f'    system_prompt = ({desc_lit} or {default_prompt_lit}) + {hint_lit}\n'
+                f'    text = (state.get("output") or state["input"])\n'
                 f'    response = get_chat_model().invoke([("system", system_prompt), ("human", text)])\n'
                 f'    result = response.content\n'
                 f'    state["output"] = result\n'
@@ -1140,6 +1209,9 @@ def _export_langgraph(nodes: list[dict], edges: list[dict], workflow_name: str) 
                 f'            state["context"].update(parsed)\n'
                 f'    except (json.JSONDecodeError, TypeError):\n'
                 f'        pass\n'
+                f'    # Free-text responses (the normal case) still often state a value\n'
+                f'    # inline (e.g. "risk_score: 85") per the hint above -- catch that too.\n'
+                f'    state["context"].update(extract_inline_vars(result))\n'
                 f'    return state\n'
             )
         elif role == "http_request":
@@ -1150,7 +1222,7 @@ def _export_langgraph(nodes: list[dict], edges: list[dict], workflow_name: str) 
             node_fn_lines.append(
                 f'def node_{var}(state: WorkflowState) -> WorkflowState:\n'
                 f'    """{node["label"]} (http_request)."""\n'
-                f'    state["output"] = call_http_request({url_lit}, {method_lit}, {headers_lit}, {body_lit}, state.get("output", state["input"]))\n'
+                f'    state["output"] = call_http_request({url_lit}, {method_lit}, {headers_lit}, {body_lit}, (state.get("output") or state["input"]))\n'
                 f'    return state\n'
             )
         elif role == "condition":
@@ -1167,7 +1239,7 @@ def _export_langgraph(nodes: list[dict], edges: list[dict], workflow_name: str) 
             node_fn_lines.append(
                 f'def node_{var}(state: WorkflowState) -> WorkflowState:\n'
                 f'    """{node["label"]} (router)."""\n'
-                f'    text = state.get("output", state["input"])\n'
+                f'    text = (state.get("output") or state["input"])\n'
                 f'    labels = {labels_lit}\n'
                 f'    response = get_chat_model().invoke([\n'
                 f'        ("system", "Choose exactly one of these labels that best matches the intent: " + ", ".join(labels) + ". Return ONLY the label."),\n'
@@ -1187,7 +1259,7 @@ def _export_langgraph(nodes: list[dict], edges: list[dict], workflow_name: str) 
                 f'    function at all -- and (unlike the default in-memory MemorySaver) that\n'
                 f'    checkpointer is durable, so this pause survives a container restart.\n'
                 f'    """\n'
-                f'    decision = interrupt({{"node": {label_lit}, "approver_email": {approver_lit}, "context": state.get("output", state["input"])}})\n'
+                f'    decision = interrupt({{"node": {label_lit}, "approver_email": {approver_lit}, "context": (state.get("output") or state["input"])}})\n'
                 f'    state["output"] = str(decision)\n'
                 f'    return state\n'
             )
@@ -1246,7 +1318,7 @@ from typing import TypedDict, Any
 from langgraph.graph import StateGraph
 from langgraph.types import interrupt, Command
 
-from agentforge_runtime import load_settings, configure_observability, new_run_id, node_span, evaluate_condition, call_http_request
+from agentforge_runtime import load_settings, configure_observability, new_run_id, node_span, evaluate_condition, extract_inline_vars, call_http_request
 
 {_LANGGRAPH_LLM_SNIPPET}
 
@@ -1271,6 +1343,10 @@ graph.set_entry_point({json.dumps(entry_id)})
 {checkpointer_block}
 
 if __name__ == "__main__":
+    # Reconfigure stdout as UTF-8 -- LLM output routinely contains characters
+    # (arrows, em-dashes, curly quotes) that crash a plain print() under
+    # Windows' default cp1252 console encoding with UnicodeEncodeError.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     load_settings()
     configure_observability()
     test_input = sys.argv[1] if len(sys.argv) > 1 else "Hello, I need help"
@@ -1464,6 +1540,9 @@ def _export_ms_agent_framework(nodes: list[dict], edges: list[dict], workflow_na
                 f'            context.update(parsed)\n'
                 f'    except (json.JSONDecodeError, TypeError):\n'
                 f'        pass\n'
+                f'    # Free-text responses (the normal case) still often state a value\n'
+                f'    # inline (e.g. "risk_score: 85") -- catch that too.\n'
+                f'    context.update(extract_inline_vars(result))\n'
                 f'    await ctx.send_message(context)\n'
             )
         elif role == "http_request":
@@ -1581,7 +1660,7 @@ from typing import Any
 from agent_framework import Agent, WorkflowBuilder, WorkflowContext, executor
 from agentforge_runtime import (
     load_settings, configure_observability, new_run_id, node_span,
-    evaluate_condition, call_http_request,
+    evaluate_condition, extract_inline_vars, call_http_request,
     save_pause, load_pause, clear_pause, list_pending,
 )
 
@@ -1835,6 +1914,9 @@ def _export_crewai(nodes: list[dict], edges: list[dict], workflow_name: str) -> 
                 f'            context.update(parsed)\n'
                 f'    except (json.JSONDecodeError, TypeError):\n'
                 f'        pass\n'
+                f'    # Free-text responses (the normal case) still often state a value\n'
+                f'    # inline (e.g. "risk_score: 85") -- catch that too.\n'
+                f'    context.update(extract_inline_vars(result))\n'
                 f'    return context\n'
             )
         elif role == "http_request":
@@ -1965,7 +2047,7 @@ import json
 from crewai import Agent, Task, Crew
 from agentforge_runtime import (
     load_settings, configure_observability, new_run_id, node_span,
-    evaluate_condition, call_http_request,
+    evaluate_condition, extract_inline_vars, call_http_request,
     save_pause, load_pause, clear_pause, list_pending,
     run_graph, WorkflowPaused,
 )

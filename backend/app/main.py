@@ -14,6 +14,7 @@ from app.api.evaluations import router as evaluations_router
 from app.api.voice import router as voice_router
 from app.api.builder import router as builder_router
 from app.api.projects import router as projects_router
+from app.api.mock_apis import router as mock_apis_router
 from app.core.telemetry import setup_telemetry
 from app.core.seed import seed_admin
 
@@ -91,6 +92,7 @@ app.include_router(evaluations_router, prefix="/api/evaluations", tags=["evaluat
 app.include_router(voice_router, prefix="/api/voice", tags=["voice"])
 app.include_router(builder_router, prefix="/api/builder", tags=["builder"])
 app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
+app.include_router(mock_apis_router, prefix="/api/mock", tags=["mock-apis"])
 
 @app.get("/health")
 async def health():
